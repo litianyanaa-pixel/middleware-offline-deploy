@@ -7,6 +7,12 @@
 > 为谁而生：内网/隔离机房/无公网的服务器交付场景。不需要服务器能上网，不需要服务器预装任何网络工具，
 > 不需要在服务器上回答任何问题——所有决策在打包时已完成。
 
+**🌐 在线演示**：<https://litianyanaa-pixel.github.io/middleware-offline-deploy/packer.html>
+（静态演示版：界面与配置流程可完整体验；打包/预览/物料检查需要本地后端）
+项目主页：<https://litianyanaa-pixel.github.io/middleware-offline-deploy/>
+
+> 改了前端后同步演示站：`python tools/update_pages.py`，再提交推送 docs/ 即可。
+
 ```
 本地(Windows / macOS / Linux)                  服务器(离线内网)
 ┌────────────────────────────────┐  一个 tar.gz  ┌───────────────────────────┐
@@ -286,6 +292,8 @@ warehouse/images/postgres/15.19/arm64.tar   ← postgres-15.19-arm64.tar 放这�
 ├── sql/xxl-job.sql            # XXL-Job 建表脚本
 ├── tests/                     # 回归测试(镜像匹配模拟 / 冒烟打包配置)
 │   └── normalize_sim_test.sh
+├── tools/update_pages.py      # 同步 GitHub Pages 演示站(docs/)
+├── docs/                      # Pages 站点源目录(落地页 + packer 前端副本 + 截图)
 ├── docs/images/               # README 截图
 ├── warehouse/                 # ★ 原始物料仓库(不进 git, 体积大)
 │   ├── packages/x86_64/       #   docker-29.8.0.tgz, docker-compose-linux-x86_64

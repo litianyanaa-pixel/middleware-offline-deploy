@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>中间件离线部署包 — 本地打包 · 服务器零交互部署</title>
+<style>
+  :root{
+    --bg:#f3f4f6; --card:#fff; --txt:#111827; --txt2:#374151; --mut:#6b7280;
+    --line:#e5e7eb; --line2:#d1d5db;
+    --acc:#2563eb; --acc-h:#1d4ed8; --acc-soft:#eff4ff; --acc-line:#c7d7fe;
+    --ok:#16a34a;
+    --f:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei UI","Microsoft YaHei",sans-serif;
+    --mono:Consolas,"JetBrains Mono","Courier New",monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:var(--f);color:var(--txt);font-size:15px;line-height:1.7;background:var(--bg);-webkit-font-smoothing:antialiased}
+  a{color:var(--acc);text-decoration:none}
+  a:hover{text-decoration:underline}
+  .wrap{max-width:1020px;margin:0 auto;padding:0 24px}
+  header{background:rgba(255,255,255,.88);backdrop-filter:blur(14px);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:10}
+  header .wrap{height:60px;display:flex;align-items:center;gap:12px}
+  .mark{width:32px;height:32px;border-radius:9px;background:linear-gradient(135deg,#3b82f6,#1d4ed8);display:flex;align-items:center;justify-content:center;flex:none}
+  header b{font-size:14.5px;letter-spacing:-.2px}
+  header span{font-size:12px;color:var(--mut)}
+  header nav{margin-left:auto;display:flex;gap:10px}
+  .btn{display:inline-flex;align-items:center;gap:7px;border-radius:9px;padding:9px 20px;font-size:13.5px;font-weight:600;cursor:pointer;border:0}
+  .btn.pri{background:var(--acc);color:#fff}
+  .btn.pri:hover{background:var(--acc-h);text-decoration:none}
+  .btn.ghost{background:#fff;color:var(--txt);border:1px solid var(--line2);font-weight:500}
+  .btn.ghost:hover{background:#f9fafb;text-decoration:none}
+  .hero{padding:64px 0 44px;text-align:center}
+  .hero h1{font-size:34px;letter-spacing:-.5px;line-height:1.3}
+  .hero h1 em{font-style:normal;color:var(--acc)}
+  .hero p{color:var(--txt2);max-width:720px;margin:14px auto 0;font-size:16px}
+  .hero .cta{margin-top:26px;display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
+  .flow{display:flex;gap:10px;justify-content:center;align-items:center;margin-top:34px;flex-wrap:wrap;color:var(--txt2);font-size:13.5px}
+  .flow .st{background:#fff;border:1px solid var(--line);border-radius:10px;padding:10px 16px;box-shadow:0 1px 2px rgba(17,24,39,.06)}
+  .flow .arr{color:var(--mut)}
+  section{padding:34px 0}
+  h2{font-size:22px;letter-spacing:-.3px;margin-bottom:6px}
+  .sub{color:var(--mut);font-size:13.5px;margin-bottom:22px}
+  .shots{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:18px}
+  .shot{background:#fff;border:1px solid var(--line);border-radius:14px;overflow:hidden;box-shadow:0 1px 2px rgba(17,24,39,.06)}
+  .shot img{width:100%;display:block;border-bottom:1px solid var(--line)}
+  .shot figcaption{padding:10px 14px;font-size:12.5px;color:var(--mut)}
+  .feats{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:14px}
+  .feat{background:#fff;border:1px solid var(--line);border-radius:12px;padding:16px 18px}
+  .feat b{display:block;font-size:13.5px;margin-bottom:5px}
+  .feat p{font-size:12.5px;color:var(--mut);line-height:1.65}
+  pre{background:#161b22;color:#c9d4e3;border-radius:12px;padding:18px 20px;font-family:var(--mono);font-size:12.5px;line-height:1.8;overflow:auto}
+  pre b{color:#7ee787;font-weight:400}
+  .cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:18px}
+  .note{background:var(--acc-soft);border:1px solid var(--acc-line);border-radius:12px;padding:14px 18px;font-size:13px;color:var(--txt2);margin-top:16px}
+  footer{border-top:1px solid var(--line);padding:26px 0 40px;color:var(--mut);font-size:12.5px;text-align:center}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap">
+    <div class="mark">
+      <svg width="18" height="18" viewBox="0 0 24 24"><path fill="#fff" d="M12 2 2 7v10l10 5 10-5V7L12 2zm0 2.2L19.5 8 12 11.8 4.5 8 12 4.2z"/></svg>
+    </div>
+    <div><b>中间件离线部署包</b> <span>Local Bundle Studio</span></div>
+    <nav>
+      <a class="btn ghost" href="https://github.com/litianyanaa-pixel/middleware-offline-deploy" target="_blank">GitHub 仓库</a>
+      <a class="btn pri" href="packer.html">打开在线演示 →</a>
+    </nav>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <div class="hero">
+    <h1>本地打包，<em>服务器零交互</em>部署</h1>
+    <p>在本地 Web 界面上选好中间件、端口、密码、数据库与备份策略，一键打出只含所需物料的离线包；
+       服务器解压后 <b>./deploy.sh</b> 一条命令完成 Docker/Compose 离线安装与全部中间件部署，
+       自动生成部署报告并贴出运维命令。</p>
+    <div class="cta">
+      <a class="btn pri" href="packer.html">在线体验打包器（静态演示）</a>
+      <a class="btn ghost" href="#start">查看快速开始</a>
+    </div>
+    <div class="flow">
+      <span class="st">本地选型 · 端口 · 密码</span><span class="arr">→</span>
+      <span class="st">生成 compose / .env / manifest</span><span class="arr">→</span>
+      <span class="st">按需打包 tar.gz + sha256</span><span class="arr">→</span>
+      <span class="st">服务器 ./deploy.sh 零交互</span><span class="arr">→</span>
+      <span class="st">部署报告 + 健康实测</span>
+    </div>
+  </div>
+
+  <section>
+    <h2>界面一览</h2>
+    <div class="sub">以下为打包器实际界面（本仓库 docs/images/ 内截图）</div>
+    <div class="shots">
+      <figure class="shot"><img src="images/ui-basic.png" alt="基础设置与选择中间件"><figcaption>基础设置 + 按卡片勾选中间件，自动识别架构与体积</figcaption></figure>
+      <figure class="shot"><img src="images/ui-proxy.png" alt="反向代理向导"><figcaption>反向代理向导：域名 / 前后端转发 / WebSocket / HTTPS 证书随包分发</figcaption></figure>
+      <figure class="shot"><img src="images/ui-port.png" alt="端口映射"><figcaption>端口映射：宿主机 → 容器，支持自定义映射与全局查重</figcaption></figure>
+      <figure class="shot"><img src="images/ui-db-backup.png" alt="数据库来源与备份"><figcaption>Nacos / XXL-Job 数据库来源 + crontab 定时备份策略</figcaption></figure>
+    </div>
+  </section>
+
+  <section>
+    <h2>为什么是它</h2>
+    <div class="sub">为内网 / 隔离机房 / 无公网的服务器交付而生</div>
+    <div class="feats">
+      <div class="feat"><b>零交互部署</b><p>全部决策在打包时完成，服务器上不问任何问题，root 执行一条命令即可。</p></div>
+      <div class="feat"><b>不挑服务器</b><p>预检只用 df 与 /proc/net/tcp，健康实测 curl→wget→bash /dev/tcp 三级降级，没装网络工具也能跑。</p></div>
+      <div class="feat"><b>幂等可重跑</b><p>已装 Docker 跳过、已有表跳过导库、旧配置自动备份，重复执行安全。</p></div>
+      <div class="feat"><b>健康实测</b><p>容器健康检查 + 宿主机 HTTP 实测双保险，结果 ✓/✗ 写进部署摘要与部署报告。</p></div>
+      <div class="feat"><b>部署报告</b><p>自动生成部署报告.txt：环境、清单、健康、账号安全、备份策略、运维命令。</p></div>
+      <div class="feat"><b>反向代理向导</b><p>按站点生成 nginx 配置，WebSocket / 真实IP / 上传限制 / HTTPS 证书随包分发。</p></div>
+      <div class="feat"><b>备份与恢复</b><p>crontab + 容器内 mysqldump 按库 gzip 轮转，restore.sh 一条命令恢复指定库。</p></div>
+      <div class="feat"><b>插件化中间件</b><p>一个插件文件 + 镜像 tar 即接入新中间件，已内置 PostgreSQL 15.19 插件。</p></div>
+    </div>
+  </section>
+
+  <section id="start">
+    <h2>快速开始</h2>
+    <div class="sub">打包机只需要 Python 3（纯标准库）；服务器什么都不需要</div>
+    <div class="cols">
+      <div>
+        <p style="font-size:13px;color:var(--mut);margin-bottom:8px"><b style="color:var(--txt)">① 本地打包</b>（克隆仓库后执行）</p>
+        <pre>python packer.py
+# 浏览器打开 http://127.0.0.1:8765
+# 选中间件 → 端口/密码/数据库 → 开始打包
+# 产物: dist/xxx-offline.tar.gz (+ .sha256)</pre>
+      </div>
+      <div>
+        <p style="font-size:13px;color:var(--mut);margin-bottom:8px"><b style="color:var(--txt)">② 服务器部署</b>（离线内网，root 执行）</p>
+        <pre>tar -xzf xxx-offline.tar.gz
+cd xxx-offline
+<b>./deploy.sh</b>    # 全程零交互
+# 部署完成自动生成 部署报告.txt
+# 日志查看: docker compose logs -f</pre>
+      </div>
+    </div>
+    <div class="note">
+      在线演示为<b>静态版</b>：界面与配置流程可完整体验；打包 / 预览 / 物料检查需要本地后端，
+      请克隆仓库后运行 <b>python packer.py</b>。物料仓库（warehouse/，数 GB 镜像与安装包）不进 git，
+      按内部流程单独保管。
+    </div>
+  </section>
+
+  <footer>
+    中间件离线部署包 · MIT 供内部交付使用 · 服务器兼容 bash 4.2+ / systemd / x86_64 &amp; aarch64
+  </footer>
+
+</div>
+</body>
+</html>
