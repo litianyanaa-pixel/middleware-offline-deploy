@@ -211,13 +211,28 @@ cd /data/middleware
 3. 重启 `python packer.py`，页面勾选、端口、密码表单、compose 生成、镜像打包、部署摘要全自动纳入
    （接口契约见 `plugins/README.md`）
 
-已落地的插件：**PostgreSQL 15.19**（`plugins/postgres.py`，双架构，默认端口 15432，
-compose 自带 `pg_isready` 健康检查）。镜像 tar 放置位置：
+已落地的插件（全部双架构，镜像按 `warehouse/images/<中间件>/<版本>/<架构>.tar` 放置，
+重启打包器后物料状态表变绿即可勾选）：
+
+| 插件 | 版本 | 默认端口 | 说明 |
+|---|---|---|---|
+| PostgreSQL | 15.19 | 15432 | compose 自带 `pg_isready` 健康检查 |
+| RabbitMQ | 4.3.5-management | 5672 / 15672 | AMQP + 管理控制台，账号密码见 `.env` |
+| MongoDB | 8.0.30 | 27017 | 稳定版 8.0.x，root 账号仅首次初始化数据目录时生效 |
+| Prometheus | v3.14.0 | 9090 | 镜像内置默认抓取配置，数据保留 15 天 |
+| Grafana | 13.2.1 | 3000 | 管理员账号密码见 `.env`，数据源加 `http://prometheus:9090` |
+| Elasticsearch | 9.3.0 | 9200 | 单节点；部署时自动设置 `vm.max_map_count=262144`；默认关闭安全认证（内网） |
+| Kibana | 9.3.0 | 5601 | 与 Elasticsearch **必须同版本**，自动连接同网络 `elasticsearch` 服务 |
+
+示例（PostgreSQL）：
 
 ```
 warehouse/images/postgres/15.19/amd64.tar   ← postgres-15.19-amd64.tar 放这里
 warehouse/images/postgres/15.19/arm64.tar   ← postgres-15.19-arm64.tar 放这里
 ```
+
+当前插件边界：插件中间件暂未纳入定时备份/恢复（backup.sh/restore.sh 仅覆盖 MySQL），
+需要时可按 `pg_dumpall` / `mongodump` / `rabbitmqctl export_definitions` 思路扩展。
 
 ## 🪞 五、镜像加速器实测结论（2026-09-09）
 

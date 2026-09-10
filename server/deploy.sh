@@ -403,6 +403,24 @@ check_ports() {
   done
 }
 
+#------------------------------- 内核参数调优 -------------------------------
+# manifest.sh 可提供 SYSCTL_SETTINGS=("key=value" ...); 当前值低于要求才设置(仅运行时)
+apply_sysctl() {
+  local kv key val cur
+  for kv in "${SYSCTL_SETTINGS[@]+"${SYSCTL_SETTINGS[@]}"}"; do
+    [ -z "$kv" ] && continue
+    key="${kv%%=*}"; val="${kv#*=}"
+    cur="$(sysctl -n "$key" 2>/dev/null || echo 0)"
+    if [ "${cur:-0}" -lt "$val" ] 2>/dev/null; then
+      if sysctl -w "$key=$val" >/dev/null 2>&1; then
+        log "内核参数 $key: $cur -> $val (运行时; 持久化请追加到 /etc/sysctl.conf)"
+      else
+        warn "sysctl -w $key=$val 失败, 相关容器可能无法启动, 请手工执行并写入 /etc/sysctl.conf"
+      fi
+    fi
+  done
+}
+
 #------------------------------- 5. 准备部署目录 -------------------------------
 prepare_deploy_dir() {
   hr; log "【5/9】准备部署目录: $DEPLOY_DIR"
@@ -421,11 +439,16 @@ prepare_deploy_dir() {
     mkdir -p "$DEPLOY_DIR/$d"
   done
 
-  # mysql/redis 容器内以 uid 999 运行, 日志目录须可写, 否则起不来
+  # 容器内服务运行 uid 与宿主机不一致, 挂载目录须可写, 否则起不来。
+  # CHOWN_DIRS 条目: "目录"(默认 999) 或 "目录:uid" (插件可指定各自 uid)
   for d in "${CHOWN_DIRS[@]+"${CHOWN_DIRS[@]}"}"; do
     [ -z "$d" ] && continue
-    if [ -d "$DEPLOY_DIR/$d" ]; then
-      chown -R 999:999 "$DEPLOY_DIR/$d" 2>/dev/null || warn "chown 999:999 $d 失败, 若服务无法写日志请手工处理"
+    case "$d" in
+      *:*) dir="${d%:*}"; uid="${d##*:}" ;;
+      *)   dir="$d";      uid="999" ;;
+    esac
+    if [ -d "$DEPLOY_DIR/$dir" ]; then
+      chown -R "$uid:$uid" "$DEPLOY_DIR/$dir" 2>/dev/null || warn "chown $uid:$uid $dir 失败, 若服务无法写数据/日志请手工处理"
     fi
   done
 
@@ -881,6 +904,7 @@ main() {
   install_compose
   load_images
   check_ports
+  apply_sysctl
   prepare_deploy_dir
   install_backup
   import_sql_external

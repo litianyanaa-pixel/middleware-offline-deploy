@@ -12,5 +12,8 @@ tmp_*/
 tmp_*
 *.tmp
 
+# 本地下载的镜像工具(crane 等)
+tools/bin/
+
 # 打包器生成的样例配置(个人本地文件)
 example-config.json
