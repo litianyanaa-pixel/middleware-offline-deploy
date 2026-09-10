@@ -1,0 +1,1206 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>中间件离线包打包器</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%232f6bed' d='M12 2 2 7v10l10 5 10-5V7L12 2zm0 2.2L19.5 8 12 11.8 4.5 8 12 4.2z'/%3E%3C/svg%3E">
+<style>  :root{
+    --bg:#f3f4f6; --card:#ffffff;
+    --txt:#111827; --txt2:#374151; --mut:#6b7280;
+    --line:#e5e7eb; --line2:#d1d5db;
+    --acc:#2563eb; --acc-h:#1d4ed8; --acc-soft:#eff4ff; --acc-line:#c7d7fe;
+    --ok:#16a34a; --warn:#d97706; --bad:#dc2626; --bad-soft:#fef2f2;
+    --side:#fafafa; --side-line:#ececee;
+    --f-body:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei UI","Microsoft YaHei",sans-serif;
+    --f-mono:Consolas,"JetBrains Mono","SF Mono","Cascadia Mono","Courier New",monospace;
+    --r-sm:6px; --r-md:8px; --r-lg:12px;
+    --sh-1:0 1px 2px rgba(17,24,39,.06);
+    --sh-2:0 1px 2px rgba(17,24,39,.05), 0 2px 8px rgba(17,24,39,.07);
+    --sh-3:0 10px 34px rgba(17,24,39,.16);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  ::selection{background:#bfdbfe;color:var(--txt)}
+  ::-webkit-scrollbar{width:10px;height:10px}
+  ::-webkit-scrollbar-thumb{background:#cbd0d8;border-radius:999px;border:3px solid transparent;background-clip:content-box}
+  ::-webkit-scrollbar-thumb:hover{background:#a9b0bc;background-clip:content-box;border:3px solid transparent}
+  ::-webkit-scrollbar-track{background:transparent}
+  body{font-family:var(--f-body);color:var(--txt);font-size:14px;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;background:var(--bg)}
+  input[type=checkbox],input[type=radio]{accent-color:var(--acc)}
+  input[type=file]{font-size:12px;color:var(--mut)}
+  input[type=file]::file-selector-button{border:1px solid var(--line2);background:#fff;border-radius:var(--r-sm);
+    padding:5px 12px;font-size:12px;cursor:pointer;color:var(--txt);margin-right:10px;font-family:inherit;transition:background .12s}
+  input[type=file]::file-selector-button:hover{background:#f9fafb}
+
+  /* ============ 侧栏 ============ */
+  .app{display:flex;min-height:100vh}
+  .side{width:240px;flex:none;background:var(--side);border-right:1px solid var(--side-line);display:flex;flex-direction:column;position:sticky;top:0;height:100vh}
+  .brand{display:flex;align-items:center;gap:11px;padding:18px 16px 15px;border-bottom:1px solid var(--side-line)}
+  .brand .mark{width:36px;height:36px;border-radius:10px;background:linear-gradient(135deg,#3b82f6,#1d4ed8);display:flex;align-items:center;justify-content:center;flex:none;box-shadow:var(--sh-1)}
+  .brand b{color:var(--txt);font-size:13.5px;display:block;font-weight:700;letter-spacing:-.2px}
+  .brand span{font-size:10.5px;color:var(--mut)}
+  .steps{flex:1;padding:10px;overflow:auto}
+  .steps a{display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:8px;color:var(--txt2);text-decoration:none;font-size:13px;margin-bottom:2px;cursor:pointer;transition:background .12s,color .12s}
+  .steps a svg{width:15px;height:15px;flex:none;opacity:.55;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+  .steps a i{width:20px;height:20px;flex:none;border-radius:6px;background:#eceef1;color:#6b7280;font-style:normal;font-size:11px;display:flex;align-items:center;justify-content:center;font-weight:600;font-family:var(--f-mono);transition:background .12s,color .12s}
+  .steps a:hover{background:#eff0f2;color:var(--txt)}
+  .steps a.act{background:var(--acc-soft);color:var(--acc);font-weight:600}
+  .steps a.act i{background:var(--acc);color:#fff}
+  .steps a.act svg{opacity:1}
+  .side-foot{padding:12px;border-top:1px solid var(--side-line);font-size:12px}
+  .chip{display:flex;align-items:center;gap:8px;background:#fff;border:1px solid var(--line);border-radius:8px;padding:9px 12px;color:var(--txt2);cursor:pointer;box-shadow:var(--sh-1);transition:border-color .12s}
+  .chip:hover{border-color:var(--line2)}
+  .chip .dot{width:8px;height:8px;border-radius:50%;background:var(--ok);flex:none}
+  .chip.bad .dot{background:var(--bad)}
+
+  /* ============ 主区 ============ */
+  .main{flex:1;min-width:0;display:flex;flex-direction:column}
+  .topbar{background:rgba(255,255,255,.85);backdrop-filter:blur(14px);border-bottom:1px solid var(--line);padding:0 32px;height:60px;display:flex;align-items:center;gap:14px;position:sticky;top:0;z-index:30}
+  .topbar h1{font-size:15.5px;font-weight:700;color:var(--txt);letter-spacing:-.2px}
+  .topbar .crumb{color:var(--mut);font-size:12.5px}
+  .topbar .sp{flex:1}
+  .tbtn{border:1px solid var(--line2);background:#fff;border-radius:8px;padding:0 14px;height:34px;font-size:12.5px;cursor:pointer;color:var(--txt);box-shadow:var(--sh-1);transition:background .12s,border-color .12s}
+  .tbtn:hover{background:#f9fafb;border-color:#b9c0cc}
+  .content{flex:1;padding:26px 32px 140px;max-width:1064px;width:100%;margin:0 auto}
+
+  /* ============ 卡片 ============ */
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:var(--sh-1);margin-bottom:18px;overflow:hidden;scroll-margin-top:78px;transition:border-color .15s, box-shadow .15s}
+  .card:hover{border-color:var(--line2);box-shadow:var(--sh-2)}
+  .card>h2{font-size:14.5px;padding:14px 20px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:10px;flex-wrap:wrap;row-gap:2px;color:var(--txt);font-weight:600;letter-spacing:-.1px}
+  .card>h2 .num{background:var(--acc-soft);color:var(--acc);border:1px solid var(--acc-line);border-radius:7px;width:22px;height:22px;display:inline-flex;align-items:center;justify-content:center;font-size:12px;flex:none;font-weight:700;font-family:var(--f-mono)}
+  .card>h2 .hint{flex:1;min-width:180px;font-weight:400;color:var(--mut);font-size:12px;line-height:1.5}
+  .card .body{padding:20px}
+  label{display:block;font-weight:600;font-size:12.5px;margin-bottom:6px;color:var(--txt)}
+  .hint{color:var(--mut);font-weight:400;font-size:12px}
+  .row{display:flex;gap:16px;flex-wrap:wrap}
+  .row>div{flex:1;min-width:220px}
+
+  /* ---- 输入控件: 统一 34px 高度 ---- */
+  input[type=text],input:not([type]),input[type=password],select,textarea{
+    width:100%;height:34px;padding:0 11px;border:1px solid var(--line2);border-radius:8px;
+    font-size:13px;font-family:inherit;background:#fff;color:var(--txt);outline:none;
+    box-shadow:var(--sh-1);transition:border-color .12s, box-shadow .12s}
+  textarea{height:auto;min-height:72px;padding:9px 11px;line-height:1.6;resize:vertical;font-family:var(--f-mono);font-size:12.5px}
+  select{appearance:none;-webkit-appearance:none;padding-right:30px;cursor:pointer;
+    background-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat:no-repeat;background-position:right 10px center;background-size:14px}
+  ::placeholder{color:#a2aab6;opacity:1}
+  input:hover:not(:focus):not(:disabled),select:hover:not(:focus):not(:disabled),textarea:hover:not(:focus):not(:disabled){border-color:#b9c0cc}
+  input:focus,select:focus,textarea:focus{border-color:var(--acc);box-shadow:0 0 0 3px rgba(37,99,235,.14)}
+  .tbtn:focus-visible,.mini:focus-visible,.btn:focus-visible,.fgroup button:focus-visible,.tab:focus-visible,.steps a:focus-visible{outline:none;box-shadow:0 0 0 3px rgba(37,99,235,.25)}
+  input.bad{border-color:var(--bad);box-shadow:0 0 0 3px rgba(220,38,38,.12)}
+  input:disabled,select:disabled{background:#f3f4f6;color:var(--mut);cursor:not-allowed}
+  input:-webkit-autofill,input:-webkit-autofill:hover,input:-webkit-autofill:focus{
+    -webkit-text-fill-color:var(--txt);-webkit-box-shadow:0 0 0 1000px #fff inset;transition:background-color 99999s ease-out}
+  /* 端口/路径/密码类输入用等宽字体 + 表格数字 */
+  input[data-port],input[data-eh],input[data-sec],#deploy_dir,#data_root,#project{font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+
+  /* ---- 中间件卡片 ---- */
+  .svc-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(242px,1fr));gap:14px}
+  .svc{border:1px solid var(--line);border-radius:12px;padding:14px 15px;cursor:pointer;user-select:none;position:relative;background:#fff;transition:border-color .14s, background .14s, box-shadow .14s, transform .14s}
+  .svc:hover{border-color:#c3cad4;box-shadow:var(--sh-2);transform:translateY(-1px)}
+  .svc.on{border-color:var(--acc);background:linear-gradient(180deg,#f6f9ff,var(--acc-soft));box-shadow:0 0 0 1px var(--acc), var(--sh-1)}
+  .svc.dis{opacity:.45;cursor:not-allowed}
+  .svc.dis:hover{transform:none;box-shadow:none;border-color:var(--line)}
+  .svc .head{display:flex;align-items:center;gap:11px}
+  .avatar{width:40px;height:40px;border-radius:10px;display:flex;align-items:center;justify-content:center;flex:none;background:#f6f7f9;border:1px solid var(--line);overflow:hidden}
+  .avatar img{width:25px;height:25px;object-fit:contain}
+  .avatar .letter{color:#fff;font-weight:700;font-size:14px;width:100%;height:100%;display:flex;align-items:center;justify-content:center}
+  .svc b{display:block;font-size:13.5px;font-weight:600;color:var(--txt)}
+  .svc .ver{display:block;font-size:11px;color:var(--mut);font-family:var(--f-mono);word-break:break-all;line-height:1.5;margin-top:2px}
+  .svc .foot{display:flex;justify-content:space-between;align-items:center;margin-top:11px;font-size:11.5px;color:var(--mut)}
+  .svc .size{background:#fff;border:1px solid var(--acc-line);color:var(--acc);border-radius:99px;padding:2px 9px;font-family:var(--f-mono);font-size:11px}
+  .svc .tick{position:absolute;top:12px;right:12px;width:18px;height:18px;border-radius:50%;border:1.5px solid var(--line2);background:#fff;transition:all .14s}
+  .svc.on .tick{background:var(--acc);border-color:var(--acc)}
+  .svc.on .tick::after{content:"";display:block;width:5px;height:9px;border:solid #fff;border-width:0 2px 2px 0;transform:rotate(45deg);margin:2px auto 0}
+  .svc .warnline{margin-top:10px;background:#fffbeb;border:1px solid #fde68a;color:#92400e;font-size:11.5px;border-radius:7px;padding:6px 10px;display:none;line-height:1.5}
+  .svc.showwarn .warnline{display:block}
+
+  /* ---- 分组/端口映射 ---- */
+  .grp{margin-bottom:18px}
+  .grp:last-child{margin-bottom:0}
+  .grp>h3{font-size:13px;color:var(--txt);margin-bottom:10px;display:flex;align-items:center;gap:8px;font-weight:600}
+  .grp>h3 .logo-sm{width:20px;height:20px;border-radius:6px;border:1px solid var(--line);background:#fff;display:inline-flex;align-items:center;justify-content:center;overflow:hidden}
+  .grp>h3 .logo-sm img{width:14px;height:14px;object-fit:contain}
+  .map{display:flex;flex-direction:column;gap:9px}
+  .map-cols{display:grid;grid-template-columns:160px 230px 28px 96px;gap:10px;font-size:11px;color:var(--mut);margin-bottom:-3px}
+  .map-cols span:nth-child(4){text-align:center}
+  .map-row{display:grid;grid-template-columns:160px 230px 28px 96px;gap:10px;align-items:center}
+  .map-row.extra{grid-template-columns:160px 140px 28px 140px 36px}
+  .map-row .mlabel{font-size:12.5px;color:var(--txt2);text-align:right;padding-right:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .arrow{color:#9aa2af;text-align:center;font-size:13px}
+  .ctn{background:#f6f7f9;border:1px solid var(--line);color:var(--txt2);border-radius:8px;height:34px;display:flex;align-items:center;justify-content:center;font-size:12.5px;font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+  .delrow{border:1px solid var(--line2);background:#fff;color:var(--bad);border-radius:8px;cursor:pointer;font-size:15px;height:34px;flex:none;transition:background .12s,border-color .12s}
+  .delrow:hover{background:var(--bad-soft);border-color:#fca5a5}
+  .addport{margin-top:10px;margin-left:170px;border:1px dashed var(--line2);background:#fafafa;color:var(--acc);border-radius:50%;width:30px;height:30px;font-size:17px;line-height:1;display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0;transition:border-color .12s,background .12s,transform .12s}
+  .addport:hover{border-color:var(--acc);background:var(--acc-soft);transform:scale(1.08)}
+  .addport.wide{display:inline-flex;width:auto;height:auto;margin-left:0;align-self:flex-start;border-radius:8px;padding:6px 14px;font-size:13px;line-height:1.5}
+  .addport.wide:hover{transform:none}
+  .pxexample{font-family:var(--f-mono);font-size:11.5px;color:var(--txt2);background:#f6f7f9;border:1px solid var(--line);border-radius:8px;padding:8px 12px;margin-top:10px;display:inline-block;line-height:1.6}
+  .pxsub{background:#f7f8fa;border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin-top:12px}
+  .pxsub .row:last-child{margin-bottom:0}
+  .pxidx{width:24px;height:24px;flex:none;border-radius:7px;background:var(--acc);color:#fff;font-size:12px;font-weight:700;display:inline-flex;align-items:center;justify-content:center;font-family:var(--f-mono)}
+
+  /* ---- 密码 ---- */
+  .pwline{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+  .pwrow{display:flex;gap:6px;align-items:center;flex:0 1 470px;min-width:260px}
+  .pwrow input{flex:1;min-width:0;font-family:var(--f-mono);letter-spacing:.3px}
+  .mini{white-space:nowrap;height:30px;border:1px solid var(--line2);background:#fff;border-radius:7px;padding:0 12px;cursor:pointer;font-size:12px;color:var(--txt);box-shadow:var(--sh-1);transition:background .12s,border-color .12s}
+  .mini:hover{background:#f9fafb;border-color:#b9c0cc}
+  .strength{display:inline-flex;align-items:center;gap:3px;white-space:nowrap}
+  .strength i{width:20px;height:4px;border-radius:2px;background:var(--line)}
+  .strength em{font-style:normal;font-size:11.5px;margin-left:6px;color:var(--mut);min-width:46px}
+  .strength.s1 i:nth-child(-n+1){background:var(--bad)} .strength.s1 em{color:var(--bad)}
+  .strength.s2 i:nth-child(-n+2){background:var(--warn)} .strength.s2 em{color:var(--warn)}
+  .strength.s3 i:nth-child(-n+3){background:#22c55e} .strength.s3 em{color:#15803d}
+  .strength.s4 i{background:var(--ok)} .strength.s4 em{color:var(--ok)}
+
+  /* ---- 数据库: 分段控件 ---- */
+  .dbbox{border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin-bottom:14px;background:#fff}
+  .dbbox:last-child{margin-bottom:0}
+  .dbhead{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+  .dbhead>b{font-size:13px;color:var(--txt);font-weight:600}
+  .segs{display:inline-flex;background:#e8eaee;border-radius:9px;padding:3px}
+  .segs label{display:block;padding:5px 15px;font-size:12.5px;font-weight:500;cursor:pointer;margin:0;background:transparent;color:var(--txt2);border:0;border-radius:7px;transition:all .12s}
+  .segs input{display:none}
+  .segs label:has(input:checked){background:#fff;color:var(--txt);font-weight:600;box-shadow:0 1px 2px rgba(17,24,39,.14)}
+  .segs label.dis{opacity:.4;cursor:not-allowed}
+  .dbform{margin-top:14px}
+
+  /* ---- 表格 ---- */
+  table{width:100%;border-collapse:collapse;font-size:12.5px}
+  th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line)}
+  th{color:var(--mut);font-weight:600;font-size:11.5px;background:#f9fafb;white-space:nowrap}
+  tbody tr:last-child td{border-bottom:0}
+  tbody tr:hover td{background:#f7f8fa}
+  tbody tr.hide{display:none}
+  .mono,td.mono{font-family:var(--f-mono)}
+  .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:7px;vertical-align:middle}
+  .dot.ok{background:var(--ok)} .dot.no{background:var(--bad)}
+  /* ---- 物料筛选: 分段控件 ---- */
+  .fbar{display:flex;align-items:center;gap:14px;margin-bottom:12px;flex-wrap:wrap}
+  .fgroup{display:inline-flex;background:#e8eaee;border-radius:8px;padding:3px}
+  .fgroup button{border:0;background:transparent;padding:5px 14px;font-size:12px;cursor:pointer;color:var(--txt2);border-radius:6px;transition:all .12s}
+  .fgroup button:hover{color:var(--txt)}
+  .fgroup button.on{background:#fff;color:var(--txt);font-weight:600;box-shadow:0 1px 2px rgba(17,24,39,.14)}
+  .flabel{font-size:12px;color:var(--mut)}
+
+  /* ---- 操作条 ---- */
+  .actionbar{position:sticky;bottom:0;background:rgba(255,255,255,.88);backdrop-filter:blur(14px);border-top:1px solid var(--line);padding:14px 32px;display:flex;align-items:center;gap:18px;z-index:25;margin-top:auto}
+  .actionbar .stat{font-size:13px;color:var(--txt2)}
+  .actionbar .stat b{color:var(--acc)}
+  .actionbar .sp{flex:1}
+  .btn{border:0;border-radius:9px;height:38px;padding:0 26px;font-size:13.5px;cursor:pointer;color:#fff;background:var(--acc);font-weight:600;box-shadow:var(--sh-1), inset 0 1px 0 rgba(255,255,255,.14);transition:background .12s}
+  .btn:hover{background:var(--acc-h)}
+  .btn:disabled{opacity:.45;cursor:not-allowed}
+  .btn.ghost{background:#fff;color:var(--txt);border:1px solid var(--line2);font-weight:500;box-shadow:var(--sh-1)}
+  .btn.ghost:hover{background:#f9fafb}
+  .btn.red{background:var(--bad)}
+  .btn.red:hover{background:#b91c1c}
+
+  /* ---- 预览: 下划线式标签页 ---- */
+  .tabs{display:flex;gap:20px;padding:0 20px;border-bottom:1px solid var(--line);align-items:center}
+  .tabs button.tab{border:0;background:none;padding:13px 2px 11px;cursor:pointer;font-size:13px;font-family:inherit;color:var(--mut);border-bottom:2px solid transparent;margin-bottom:-1px;transition:color .12s}
+  .tabs button.tab:hover{color:var(--txt)}
+  .tabs button.tab.on{color:var(--acc);border-bottom-color:var(--acc);font-weight:600}
+  pre{background:#161b22;color:#c9d4e3;padding:18px 20px;font-size:12px;line-height:1.7;overflow:auto;max-height:480px;white-space:pre-wrap;word-break:break-all;margin:0;font-family:var(--f-mono)}
+
+  /* ---- 弹窗 ---- */
+  .overlay{position:fixed;inset:0;background:rgba(17,24,39,.44);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;z-index:100}
+  .overlay.hidden{display:none}
+  .modal{background:#fff;border-radius:16px;padding:26px 28px;width:540px;max-width:92vw;box-shadow:var(--sh-3)}
+  .modal h3{font-size:15.5px;margin-bottom:16px;display:flex;align-items:center;gap:9px;color:var(--txt);font-weight:700}
+  .bar{height:6px;background:#e8eaee;border-radius:999px;overflow:hidden}
+  .bar>div{height:100%;background:var(--acc);width:0;transition:width .4s;border-radius:999px}
+  .mrow{margin-top:11px;font-size:12.5px;color:var(--mut);word-break:break-all}
+  .mrow.big{font-size:13px;color:var(--txt);font-weight:600}
+  .mbtns{margin-top:22px;text-align:right;display:flex;justify-content:flex-end;gap:10px}
+  .hidden{display:none}
+
+  /* ---- 消息/toast ---- */
+  .msg{border-radius:10px;padding:13px 17px;margin-top:16px;font-size:13px;white-space:pre-wrap;word-break:break-all;line-height:1.65}
+  .msg.err{background:var(--bad-soft);color:#b91c1c;border:1px solid #fecaca}
+  .msg.ok{background:#f0fdf4;color:#15803d;border:1px solid #bbf7d0}
+  .msg.warn{background:#fffbeb;color:#92400e;border:1px solid #fde68a}
+  #toast{position:fixed;top:20px;right:20px;z-index:300;display:flex;flex-direction:column;gap:8px}
+  .toast{background:rgba(17,24,39,.92);backdrop-filter:blur(10px);color:#fff;border-radius:10px;padding:11px 17px;font-size:12.5px;box-shadow:var(--sh-3);animation:fadein .2s;max-width:360px}
+  @keyframes fadein{from{opacity:0;transform:translateY(-8px)}to{opacity:1}}
+  .spin{width:15px;height:15px;border:2px solid #bfdbfe;border-top-color:var(--acc);border-radius:50%;display:inline-block;animation:sp .8s linear infinite;vertical-align:-3px;margin-right:7px}
+  @keyframes sp{to{transform:rotate(360deg)}}
+
+  @media (max-width:900px){
+    .side{display:none}
+    .content{padding:20px 16px 130px}
+    .topbar,.actionbar{padding-left:16px;padding-right:16px}
+  }
+  </style>
+</head>
+<body>
+<div class="app">
+
+  <aside class="side">
+    <div class="brand">
+      <div class="mark">
+        <svg width="20" height="20" viewBox="0 0 24 24"><path fill="#fff" d="M12 2 2 7v10l10 5 10-5V7L12 2zm0 2.2L19.5 8 12 11.8 4.5 8 12 4.2z"/></svg>
+      </div>
+      <div><b>中间件离线包打包器</b><span>Local Bundle Studio</span></div>
+    </div>
+    <nav class="steps" id="stepsNav">
+      <a data-sec="sec-basic"><svg viewBox="0 0 24 24"><path d="M4 6h9M17 6h3M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="15" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg><i>1</i>基础设置</a>
+      <a data-sec="sec-svc"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/></svg><i>2</i>选择中间件</a>
+      <a data-sec="sec-port"><svg viewBox="0 0 24 24"><path d="M3.5 8h14M13.5 4l4 4-4 4"/><path d="M20.5 16h-14M10.5 12l-4 4 4 4"/></svg><i>3</i>端口映射</a>
+      <a data-sec="sec-proxy"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17"/><path d="M12 3.5c2.6 2.8 2.6 14.2 0 17-2.6-2.8-2.6-14.2 0-17z"/></svg><i>4</i>反向代理</a>
+      <a data-sec="sec-pwd"><svg viewBox="0 0 24 24"><rect x="5" y="10.5" width="14" height="9.5" rx="2"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5"/></svg><i>5</i>账号密码</a>
+      <a data-sec="sec-db"><svg viewBox="0 0 24 24"><ellipse cx="12" cy="5.5" rx="7.5" ry="3"/><path d="M4.5 5.5v13c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3v-13"/><path d="M4.5 12c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3"/></svg><i>6</i>数据库</a>
+      <a data-sec="sec-backup"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg><i>7</i>数据库备份</a>
+      <a data-sec="sec-wh"><svg viewBox="0 0 24 24"><path d="M12 2.5 21 7v10l-9 4.5L3 17V7z"/><path d="M3 7l9 4.5L21 7M12 11.5v10"/></svg><i>8</i>物料仓库</a>
+      <a data-sec="sec-out"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="5" rx="1"/><path d="M5 9v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9"/><path d="M10 13h4"/></svg><i>9</i>历史产物</a>
+    </nav>
+    <div class="side-foot">
+      <div class="chip" id="whChip" title="点击查看物料仓库状态"><span class="dot"></span><span id="whChipTxt">检查中...</span></div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="topbar">
+      <h1>打包配置</h1>
+      <span class="crumb">本地选型 → 生成编排 → 按需打包 → 服务器零交互部署</span>
+      <span class="sp"></span>
+      <button class="tbtn" id="btnExport">保存配置</button>
+      <button class="tbtn" id="btnImport">导入配置</button>
+      <input type="file" id="importFile" accept=".json" class="hidden">
+    </div>
+
+    <div class="content">
+
+      <div class="card" id="sec-basic">
+        <h2><span class="num">1</span>基础设置</h2>
+        <div class="body">
+          <div class="row">
+            <div><label>项目名 <span class="hint">compose 项目名与包名</span></label>
+              <input type="text" id="project" value="demo"></div>
+            <div><label>目标服务器架构</label>
+              <select id="arch">
+                <option value="amd64">x86_64 (amd64)</option>
+                <option value="arm64">ARM (aarch64)</option>
+              </select></div>
+          </div>
+          <div class="row" style="margin-top:12px">
+            <div><label>部署目录 <span class="hint">compose / .env / 数据 / 日志 / 配置都在这里</span></label>
+              <input type="text" id="deploy_dir" value="/data/middleware"></div>
+            <div><label>Docker 数据目录 data-root</label>
+              <input type="text" id="data_root" value="/data/docker"></div>
+          </div>
+          <div style="margin-top:12px">
+            <label>镜像加速器 <span class="hint">写入 daemon.json; <span id="mirrorNote"></span></span></label>
+            <textarea id="mirrors" rows="3" placeholder="https://... 每行一个"></textarea>
+            <div style="margin-top:8px"><button class="mini" id="btnFillMirrors">一键填入实测可用源</button></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" id="sec-svc">
+        <h2><span class="num">2</span>选择中间件 <span class="hint">只打包勾选项, 也可接入 plugins/ 插件扩展</span></h2>
+        <div class="body"><div class="svc-grid" id="svcGrid"></div></div>
+      </div>
+
+      <div class="card" id="sec-port" style="display:none">
+        <h2><span class="num">3</span>端口映射 <span class="hint">左侧宿主机端口, 箭头后为容器内端口; 支持追加自定义映射</span></h2>
+        <div class="body" id="portBox"></div>
+      </div>
+
+      <div class="card" id="sec-proxy" style="display:none">
+        <h2><span class="num">4</span>反向代理向导 <span class="hint">域名 / 前后端转发 / 真实IP / WebSocket, 自动生成 nginx 站点配置</span></h2>
+        <div class="body" id="proxyBox"></div>
+      </div>
+
+      <div class="card" id="sec-pwd" style="display:none">
+        <h2><span class="num">4</span>账号密码 <span class="hint">禁止空格与 $ ` " ' \ ; | ; 部署后存于 .env (600)</span></h2>
+        <div class="body">
+          <div id="pwdBox"></div>
+        </div>
+      </div>
+
+      <div class="card" id="sec-db" style="display:none">
+        <h2><span class="num">5</span>数据库来源 <span class="hint">Nacos / XXL-Job 的建库连库方式</span></h2>
+        <div class="body" id="dbBox"></div>
+      </div>
+
+      <div class="card" id="sec-backup" style="display:none">
+        <h2><span class="num">6</span>数据库备份 <span class="hint">crontab + 容器内 mysqldump, 按库分文件 gzip</span></h2>
+        <div class="body" id="backupBox"></div>
+      </div>
+
+      <div class="card" id="sec-wh">
+        <h2><span class="num">7</span>物料仓库状态
+          <span style="flex:1"></span>
+          <button class="mini" id="btnRecheck">重新检查</button>
+        </h2>
+        <div class="body">
+          <div class="fbar">
+            <span class="flabel">类型</span>
+            <div class="fgroup" id="fKind">
+              <button data-k="all" class="on">全部</button>
+              <button data-k="pkg">安装包</button>
+              <button data-k="img">镜像</button>
+            </div>
+            <span class="flabel">架构</span>
+            <div class="fgroup" id="fArch">
+              <button data-a="all" class="on">全部</button>
+              <button data-a="amd64">x86_64</button>
+              <button data-a="arm64">aarch64</button>
+            </div>
+          </div>
+          <table>
+            <thead><tr><th style="width:32%">物料</th><th>架构</th><th>状态</th><th>体积</th><th>说明</th></tr></thead>
+            <tbody id="whBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card" id="sec-out">
+        <h2><span class="num">8</span>历史产物 <span class="hint">dist/ 目录 · 传输后可用 .sha256 校验完整性</span></h2>
+        <div class="body">
+          <table>
+            <thead><tr><th>文件</th><th>大小</th><th>生成时间</th><th>SHA256</th></tr></thead>
+            <tbody id="outBody"><tr><td colspan="4" class="hint">暂无产物</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card" id="previewCard" style="display:none">
+        <div class="tabs">
+          <button class="tab on" data-t="compose">docker-compose.yml</button>
+          <button class="tab" data-t="env">.env</button>
+          <button class="tab" data-t="manifest">manifest.sh</button>
+          <span style="flex:1"></span>
+          <button class="mini" id="btnCopy" style="align-self:center;margin-bottom:9px">复制当前内容</button>
+        </div>
+        <pre id="previewPre"></pre>
+      </div>
+
+      <div id="msg"></div>
+    </div>
+
+    <div class="actionbar">
+      <span class="stat" id="statLine">未选择组件</span>
+      <span class="sp"></span>
+      <button class="btn ghost" id="btnPreview">生成预览</button>
+      <button class="btn" id="btnPack">开始打包</button>
+    </div>
+  </main>
+</div>
+
+<div class="overlay hidden" id="modal">
+  <div class="modal">
+    <h3 id="mTitle"><span class="spin"></span>正在打包</h3>
+    <div class="bar"><div id="mBar"></div></div>
+    <div class="mrow big" id="mPct">0% · 0 MB / 0 MB</div>
+    <div class="mrow" id="mFile"></div>
+    <div class="mrow" id="mStat"></div>
+    <div class="mbtns">
+      <button class="btn red" id="mCancel">取消打包</button>
+      <button class="btn hidden" id="mClose">完成</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script src="/logos.js"></script>
+<script>
+let CATALOG = null;
+const selected = new Set();
+const state = { ports: {}, secrets: {}, db: {}, extra: {}, backup: null, proxies: [] };
+const WEEK = ["", "周一", "周二", "周三", "周四", "周五", "周六", "周日"];
+let previewData = { compose: "", env: "", manifest: "" };
+let curTab = "compose";
+
+const $ = s => document.querySelector(s);
+const $$ = s => [...document.querySelectorAll(s)];
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const FALLBACK_COLORS = { nginx:"#009639", mysql57:"#00758f", mysql8:"#00758f", redis:"#d82c20", nacos:"#1b6dc1", xxljob:"#7c3aed", minio:"#c72e49" };
+function toast(text){
+  const d = document.createElement('div');
+  d.className = 'toast'; d.textContent = text;
+  $('#toast').appendChild(d);
+  setTimeout(() => d.remove(), 2800);
+}
+function fmtGB(mb){ return mb >= 1024 ? (mb/1024).toFixed(2) + ' GB' : mb + ' MB'; }
+function fmtTime(sec){ sec = Math.max(0, Math.round(sec)); return String(Math.floor(sec/60)).padStart(2,'0') + ':' + String(sec%60).padStart(2,'0'); }
+function msg(text, cls){ $('#msg').innerHTML = text ? '<div class="msg '+cls+'">'+esc(text)+'</div>' : ''; }
+function svcColor(key){ const m = CATALOG.services[key]; return (m && m.color) || FALLBACK_COLORS[key] || '#64748b'; }
+function avatarHtml(key, cls){
+  const m = CATALOG.services[key];
+  if (typeof LOGOS !== 'undefined' && LOGOS[key]){
+    return '<div class="avatar '+(cls||'')+'"><img src="'+LOGOS[key]+'" alt=""></div>';
+  }
+  const ab = (m.label||key).slice(0,2).toUpperCase();
+  return '<div class="avatar '+(cls||'')+'"><span class="letter" style="background:'+svcColor(key)+'">'+esc(ab)+'</span></div>';
+}
+function logoSm(key){
+  if (typeof LOGOS !== 'undefined' && LOGOS[key]) return '<span class="logo-sm"><img src="'+LOGOS[key]+'" alt=""></span> ';
+  return '';
+}
+function randPwd(len){
+  const cs = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789@#%*+=_.';
+  const a = new Uint32Array(len); crypto.getRandomValues(a);
+  return Array.from(a, n => cs[n % cs.length]).join('');
+}
+function randToken(){
+  const a = new Uint8Array(48); crypto.getRandomValues(a);
+  let bin=''; a.forEach(b=>bin+=String.fromCharCode(b));
+  return 'SecretKey' + btoa(bin);
+}
+function pwStrength(v){
+  let s = 0;
+  if (v.length >= 8) s++;
+  if (v.length >= 12) s++;
+  if (/[a-z]/.test(v) && /[A-Z]/.test(v)) s++;
+  if (/\d/.test(v) && /[^A-Za-z0-9]/.test(v)) s++;
+  return Math.max(1, s);
+}
+function saveLocal(){
+  clearTimeout(saveLocal._t);
+  saveLocal._t = setTimeout(() => {
+    try { localStorage.setItem('packer-cfg-v1', JSON.stringify(buildConfig())); } catch(e){}
+  }, 400);
+}
+async function api(path, body){
+  const opt = body !== undefined
+    ? {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)}
+    : {};
+  const r = await fetch(path, opt);
+  const data = await r.json().catch(() => ({error:'响应解析失败'}));
+  if (!r.ok) throw new Error(data.error || ('HTTP ' + r.status));
+  return data;
+}
+
+/* ================= 初始化 ================= */
+async function init(){
+  CATALOG = await api('/api/catalog');
+  renderSvcGrid(); renderWarehouse(); setupWhFilter(); loadBundles(); restoreLocal();
+  $('#mirrorNote').textContent = CATALOG.defaults.registry_mirrors_note || '';
+  $('#arch').onchange = onArchChange;
+  $('#btnPreview').onclick = doPreview;
+  $('#btnPack').onclick = doPack;
+  $('#btnRecheck').onclick = async () => { CATALOG = await api('/api/catalog'); renderSvcGridSync(); renderWarehouse(); toast('物料状态已刷新'); };
+  $('#btnFillMirrors').onclick = () => {
+    $('#mirrors').value = (CATALOG.defaults.registry_mirrors || []).join('\n');
+    toast('已填入实测可用的镜像加速器'); saveLocal();
+  };
+  $('#btnExport').onclick = doExport;
+  $('#btnImport').onclick = () => $('#importFile').click();
+  $('#importFile').onchange = doImport;
+  $('#btnCopy').onclick = doCopy;
+  $('#whChip').onclick = () => $('#sec-wh').scrollIntoView({behavior:'smooth'});
+  $$('#stepsNav a').forEach(a => a.onclick = () => {
+    document.getElementById(a.dataset.sec).scrollIntoView({behavior:'smooth'});
+  });
+  $$('#previewCard .tabs button[data-t]').forEach(b => b.onclick = () => switchTab(b.dataset.t));
+  $('#mCancel').onclick = async () => { try{ await api('/api/cancel', {}); }catch(e){} toast('已请求取消'); };
+  $('#mClose').onclick = () => { $('#modal').classList.add('hidden'); loadBundles(); };
+  document.addEventListener('input', saveLocal);
+  // 侧边导航高亮
+  const obs = new IntersectionObserver(es => {
+    es.forEach(e => { if (e.isIntersecting) $$('#stepsNav a').forEach(a => a.classList.toggle('act', a.dataset.sec === e.target.id)); });
+  }, { rootMargin: '-30% 0px -60% 0px' });
+  $$('.card[id^=sec-]').forEach(c => obs.observe(c));
+  checkRunning();
+}
+
+function renderSvcGrid(){
+  const grid = $('#svcGrid'); grid.innerHTML = '';
+  for (const [key, meta] of Object.entries(CATALOG.services)){
+    const d = document.createElement('div');
+    d.className = 'svc' + (key==='mysql57' && $('#arch').value==='arm64' ? ' dis' : '') + (selected.has(key) ? ' on' : '');
+    d.dataset.key = key;
+    const size = (CATALOG.sizes.images[key] || {})[$('#arch').value] || 0;
+    d.innerHTML =
+      '<span class="tick"></span>'+
+      '<div class="head">'+avatarHtml(key)+
+      '<div><b>'+esc(meta.label)+'</b><span class="ver">'+esc(meta.tag)+'</span></div></div>'+
+      '<div class="foot"><span class="size">'+($('#arch').value==='amd64'?'x86':'ARM')+' '+fmtGB(size)+'</span>'+
+      '<span>'+((meta.supported_arch||[]).length>1?'双架构':'仅 x86')+(meta.is_plugin?' · 插件':'')+'</span></div>'+
+      '<div class="warnline">'+esc(meta.warn || '')+'</div>';
+    d.onclick = () => toggleSvc(key);
+    grid.appendChild(d);
+  }
+  updateSvcWarn();
+}
+function renderSvcGridSync(){
+  $$('#svcGrid .svc').forEach(d => {
+    const k = d.dataset.key;
+    d.classList.toggle('on', selected.has(k));
+    d.classList.toggle('dis', k==='mysql57' && $('#arch').value==='arm64');
+    const size = (CATALOG.sizes.images[k] || {})[$('#arch').value] || 0;
+    d.querySelector('.size').textContent = ($('#arch').value==='amd64'?'x86':'ARM') + ' ' + fmtGB(size);
+  });
+  updateSvcWarn(); renderDynamic();
+}
+function updateSvcWarn(){}
+function toggleSvc(key){
+  if (key === 'mysql57' && $('#arch').value === 'arm64'){ toast('MySQL 5.7 不支持 arm64'); return; }
+  const el = document.querySelector('.svc[data-key="'+key+'"]');
+  if (selected.has(key)){ selected.delete(key); el.classList.remove('on'); }
+  else { selected.add(key); el.classList.add('on'); }
+  renderDynamic();
+}
+function onArchChange(){
+  if ($('#arch').value === 'arm64' && selected.has('mysql57')){
+    selected.delete('mysql57'); toast('已移除 MySQL 5.7 (arm64 不支持)');
+  }
+  renderSvcGridSync();
+}
+
+/* ================= 动态渲染 ================= */
+const SEC_ORDER = ['sec-basic','sec-svc','sec-port','sec-proxy','sec-pwd','sec-db','sec-backup','sec-wh','sec-out'];
+/* 隐藏条件区块(数据库/备份)后, 侧栏与卡片编号顺延, 不再跳号 */
+function renumberSections(){
+  let n = 0;
+  for (const id of SEC_ORDER){
+    const card = document.getElementById(id);
+    const link = document.querySelector('#stepsNav a[data-sec="'+id+'"]');
+    const visible = card && card.style.display !== 'none';
+    if (link) link.style.display = visible ? '' : 'none';
+    if (!visible) continue;
+    n++;
+    const num = card.querySelector('h2 .num');
+    if (num) num.textContent = n;
+    if (link) link.querySelector('i').textContent = n;
+  }
+}
+function renderDynamic(){
+  const svcs = [...selected];
+  const has = svcs.length > 0;
+  $('#sec-port').style.display = has ? '' : 'none';
+  $('#sec-proxy').style.display = has && selected.has('nginx') ? '' : 'none';
+  const hasSecret = CATALOG.secrets.some(it => it.services.some(s => selected.has(s)));
+  $('#sec-pwd').style.display  = has && hasSecret ? '' : 'none';
+  $('#sec-db').style.display   = has && svcs.some(s => s==='nacos'||s==='xxljob') ? '' : 'none';
+  $('#sec-backup').style.display = has && svcs.some(s => s==='mysql57'||s==='mysql8') ? '' : 'none';
+  renumberSections();
+
+  // ---- 端口映射: host → container ----
+  const pb = $('#portBox'); pb.innerHTML = '';
+  for (const s of svcs){
+    const meta = CATALOG.services[s];
+    if (!meta.ports.length && !(state.extra[s]||[]).length) continue;
+    let html = '<div class="grp"><h3>'+logoSm(s)+esc(meta.label)+'</h3><div class="map">'+
+      '<div class="map-cols"><span></span><span>外部访问端口(宿主机)</span><span></span><span>容器端口</span></div>';
+    for (const p of meta.ports){
+      if (!(p.key in state.ports)) state.ports[p.key] = p.default;
+      html += '<div class="map-row">'+
+        '<span class="mlabel" title="'+esc(p.label)+'">'+esc(p.label)+'</span>'+
+        '<input type="text" data-port="'+p.key+'" value="'+state.ports[p.key]+'">'+
+        '<span class="arrow">→</span>'+
+        '<span class="ctn" title="容器内端口">'+(p.container != null ? p.container : '?')+'</span></div>';
+    }
+    // 自定义映射
+    const rows = state.extra[s] = state.extra[s] || [];
+    rows.forEach((r, i) => {
+      html += '<div class="map-row extra">'+
+        '<span class="mlabel">自定义映射</span>'+
+        '<input type="text" data-eh="'+s+':'+i+':host" value="'+esc(r.host)+'">'+
+        '<span class="arrow">→</span>'+
+        '<input type="text" data-eh="'+s+':'+i+':ctn" value="'+esc(r.container)+'">'+
+        '<button type="button" class="delrow" data-edel="'+s+':'+i+'">×</button></div>';
+    });
+    html += '</div><button type="button" class="addport" title="添加自定义端口" aria-label="添加自定义端口" data-eadd="'+s+'">+</button></div>';
+    pb.insertAdjacentHTML('beforeend', html);
+  }
+  pb.querySelectorAll('input[data-port]').forEach(i => i.oninput = () => { state.ports[i.dataset.port] = i.value; validatePorts(); saveLocal(); });
+  const syncExtra = (sel) => {
+    const [svc, idx, field] = sel.split(':');
+    state.extra[svc][+idx][field === 'host' ? 'host' : 'container'] = pb.querySelector('[data-eh="'+sel+'"]').value;
+    validatePorts(); saveLocal();
+  };
+  pb.querySelectorAll('input[data-eh]').forEach(i => i.oninput = () => syncExtra(i.dataset.eh));
+  pb.querySelectorAll('[data-edel]').forEach(b => b.onclick = () => {
+    const [svc, idx] = b.dataset.edel.split(':');
+    state.extra[svc].splice(+idx, 1); renderDynamic();
+  });
+  pb.querySelectorAll('[data-eadd]').forEach(b => b.onclick = () => {
+    const svc = b.dataset.eadd;
+    state.extra[svc] = state.extra[svc] || [];
+    state.extra[svc].push({host: '', container: ''});
+    renderDynamic();
+  });
+
+  renderPwds();
+  renderProxy();
+  renderDb();
+  renderBackup();
+  validatePorts();
+  updateStat();
+}
+
+/* ---- Nginx 反向代理向导 ---- */
+function pxDefaultSite(){
+  return { mode:'static', server_name:'', listen:80, root:'/usr/share/nginx/html/app',
+           spa:true, api_prefix:'/api/', api_target:'', strip:true,
+           ws:false, ws_path:'/ws/', body_size:'500m', realip:false,
+           trusted:'10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16',
+           ssl:false, redirect:true, cert_name:'', key_name:'', cert_pem:'', key_pem:'' };
+}
+function pxListenOptions(cur){
+  let opts = CATALOG.services.nginx.ports.map(p => ({v: p.container, t: p.container + ' · 默认映射'}));
+  (state.extra.nginx || []).forEach(r => {
+    const c = parseInt(r.container, 10);
+    if (c && !opts.some(o => +o.v === c)) opts.push({v: c, t: c + ' · 自定义映射'});
+  });
+  const curN = parseInt(cur, 10);
+  if (curN && !opts.some(o => +o.v === curN)) opts.push({v: curN, t: curN + ' · 未映射!'});
+  return opts;
+}
+function pxTargetOptions(){
+  let opts = '';
+  for (const s of selected){
+    const m = CATALOG.services[s];
+    const cn = s === 'xxljob' ? 'xxl-job' : s;
+    for (const p of (m.ports||[])) opts += '<option value="http://'+cn+':'+(p.container != null ? p.container : '')+'">';
+  }
+  return opts;
+}
+/* 前缀改写示例: 随 输入实时更新 */
+function pxExample(i){
+  const p = state.proxies[i] || {};
+  const el = document.querySelector('[data-pxex="'+i+'"]');
+  if (!el) return;
+  const pre = String(p.api_prefix || '').trim();
+  if (p.mode === 'proxy' || !pre || pre === '/' || !p.api_target){ el.style.display = 'none'; return; }
+  el.style.display = '';
+  el.textContent = p.strip
+    ? '示例: 浏览器请求 ' + pre + 'user/1?id=3   →   后端实际收到 /user/1?id=3'
+    : '示例: 浏览器请求 ' + pre + 'user/1?id=3   →   后端实际收到 ' + pre + 'user/1?id=3';
+}
+function renderProxy(){
+  const box = $('#proxyBox');
+  if (!selected.has('nginx')){ box.innerHTML = ''; return; }
+  let html = '';
+  state.proxies.forEach((p, i) => {
+    html += '<div class="dbbox" data-px="'+i+'">'+
+      '<div class="dbhead"><span class="pxidx">'+(i+1)+'</span>'+
+      '<input type="text" style="max-width:240px" placeholder="域名, 多个空格分隔; _ 为默认站点" data-pxf="'+i+':server_name" value="'+esc(p.server_name)+'">'+
+      '<div class="segs">'+
+      '<label><input type="radio" name="pxm_'+i+'" value="static" '+(p.mode!=='proxy'?'checked':'')+'>静态+接口</label>'+
+      '<label><input type="radio" name="pxm_'+i+'" value="proxy" '+(p.mode==='proxy'?'checked':'')+'>整站反代</label>'+
+      '</div><span style="flex:1"></span>'+
+      '<div style="display:flex;align-items:center;gap:8px"><span class="hint">监听(容器端口)</span>'+
+      '<select data-pxf="'+i+':listen" style="width:auto;max-width:160px">';
+    for (const o of pxListenOptions(p.listen)) html += '<option value="'+o.v+'" '+(+p.listen===+o.v?'selected':'')+'>'+esc(o.t)+'</option>';
+    html += '</select></div>'+
+      '<button type="button" class="delrow" style="width:32px;height:32px;flex:none" title="删除站点" data-pxdel="'+i+'">×</button>'+
+      '</div><div class="dbform" style="margin-top:11px">';
+    if (p.mode !== 'proxy'){
+      html += '<div class="row" style="gap:12px">'+
+        '<div style="flex:2.4;min-width:240px"><label>前端目录 <span class="hint">容器内绝对路径, html 挂载于 /usr/share/nginx/html</span></label><input type="text" data-pxf="'+i+':root" value="'+esc(p.root)+'" placeholder="留空则不托管静态页"></div>'+
+        '<div style="max-width:250px"><label>单页应用(SPA)</label><label style="margin:0;font-weight:500;cursor:pointer"><input type="checkbox" data-pxc="'+i+':spa" '+(p.spa?'checked':'')+'> 刷新子路径时回退 index.html</label></div>'+
+        '</div>';
+      html += '<div class="row" style="gap:12px;margin-top:10px;align-items:end">'+
+        '<div style="max-width:150px"><label>接口前缀</label><input type="text" data-pxf="'+i+':api_prefix" value="'+esc(p.api_prefix)+'" placeholder="留空不代理"></div>'+
+        '<div style="flex:2;min-width:220px"><label>后端地址 <span class="hint">http://服务名:容器端口</span></label><input type="text" list="pxTargets" data-pxf="'+i+':api_target" value="'+esc(p.api_target)+'" placeholder="http://xxl-job:8080"></div>'+
+        '<div style="max-width:200px"><label>转发时去掉前缀</label><label style="margin:0;font-weight:500;cursor:pointer"><input type="checkbox" data-pxc="'+i+':strip" '+(p.strip?'checked':'')+'> 后端收到的路径不含前缀</label></div>'+
+        '</div><div class="pxexample" data-pxex="'+i+'" style="display:none"></div>';
+    } else {
+      html += '<div class="row" style="gap:12px;align-items:end">'+
+        '<div style="flex:2;min-width:260px"><label>后端地址 <span class="hint">整站所有路径转发到该服务</span></label><input type="text" list="pxTargets" data-pxf="'+i+':api_target" value="'+esc(p.api_target)+'" placeholder="http://nacos:8848"></div>'+
+        '</div>';
+    }
+    html += '<div class="row" style="gap:12px;margin-top:10px;align-items:end">'+
+      '<div style="display:flex;gap:10px;align-items:end"><div><label>WebSocket</label>'+
+      '<label style="margin:0;font-weight:500;cursor:pointer;white-space:nowrap"><input type="checkbox" data-pxc="'+i+':ws" '+(p.ws?'checked':'')+'> 启用</label></div>'+
+      '<input type="text" style="width:120px" data-pxf="'+i+':ws_path" value="'+esc(p.ws_path)+'"'+(p.ws?'':' disabled')+'></div>'+
+      '<div style="max-width:130px"><label>上传限制</label><input type="text" data-pxf="'+i+':body_size" value="'+esc(p.body_size)+'"></div>'+
+      '<div><label>HTTPS 证书</label><label style="margin:0;font-weight:500;cursor:pointer;white-space:nowrap"><input type="checkbox" data-pxc="'+i+':ssl" '+(p.ssl?'checked':'')+'> 上传证书, 部署即配好 SSL</label></div>'+
+      '<div style="flex:1"></div>'+
+      '<div><label>真实IP还原</label><label style="margin:0;font-weight:500;cursor:pointer;white-space:nowrap"><input type="checkbox" data-pxc="'+i+':realip" '+(p.realip?'checked':'')+'> 前面有 CDN/负载均衡时勾选</label></div>'+
+      '</div>';
+    if (p.ssl){
+      html += '<div class="pxsub"><div class="row" style="gap:14px;align-items:end">'+
+        '<div style="flex:1;min-width:230px"><label>证书文件 <span class="hint">fullchain.pem / .crt(含中间证书)</span></label>'+
+        '<input type="file" accept=".pem,.crt,.cer" data-pxfile="'+i+':cert"></div>'+
+        '<div style="flex:1;min-width:230px"><label>私钥文件 <span class="hint">.key(暂不支持加密私钥)</span></label>'+
+        '<input type="file" accept=".key,.pem" data-pxfile="'+i+':key"></div>'+
+        '<div style="max-width:190px"><label>HTTP 跳转</label><label style="margin:0;font-weight:500;cursor:pointer;white-space:nowrap"><input type="checkbox" data-pxc="'+i+':redirect" '+(p.redirect?'checked':'')+'> 80 端口 301 到 https</label></div>'+
+        '</div><div class="hint" style="margin-top:8px" data-pxssl="'+i+'">'+pxSslStatus(p)+'</div></div>';
+    }
+    if (p.realip){
+      html += '<div class="pxsub"><label>可信代理网段 <span class="hint">CIDR, 逗号或换行分隔; 只有这些来源的 XFF 头会被采信, 还原出的 IP 写入 $remote_addr 与日志</span></label>'+
+        '<textarea rows="2" data-pxf="'+i+':trusted">'+esc(p.trusted)+'</textarea></div>';
+    }
+    html += '</div></div>';
+  });
+  html += '<datalist id="pxTargets">'+pxTargetOptions()+'</datalist>';
+  html += '<button type="button" class="addport wide" data-pxadd>+ 添加站点</button>';
+  html += '<div class="hint" style="margin-top:10px">生成的配置自动包含代理优化: upstream 长连接复用(keepalive) · 连接/读写超时 · 响应缓冲 · X-Real-IP / X-Forwarded-* 透传 · WebSocket 升级; gzip 与安全响应头已在 nginx.conf 全局开启。证书随包分发到 nginx/ssl/, 挂载于容器 /etc/nginx/ssl。</div>';
+  box.innerHTML = html;
+  state.proxies.forEach((_, i) => pxExample(i));
+
+  const addSite = () => { state.proxies.push(pxDefaultSite()); saveLocal(); renderProxy(); };
+  box.querySelectorAll('[data-pxadd]').forEach(b => b.onclick = addSite);
+  box.querySelectorAll('[data-pxdel]').forEach(b => b.onclick = () => {
+    state.proxies.splice(+b.dataset.pxdel, 1); saveLocal(); renderProxy();
+  });
+  box.querySelectorAll('input[name^=pxm]').forEach(r => r.onchange = () => {
+    state.proxies[+r.name.slice(4)].mode = r.value; saveLocal(); renderProxy();
+  });
+  box.querySelectorAll('[data-pxf]').forEach(n => {
+    const [i, f] = n.dataset.pxf.split(':');
+    const apply = () => {
+      let v = n.value;
+      if (f === 'listen') v = parseInt(v, 10) || 80;
+      state.proxies[+i][f] = v;
+      if (f === 'api_prefix' || f === 'api_target') pxExample(+i);
+      saveLocal();
+    };
+    n.oninput = apply;
+    if (n.tagName === 'SELECT' || n.tagName === 'TEXTAREA') n.onchange = apply;
+  });
+  box.querySelectorAll('[data-pxc]').forEach(c => {
+    const [i, f] = c.dataset.pxc.split(':');
+    c.onchange = () => {
+      state.proxies[+i][f] = c.checked;
+      if (f === 'ws'){
+        const w = box.querySelector('[data-pxf="'+i+':ws_path"]'); if (w) w.disabled = !c.checked;
+      }
+      if (f === 'api_prefix' || f === 'strip') pxExample(+i);
+      saveLocal();
+      if (f === 'realip' || f === 'ssl') renderProxy();   // 子面板按需出现
+    };
+  });
+  // 证书文件读取(文本 PEM, 存进配置随包分发)
+  box.querySelectorAll('[data-pxfile]').forEach(inp => inp.onchange = () => {
+    const [i, kind] = inp.dataset.pxfile.split(':');
+    const f = inp.files && inp.files[0];
+    if (!f) return;
+    if (f.size > 200 * 1024){ toast('证书文件过大(>200KB), 请确认选对了文件'); inp.value = ''; return; }
+    const rd = new FileReader();
+    rd.onload = () => {
+      const p = state.proxies[+i];
+      if (kind === 'cert'){ p.cert_pem = String(rd.result); p.cert_name = f.name; }
+      else { p.key_pem = String(rd.result); p.key_name = f.name; }
+      const st = box.querySelector('[data-pxssl="'+i+'"]');
+      if (st) st.textContent = pxSslStatus(p);
+      saveLocal();
+      toast('已读取 ' + f.name);
+    };
+    rd.readAsText(f);
+  });
+}
+function pxSslStatus(p){
+  const c = p.cert_pem ? '证书 ' + (p.cert_name || '已加载') + ' ✓' : '证书未选择';
+  const k = p.key_pem ? '私钥 ' + (p.key_name || '已加载') + ' ✓' : '私钥未选择';
+  return '已加载: ' + c + ' · ' + k;
+}
+
+/* ---- 数据库备份策略 ---- */
+function renderBackup(){
+  const box = $('#backupBox');
+  if (!state.backup) state.backup = { enabled: true, days: [1,2,3,4,5,6,7], hour: 3, keep: 7, dir: '/data/backup/mysql' };
+  const b = state.backup;
+  let html = '<div class="map-row" style="grid-template-columns:150px 1fr">'+
+    '<span class="mlabel">启用备份</span>'+
+    '<label style="margin:0;font-weight:500;cursor:pointer"><input type="checkbox" id="bkEnabled" '+(b.enabled?'checked':'')+'> 部署时自动写入 crontab, 服务器零手工配置</label></div>'+
+    '<div id="bkDetail" style="margin-top:13px;'+(b.enabled?'':'opacity:.45;pointer-events:none')+'">';
+  html += '<label>备份日 <span class="hint">可多选</span></label><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><div class="segs">';
+  for (let d=1; d<=7; d++){
+    html += '<label><input type="checkbox" data-bkd="'+d+'" '+(b.days.includes(d)?'checked':'')+'>'+WEEK[d]+'</label>';
+  }
+  html += '</div>'+
+    '<button type="button" class="mini" data-bkq="every">每天</button>'+
+    '<button type="button" class="mini" data-bkq="week">工作日</button>'+
+    '</div>';
+  html += '<div class="row" style="margin-top:13px">'+
+    '<div style="max-width:150px"><label>备份时间</label><select id="bkHour">';
+  for (let h=0; h<24; h++) html += '<option value="'+h+'" '+(b.hour===h?'selected':'')+'>'+String(h).padStart(2,'0')+':00</option>';
+  html += '</select></div>'+
+    '<div style="max-width:150px"><label>每库保留份数</label><input type="text" id="bkKeep" value="'+esc(b.keep)+'"></div>'+
+    '<div><label>备份目录(服务器)</label><input type="text" id="bkDir" value="'+esc(b.dir)+'"></div></div>';
+  html += '<div class="hint" style="margin-top:10px">mysqldump 在 mysql 容器内执行(--single-transaction, 排除系统库), 每库一个 .sql.gz; 超出保留份数自动轮转删除</div></div>';
+  box.innerHTML = html;
+
+  box.querySelector('#bkEnabled').onchange = e => { b.enabled = e.target.checked; saveLocal(); renderBackup(); };
+  box.querySelectorAll('[data-bkd]').forEach(c => c.onchange = () => {
+    const d = +c.dataset.bkd;
+    if (c.checked){ if (!b.days.includes(d)) b.days.push(d); }
+    else b.days = b.days.filter(x => x !== d);
+    saveLocal();
+  });
+  box.querySelectorAll('[data-bkq]').forEach(btn => btn.onclick = () => {
+    b.days = btn.dataset.bkq === 'every' ? [1,2,3,4,5,6,7] : [1,2,3,4,5];
+    saveLocal(); renderBackup();
+    toast(btn.dataset.bkq === 'every' ? '已选每天备份' : '已选工作日备份');
+  });
+  const h = box.querySelector('#bkHour'); if (h) h.onchange = () => { b.hour = +h.value; saveLocal(); };
+  const k = box.querySelector('#bkKeep'); if (k) k.oninput = () => { b.keep = k.value; saveLocal(); };
+  const dir = box.querySelector('#bkDir'); if (dir) dir.oninput = () => { b.dir = dir.value; saveLocal(); };
+}
+
+function renderPwds(){
+  const wb = $('#pwdBox'); wb.innerHTML = '';
+  const done = new Set();
+  for (const item of CATALOG.secrets){
+    if (!item.services.some(s => selected.has(s)) || done.has(item.key)) continue;
+    done.add(item.key);
+    if (!(item.key in state.secrets)) state.secrets[item.key] = item.default;
+    const isToken = item.type === 'nacos_token';
+    const isUser  = item.secret === false;
+    const isPwd   = !isUser && !isToken;   // 真正的密码: 才有 显示/随机/强度
+    const type = isPwd ? 'password' : 'text';
+    const showBtn = isPwd ? '<button type="button" class="mini" data-show="'+item.key+'">显示</button>' : '';
+    const genBtn  = isUser ? '' : '<button type="button" class="mini" data-gen="'+item.key+'" data-token="'+(isToken?1:0)+'">随机</button>';
+    const st = isPwd ? '<span class="strength s'+pwStrength(state.secrets[item.key])+'" data-str="'+item.key+'"><i></i><i></i><i></i><i></i><em>'+strLabel(pwStrength(state.secrets[item.key]))+'</em></span>' : '<span></span>';
+    let html = '<div class="grp"><h3>'+esc(item.label)+'</h3><div class="pwline">'+
+      '<div class="pwrow">'+
+      '<input type="'+type+'" data-sec="'+item.key+'" value="'+esc(state.secrets[item.key])+'"'+(isUser?' autocomplete="off" spellcheck="false"':'')+'>'+
+      showBtn + genBtn +
+      '</div>'+
+      st + '</div>';
+    html += '</div>';
+    wb.insertAdjacentHTML('beforeend', html);
+  }
+  const hints = [];
+  if (selected.has('xxljob')) hints.push('* XXL-Job 控制台初始账号 admin, 初始密码即上面登记的 XXL-Job admin 密码(打包时按该值初始化 SQL), 登录后请修改');
+  if (selected.has('nacos'))  hints.push('* Nacos 控制台密码为初始登记值, 部署后请登录控制台改为自己要用的密码; .env 中该值仅作登记');
+  if (hints.length) wb.insertAdjacentHTML('beforeend', '<div class="hint" style="margin-top:10px">'+hints.join('<br>')+'</div>');
+  wb.querySelectorAll('input').forEach(i => i.oninput = () => {
+    state.secrets[i.dataset.sec] = i.value;
+    if (i.type === 'password' || document.querySelector('.strength[data-str="'+i.dataset.sec+'"]')) syncStrength(i.dataset.sec);
+    saveLocal();
+  });
+  wb.querySelectorAll('[data-show]').forEach(b => b.onclick = () => {
+    const inp = wb.querySelector('input[data-sec='+b.dataset.show+']');
+    const show = inp.type === 'password';
+    inp.type = show ? 'text' : 'password'; b.textContent = show ? '隐藏' : '显示';
+  });
+  wb.querySelectorAll('[data-gen]').forEach(b => b.onclick = () => {
+    const v = b.dataset.token === '1' ? randToken() : randPwd(16);
+    state.secrets[b.dataset.gen] = v;
+    const inp = wb.querySelector('input[data-sec='+b.dataset.gen+']');
+    inp.value = v; inp.type = 'text';
+    const sb = wb.querySelector('[data-show='+b.dataset.gen+']'); if (sb) sb.textContent = '隐藏';
+    syncStrength(b.dataset.gen);
+    saveLocal();
+  });
+}
+function strLabel(s){
+  return ['','弱','一般','良好','强'][s] || '';
+}
+function syncStrength(key){
+  const bar = document.querySelector('.strength[data-str="'+key+'"]');
+  if (!bar) return;
+  const s = pwStrength(state.secrets[key] || '');
+  bar.className = 'strength s' + s;
+  bar.querySelector('em').textContent = strLabel(s);
+}
+
+/* ---- 数据库 ---- */
+function renderDb(){
+  const box = $('#dbBox'); box.innerHTML = '';
+  const localMysqls = ['mysql57','mysql8'].filter(s => selected.has(s));
+  for (const app of ['nacos','xxljob']){
+    if (!selected.has(app)) continue;
+    const schemaDefault = app === 'nacos' ? 'nacos' : 'xxl_job';
+    const conf = state.db[app] || {};
+    conf.mode = conf.mode || (localMysqls.length ? 'local' : 'external');
+    if (conf.mode === 'local' && !localMysqls.length){
+      conf.mode = 'external';
+      toast(CATALOG.services[app].label + ': 本次未部署 MySQL, 已改为使用外部数据库');
+    }
+    conf.local_svc = conf.local_svc || (localMysqls.includes('mysql8') ? 'mysql8' : (localMysqls[0] || ''));
+    conf.schema = conf.schema || schemaDefault;
+    conf.host = conf.host || '127.0.0.1'; conf.port = conf.port || 3306;
+    conf.user = conf.user || 'root'; conf.password = conf.password || '';
+    state.db[app] = conf;
+
+    let html = '<div class="dbbox" data-app="'+app+'"><div class="dbhead"><b>'+esc(CATALOG.services[app].label)+'</b>'+
+      '<div class="segs">'+
+      '<label class="'+(localMysqls.length?'':'dis')+'"><input type="radio" name="dbm_'+app+'" value="local" '+(conf.mode==='local'?'checked':'')+(localMysqls.length?'':' disabled')+'>使用本次部署的 MySQL</label>'+
+      '<label><input type="radio" name="dbm_'+app+'" value="external" '+(conf.mode==='external'?'checked':'')+'>使用外部数据库</label>'+
+      '</div></div><div class="dbform">';
+    if (conf.mode === 'local'){
+      html += '<div class="row">';
+      if (localMysqls.length > 1){
+        html += '<div><label>使用哪个 MySQL</label><select data-dblsvc="'+app+'">';
+        for (const m of localMysqls) html += '<option value="'+m+'" '+(conf.local_svc===m?'selected':'')+'>'+esc(CATALOG.services[m].label)+'</option>';
+        html += '</select></div>';
+      } else {
+        html += '<div><label>MySQL 服务</label><input type="text" value="'+esc(CATALOG.services[localMysqls[0]].label)+'" disabled></div>';
+      }
+      html += '<div><label>库名</label><input type="text" data-dbschema="'+app+'" value="'+esc(conf.schema)+'"></div>'+
+              '<div><label>连接账号</label><input type="text" value="root (自动使用 root 密码)" disabled></div>'+
+              '</div><div class="hint" style="margin-top:8px">建库建表 SQL 会在首次启动时自动导入, 幂等可重跑</div>';
+    } else {
+      html += '<div class="row">'+
+        '<div style="flex:2.2"><label>数据库地址 <span class="hint">127.0.0.1 自动改写 host-gateway</span></label><input type="text" data-dbhost="'+app+'" value="'+esc(conf.host)+'"></div>'+
+        '<div style="max-width:120px;min-width:100px"><label>端口</label><input type="text" data-dbport="'+app+'" value="'+conf.port+'"></div>'+
+        '</div><div class="row" style="margin-top:12px">'+
+        '<div><label>库名</label><input type="text" data-dbschema="'+app+'" value="'+esc(conf.schema)+'"></div>'+
+        '<div><label>账号</label><input type="text" data-dbuser="'+app+'" value="'+esc(conf.user)+'"></div>'+
+        '<div><label>密码</label><input type="password" data-dbpass="'+app+'" value="'+esc(conf.password)+'"></div>'+
+        '</div><div class="hint" style="margin-top:8px">部署时先测连再建库建表(已存在则跳过)</div>';
+    }
+    html += '</div></div>';
+    box.insertAdjacentHTML('beforeend', html);
+  }
+  for (const app of Object.keys(state.db).filter(a => state.db[a] && selected.has(a))){
+    const el = document.querySelector('.dbbox[data-app="'+app+'"]'); if (!el) continue;
+    const conf = state.db[app];
+    el.querySelectorAll('input[name=dbm_'+app+']').forEach(r => r.onchange = () => {
+      conf.mode = r.value; saveLocal(); renderDb();
+    });
+    const sel = el.querySelector('[data-dblsvc]'); if (sel) sel.onchange = () => { conf.local_svc = sel.value; saveLocal(); };
+    const bind = (attr, key) => { const n = el.querySelector(attr); if (n) n.oninput = () => { conf[key] = n.value; saveLocal(); }; };
+    bind('[data-dbhost]','host'); bind('[data-dbport]','port'); bind('[data-dbschema]','schema');
+    bind('[data-dbuser]','user'); bind('[data-dbpass]','password');
+  }
+}
+
+/* ---- 端口冲突实时校验(仅宿主机端口查重; 容器端口只做合法性) ---- */
+function validatePorts(){
+  const seen = {};   // 宿主机端口 -> 代表元素
+  const mark = (el, ok) => { el.classList.toggle('bad', !ok); el.title = ok ? '' : '端口不合法或冲突'; };
+  const reg = (el, raw, isHost) => {
+    const n = parseInt(raw, 10);
+    const valid = /^\d+$/.test(String(raw).trim()) && n >= 1 && n <= 65535;
+    if (!valid){ mark(el, false); return; }
+    if (isHost){
+      if (seen[n]){ mark(el, false); if (seen[n] !== el) mark(seen[n], false); }
+      else { seen[n] = el; mark(el, true); }
+    } else mark(el, true);
+  };
+  $$('#portBox input[data-port]').forEach(el => reg(el, state.ports[el.dataset.port], true));
+  $$('#portBox input[data-eh]').forEach(el => {
+    const [svc, idx, field] = el.dataset.eh.split(':');
+    reg(el, state.extra[svc][+idx][field === 'host' ? 'host' : 'container'], field === 'host');
+  });
+}
+
+/* ---- 底部统计 ---- */
+function updateStat(){
+  const svcs = [...selected];
+  if (!svcs.length){ $('#statLine').innerHTML = '未选择组件'; $('#btnPack').disabled = $('#btnPreview').disabled = true; return; }
+  $('#btnPack').disabled = $('#btnPreview').disabled = false;
+  const arch = $('#arch').value;
+  let mb = (CATALOG.sizes.docker[arch] || 0) + (CATALOG.sizes.compose[arch] || 0);
+  for (const s of svcs) mb += (CATALOG.sizes.images[s] || {})[arch] || 0;
+  $('#statLine').innerHTML = '已选 <b>'+svcs.length+'</b> 个组件 · 目标 '+
+    (arch==='amd64'?'x86_64':'ARM')+' · 原始物料 <b>'+fmtGB(mb)+'</b> · 打包后约为其 35%~45%';
+}
+
+/* ================= 配置 导入/导出/恢复 ================= */
+function buildConfig(){
+  return {
+    project: $('#project').value.trim(),
+    arch: $('#arch').value,
+    services: [...selected],
+    ports: {...state.ports},
+    secrets: {...state.secrets},
+    deploy_dir: $('#deploy_dir').value.trim(),
+    docker_data_root: $('#data_root').value.trim(),
+    registry_mirrors: $('#mirrors').value.split('\n').map(s=>s.trim()).filter(Boolean),
+    extra_ports: JSON.parse(JSON.stringify(state.extra)),
+    backup: JSON.parse(JSON.stringify(state.backup)),
+    db: JSON.parse(JSON.stringify(state.db)),
+    proxies: state.proxies.map(p => {
+      const o = JSON.parse(JSON.stringify(p));
+      o.trusted_proxies = p.realip ? String(p.trusted||'').split(/[\s,]+/).filter(Boolean) : [];
+      return o;
+    }),
+  };
+}
+function applyConfig(cfg){
+  $('#project').value = cfg.project || 'demo';
+  $('#arch').value = cfg.arch === 'arm64' ? 'arm64' : 'amd64';
+  $('#deploy_dir').value = cfg.deploy_dir || '/data/middleware';
+  $('#data_root').value = cfg.docker_data_root || '/data/docker';
+  $('#mirrors').value = ((cfg.registry_mirrors && cfg.registry_mirrors.length) ? cfg.registry_mirrors
+    : (CATALOG.defaults.registry_mirrors || [])).join('\n');
+  selected.clear(); (cfg.services || []).forEach(s => selected.add(s));
+  Object.keys(state.ports).forEach(k => delete state.ports[k]); Object.assign(state.ports, cfg.ports || {});
+  Object.keys(state.secrets).forEach(k => delete state.secrets[k]); Object.assign(state.secrets, cfg.secrets || {});
+  Object.keys(state.db).forEach(k => delete state.db[k]); Object.assign(state.db, cfg.db || {});
+  Object.keys(state.extra).forEach(k => delete state.extra[k]);
+  const xp = cfg.extra_ports || {};
+  for (const k of Object.keys(xp)) state.extra[k] = xp[k];
+  const bd = cfg.backup || {};
+  state.backup = { enabled: bd.enabled !== false,
+    days: (bd.days && bd.days.length ? bd.days : [1,2,3,4,5,6,7]).map(Number),
+    hour: (bd.hour != null ? +bd.hour : 3), keep: (bd.keep || 7), dir: (bd.dir || '/data/backup/mysql') };
+  state.proxies = (cfg.proxies || []).map(p => Object.assign(pxDefaultSite(), p, {
+    trusted: Array.isArray(p.trusted_proxies) ? p.trusted_proxies.join(', ') : (p.trusted || '')
+  }));
+  if ($('#arch').value === 'arm64') selected.delete('mysql57');
+  renderSvcGridSync();
+}
+function restoreLocal(){
+  try {
+    const raw = localStorage.getItem('packer-cfg-v1');
+    if (raw){ applyConfig(JSON.parse(raw)); toast('已恢复上次填写的配置'); return; }
+  } catch(e){}
+  // 首次使用: 默认勾选常用组合(除 MySQL 5.7) + 实测可用的加速器
+  for (const k of Object.keys(CATALOG.services)){
+    if (k !== 'mysql57'){ selected.add(k); document.querySelector('.svc[data-key="'+k+'"]').classList.add('on'); }
+  }
+  $('#mirrors').value = (CATALOG.defaults.registry_mirrors || []).join('\n');
+  renderDynamic();
+}
+function doExport(){
+  const blob = new Blob([JSON.stringify(buildConfig(), null, 2)], {type:'application/json'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = ($('#project').value.trim() || 'project') + '-packer.json';
+  a.click(); URL.revokeObjectURL(a.href);
+  toast('配置已导出, 可用 python packer.py --config 直接打包');
+}
+function doImport(e){
+  const f = e.target.files[0]; if (!f) return;
+  const rd = new FileReader();
+  rd.onload = () => {
+    try { applyConfig(JSON.parse(rd.result)); toast('配置已导入'); }
+    catch(err){ msg('导入失败: ' + err.message, 'err'); }
+  };
+  rd.readAsText(f); e.target.value = '';
+}
+
+/* ================= 预览 / 打包 ================= */
+function switchTab(t){
+  curTab = t;
+  $$('#previewCard .tabs button[data-t]').forEach(b => b.classList.toggle('on', b.dataset.t === t));
+  $('#previewPre').textContent = previewData[t] || '';
+}
+async function doCopy(){
+  try { await navigator.clipboard.writeText(previewData[curTab] || ''); toast('已复制到剪贴板'); }
+  catch(e){ toast('复制失败, 请手动选择复制'); }
+}
+async function doPreview(){
+  msg(''); $('#btnPreview').disabled = true;
+  try {
+    const d = await api('/api/preview', buildConfig());
+    previewData = d;
+    $('#previewCard').style.display = ''; switchTab('compose');
+    let extra = '';
+    if (d.backup_cron) extra += '\n备份计划(crontab): ' + d.backup_cron + '  →  backup.sh';
+    if (d.warnings.length) extra += '\n提示:\n- ' + d.warnings.join('\n- ');
+    msg('预览已生成, 将打包镜像: ' + d.images.join(', ') + extra, d.warnings.length ? 'warn' : 'ok');
+    $('#previewCard').scrollIntoView({behavior:'smooth'});
+  } catch(e){ msg(e.message, 'err'); }
+  $('#btnPreview').disabled = false;
+}
+async function doPack(){
+  msg('');
+  try { await api('/api/preview', buildConfig()); }
+  catch(e){ msg(e.message, 'err'); return; }
+  try { await api('/api/pack', buildConfig()); }
+  catch(e){ msg(e.message, 'err'); return; }
+  openProgress();
+}
+let pollTimer = null;
+function openProgress(){
+  $('#modal').classList.remove('hidden');
+  $$('#modal .msg').forEach(x => x.remove());
+  $('#mTitle').innerHTML = '<span class="spin"></span>正在打包';
+  $('#mCancel').classList.remove('hidden'); $('#mClose').classList.add('hidden');
+  clearInterval(pollTimer);
+  pollTimer = setInterval(poll, 800);
+  poll();
+}
+async function poll(){
+  let s;
+  try { s = await api('/api/progress'); } catch(e){ return; }
+  $('#mBar').style.width = s.percent + '%';
+  $('#mPct').textContent = s.percent + '% · ' + fmtGB(Math.round(s.done/1048576)) + ' / ' + fmtGB(Math.round(s.total/1048576));
+  $('#mFile').textContent = s.current ? '正在打包: ' + s.current : (s.stage || '');
+  $('#mStat').textContent = '速度 ' + s.speed + ' MB/s · 已用 ' + fmtTime(s.elapsed) + (s.eta ? ' · 预计剩余 ' + fmtTime(s.eta) : '');
+  if (!s.running){
+    clearInterval(pollTimer); pollTimer = null;
+    $('#mBar').style.width = '100%';
+    $('#mCancel').classList.add('hidden'); $('#mClose').classList.remove('hidden');
+    if (s.error){
+      $('#mTitle').textContent = s.error === '打包已取消' ? '已取消打包' : '打包失败';
+      $('#mFile').textContent = ''; $('#mStat').textContent = '';
+      const err = document.createElement('div');
+      err.className = 'msg err'; err.style.marginTop = '12px'; err.textContent = s.error;
+      $('#mStat').after(err);
+    } else if (s.result){
+      $('#mTitle').textContent = '打包完成';
+      $('#mFile').textContent = s.result.path;
+      $('#mStat').textContent = '产物大小 ' + s.result.size_mb + ' MB · 含 ' + s.result.images + ' 个镜像包' +
+        (s.result.sha256 ? '\nSHA256: ' + s.result.sha256 : '') +
+        (s.result.warnings.length ? '\n提示:\n- ' + s.result.warnings.join('\n- ') : '');
+      msg('打包完成!\n' + s.result.path + ' (' + s.result.size_mb + ' MB)\n' +
+          '已生成同名 .sha256 校验文件, 与压缩包一起拷贝到服务器可在部署时自动校验完整性\n\n' +
+          '服务器部署: 解压后进入目录执行  ./deploy.sh  (root)', 'ok');
+    }
+  }
+}
+async function checkRunning(){
+  try {
+    const s = await api('/api/progress');
+    if (s.running) openProgress();
+  } catch(e){}
+}
+
+/* ================= 仓库状态 / 产物列表 ================= */
+const whFilter = { kind: 'all', arch: 'all' };
+function renderWarehouse(){
+  const p = CATALOG.files_present, sz = CATALOG.sizes;
+  let rows = '', miss = 0;
+  const row = (name, arch, ok, size, note, kind) => {
+    if (!ok) miss++;
+    rows += '<tr data-kind="'+kind+'" data-arch="'+arch+'"><td class="mono">'+esc(name)+'</td><td>'+(arch==='amd64'?'x86_64':'aarch64')+'</td>'+
+      '<td><span class="dot '+(ok?'ok':'no')+'"></span>'+(ok?'就绪':'缺失')+'</td>'+
+      '<td>'+(ok?fmtGB(size):'-')+'</td><td class="hint">'+esc(note||'')+'</td></tr>';
+  };
+  for (const arch of ['amd64','arm64']){
+    row('docker 安装包', arch, p['docker_'+arch], sz.docker[arch], 'Docker 静态二进制', 'pkg');
+    row('docker-compose 插件', arch, p['compose_'+arch], sz.compose[arch], 'compose v2 二进制', 'pkg');
+  }
+  for (const [s, meta] of Object.entries(CATALOG.services)){
+    for (const arch of (meta.supported_arch || ['amd64'])){
+      const ok = p['img_'+s+'_'+arch];
+      row(meta.label + ' 镜像', arch, ok, (sz.images[s]||{})[arch] || 0,
+          (meta.is_plugin ? '插件' : ''), 'img');
+    }
+  }
+  $('#whBody').innerHTML = rows;
+  applyWhFilter();
+  const chip = $('#whChip');
+  chip.classList.toggle('bad', miss > 0);
+  $('#whChipTxt').textContent = miss > 0 ? ('物料缺失 ' + miss + ' 项') : '物料仓库就绪';
+}
+function applyWhFilter(){
+  $$('#whBody tr').forEach(tr => {
+    const okKind = whFilter.kind === 'all' || tr.dataset.kind === whFilter.kind;
+    const okArch = whFilter.arch === 'all' || tr.dataset.arch === whFilter.arch;
+    tr.classList.toggle('hide', !(okKind && okArch));
+  });
+}
+function setupWhFilter(){
+  const wire = (sel, key, attr) => {
+    $$(sel + ' button').forEach(b => b.onclick = () => {
+      whFilter[key] = b.dataset[attr];
+      $$(sel + ' button').forEach(x => x.classList.toggle('on', x === b));
+      applyWhFilter();
+    });
+  };
+  wire('#fKind', 'kind', 'k');
+  wire('#fArch', 'arch', 'a');
+}
+async function loadBundles(){
+  try {
+    const d = await api('/api/bundles');
+    $('#outBody').innerHTML = d.bundles.length
+      ? d.bundles.map(b => '<tr><td class="mono">'+esc(b.name)+'</td><td>'+b.size_mb+' MB</td><td>'+b.mtime+'</td>'+
+          '<td class="mono hint" style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+esc(b.sha256||'')+'">'+
+          (b.sha256 ? esc(b.sha256.slice(0,16)) + '…' : '—')+'</td></tr>').join('')
+      : '<tr><td colspan="4" class="hint">暂无产物</td></tr>';
+  } catch(e){}
+}
+
+init();
+</script>
+</body>
+</html>

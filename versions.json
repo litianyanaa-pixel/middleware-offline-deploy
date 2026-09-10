@@ -1,0 +1,310 @@
+{
+  "docker": {
+    "version": "29.8.0",
+    "packages": {
+      "amd64": "warehouse/packages/x86_64/docker-29.8.0.tgz",
+      "arm64": "warehouse/packages/aarch64/docker-29.8.0.tgz"
+    }
+  },
+  "compose": {
+    "version": "2.39.x",
+    "packages": {
+      "amd64": "warehouse/packages/x86_64/docker-compose-linux-x86_64",
+      "arm64": "warehouse/packages/aarch64/docker-compose-linux-aarch64"
+    }
+  },
+  "services": {
+    "nginx": {
+      "label": "NGINX",
+      "image": "nginx",
+      "tag": "1.31.5",
+      "color": "#009639",
+      "data_dir": "nginx",
+      "supported_arch": [
+        "amd64",
+        "arm64"
+      ],
+      "images": {
+        "amd64": "warehouse/images/nginx/1.31.5/amd64.tar",
+        "arm64": "warehouse/images/nginx/1.31.5/arm64.tar"
+      },
+      "ports": [
+        {
+          "key": "nginx_http",
+          "label": "HTTP 端口",
+          "default": 80,
+          "container": 80
+        },
+        {
+          "key": "nginx_https",
+          "label": "HTTPS 端口",
+          "default": 443,
+          "container": 443
+        },
+        {
+          "key": "nginx_extra",
+          "label": "额外端口",
+          "default": 9000,
+          "container": 9000
+        }
+      ]
+    },
+    "mysql57": {
+      "label": "MySQL 5.7",
+      "image": "mysql",
+      "tag": "5.7.44",
+      "color": "#00758f",
+      "data_dir": "mysql57",
+      "supported_arch": [
+        "amd64"
+      ],
+      "note": "官方未提供 5.7 的 arm64 镜像, 仅支持 x86 服务器",
+      "images": {
+        "amd64": "warehouse/images/mysql/5.7.44/amd64.tar"
+      },
+      "ports": [
+        {
+          "key": "mysql57",
+          "label": "MySQL 5.7 端口",
+          "default": 13306,
+          "container": 3306
+        }
+      ]
+    },
+    "mysql8": {
+      "label": "MySQL 8.0",
+      "image": "mysql",
+      "tag": "8.0.46",
+      "color": "#00758f",
+      "data_dir": "mysql8",
+      "supported_arch": [
+        "amd64",
+        "arm64"
+      ],
+      "images": {
+        "amd64": "warehouse/images/mysql/8.0.46/amd64.tar",
+        "arm64": "warehouse/images/mysql/8.0.46/arm64.tar"
+      },
+      "ports": [
+        {
+          "key": "mysql8",
+          "label": "MySQL 8.0 端口",
+          "default": 13307,
+          "container": 3306
+        }
+      ]
+    },
+    "redis": {
+      "label": "Redis",
+      "image": "redis",
+      "tag": "8.8.2",
+      "color": "#d82c20",
+      "data_dir": "redis",
+      "supported_arch": [
+        "amd64",
+        "arm64"
+      ],
+      "images": {
+        "amd64": "warehouse/images/redis/8.8.2/amd64.tar",
+        "arm64": "warehouse/images/redis/8.8.2/arm64.tar"
+      },
+      "ports": [
+        {
+          "key": "redis",
+          "label": "Redis 端口",
+          "default": 16379,
+          "container": 6379
+        }
+      ]
+    },
+    "nacos": {
+      "label": "Nacos",
+      "image": "nacos/nacos-server",
+      "tag": "v3.2.4",
+      "color": "#1b6dc1",
+      "data_dir": "nacos",
+      "supported_arch": [
+        "amd64",
+        "arm64"
+      ],
+      "needs_db": "nacos",
+      "images": {
+        "amd64": "warehouse/images/nacos/v3.2.4/amd64.tar",
+        "arm64": "warehouse/images/nacos/v3.2.4/arm64.tar"
+      },
+      "ports": [
+        {
+          "key": "nacos_main",
+          "label": "Nacos 主端口",
+          "default": 8848,
+          "container": 8848
+        },
+        {
+          "key": "nacos_grpc",
+          "label": "Nacos gRPC端口",
+          "default": 9848,
+          "container": 9848
+        },
+        {
+          "key": "nacos_console",
+          "label": "Nacos 控制台端口",
+          "default": 18080,
+          "container": 8080
+        }
+      ]
+    },
+    "xxljob": {
+      "label": "XXL-Job-Admin",
+      "image": "xuxueli/xxl-job-admin",
+      "tag": "3.3.0",
+      "color": "#7c3aed",
+      "data_dir": "xxl-job",
+      "supported_arch": [
+        "amd64",
+        "arm64"
+      ],
+      "needs_db": "xxl_job",
+      "images": {
+        "amd64": "warehouse/images/xxl-job/3.3.0/amd64.tar",
+        "arm64": "warehouse/images/xxl-job/3.3.0/arm64.tar"
+      },
+      "ports": [
+        {
+          "key": "xxljob",
+          "label": "XXL-Job 端口",
+          "default": 18081,
+          "container": 8080
+        }
+      ]
+    },
+    "minio": {
+      "label": "MinIO",
+      "image": "minio/minio",
+      "tag": "RELEASE.2025-04-22T22-12-26Z",
+      "color": "#c72e49",
+      "data_dir": "minio",
+      "supported_arch": [
+        "amd64",
+        "arm64"
+      ],
+      "images": {
+        "amd64": "warehouse/images/minio/RELEASE.2025-04-22T22-12-26Z/amd64.tar",
+        "arm64": "warehouse/images/minio/RELEASE.2025-04-22T22-12-26Z/arm64.tar"
+      },
+      "ports": [
+        {
+          "key": "minio_api",
+          "label": "MinIO API 端口",
+          "default": 18082,
+          "container": 9000
+        },
+        {
+          "key": "minio_console",
+          "label": "MinIO 控制台端口",
+          "default": 18083,
+          "container": 9001
+        }
+      ]
+    }
+  },
+  "secrets": [
+    {
+      "key": "MYSQL_ROOT_PASSWORD",
+      "label": "MySQL root 密码",
+      "default": "MJ2R3DZ/VG9=KbX@",
+      "services": [
+        "mysql57",
+        "mysql8"
+      ],
+      "secret": true
+    },
+    {
+      "key": "NACOS_AUTH_USER",
+      "label": "Nacos 控制台账号",
+      "default": "nacos",
+      "services": [
+        "nacos"
+      ],
+      "secret": false
+    },
+    {
+      "key": "NACOS_AUTH_PASSWORD",
+      "label": "Nacos 控制台密码",
+      "default": "T=S:2lJR@V%0D#HT",
+      "services": [
+        "nacos"
+      ],
+      "secret": true
+    },
+    {
+      "key": "NACOS_AUTH_TOKEN",
+      "label": "Nacos Auth Token",
+      "default": "zvO4kaTOrl8hKBVA6xPWr3WSyjtrGCZT8ZiSMMqhUmrH8KsnRPaXoRIMnhhS7Bnh",
+      "services": [
+        "nacos"
+      ],
+      "secret": true,
+      "type": "nacos_token"
+    },
+    {
+      "key": "XXL_JOB_ADMIN_PASSWORD",
+      "label": "XXL-Job admin 密码(登录用)",
+      "default": "TCPG241hPPZP",
+      "services": [
+        "xxljob"
+      ],
+      "secret": true
+    },
+    {
+      "key": "XXL_JOB_ACCESS_TOKEN",
+      "label": "XXL-Job accessToken",
+      "default": "p2rXngWLGEd7FLGE0q9oTsbFYhKVCnFiERMzaay8X61E2xQt",
+      "services": [
+        "xxljob"
+      ],
+      "secret": true
+    },
+    {
+      "key": "REDIS_PASSWORD",
+      "label": "Redis 密码",
+      "default": "PY34%@MiDp~2#lhg",
+      "services": [
+        "redis"
+      ],
+      "secret": true
+    },
+    {
+      "key": "MINIO_ROOT_USER",
+      "label": "MinIO 用户名",
+      "default": "admin",
+      "services": [
+        "minio"
+      ],
+      "secret": false
+    },
+    {
+      "key": "MINIO_ROOT_PASSWORD",
+      "label": "MinIO 密码(至少8位)",
+      "default": "g7orzms97%CpCd2/",
+      "services": [
+        "minio"
+      ],
+      "secret": true,
+      "min_len": 8
+    }
+  ],
+  "defaults": {
+    "deploy_dir": "/data/middleware",
+    "docker_data_root": "/data/docker",
+    "tz": "Asia/Shanghai",
+    "registry_mirrors": [
+      "https://docker.1ms.run",
+      "https://docker.m.daocloud.io",
+      "https://docker.1panel.live",
+      "https://docker.xuanyuan.me",
+      "https://hub.rat.dev",
+      "https://docker.aityp.com"
+    ],
+    "registry_mirrors_note": "2026-09 实测可用; 腾讯云源仅内网, 阿里云个人源已被官方限制, 中科大/163/百度/docker-cn/chenby/hpcloud/dockerhub.icu/ckyl/dockerproxy 已停服或不可达"
+  }
+}

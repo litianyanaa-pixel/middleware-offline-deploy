@@ -1,0 +1,16 @@
+# 原始物料仓库与打包产物: 体积大(数 GB), 走内部流程单独保管/传输
+warehouse/
+dist/
+
+# Python 运行产物
+__pycache__/
+*.py[cod]
+
+# 本地运行日志与临时文件
+*.log
+tmp_*/
+tmp_*
+*.tmp
+
+# 打包器生成的样例配置(个人本地文件)
+example-config.json

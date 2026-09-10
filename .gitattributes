@@ -1,0 +1,8 @@
+# 本项目产出的 shell 脚本要跑在 Linux 服务器上, 工作区一律保持 LF
+* text=auto eol=lf
+
+# Windows 侧文件保持原样
+*.png binary
+*.jpg binary
+*.ico binary
+versions.json -text
