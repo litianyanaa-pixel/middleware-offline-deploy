@@ -440,7 +440,7 @@ prepare_deploy_dir() {
   done
 
   # 容器内服务运行 uid 与宿主机不一致, 挂载目录须可写, 否则起不来。
-  # CHOWN_DIRS 条目: "目录"(默认 999) 或 "目录:uid" (插件可指定各自 uid)
+  # CHOWN_DIRS 条目: "目录"(默认 999) 或 "目录:uid" (插件可指定各自 uid); 也支持单个文件(如 sentinel.conf)
   for d in "${CHOWN_DIRS[@]+"${CHOWN_DIRS[@]}"}"; do
     [ -z "$d" ] && continue
     case "$d" in
@@ -449,6 +449,8 @@ prepare_deploy_dir() {
     esac
     if [ -d "$DEPLOY_DIR/$dir" ]; then
       chown -R "$uid:$uid" "$DEPLOY_DIR/$dir" 2>/dev/null || warn "chown $uid:$uid $dir 失败, 若服务无法写数据/日志请手工处理"
+    elif [ -f "$DEPLOY_DIR/$dir" ]; then
+      chown "$uid:$uid" "$DEPLOY_DIR/$dir" 2>/dev/null || warn "chown $uid:$uid $dir 失败, 若服务无法写配置请手工处理"
     fi
   done
 
@@ -554,7 +556,29 @@ wait_mysql_healthy() { # 等本地 mysql 健康检查通过
     fi
     sleep 3
   done
-  die "$svc 健康检查超时, 请执行 docker logs $svc 排查"
+  # 带出容器日志尾部, 离线现场最常见的排障依据(如 mysqld 参数不识别/权限问题)
+  hr
+  warn "$svc 健康检查超时, 容器日志尾部如下:"
+  docker logs --tail 30 "$svc" 2>&1 | sed 's/^/    /'
+  hr
+  die "$svc 健康检查超时, 请按上方日志排查后重跑部署脚本"
+}
+
+wait_mysql_ready() { # 真实鉴权探活: compose 健康检查(mysqladmin ping)在首启初始化的临时库阶段也会通过
+  local svc="$1" i
+  log "等待 $svc 可用(账号鉴权)..."
+  for i in $(seq 1 100); do
+    if docker exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" "$svc" mysql -uroot -N -e "SELECT 1;" >/dev/null 2>&1; then
+      log "$svc 可用"
+      return 0
+    fi
+    sleep 3
+  done
+  hr
+  warn "$svc 鉴权探活超时, 容器日志尾部如下:"
+  docker logs --tail 30 "$svc" 2>&1 | sed 's/^/    /'
+  hr
+  die "$svc 迟迟不可用(root 鉴权失败或未监听), 请按上方日志排查后重跑部署脚本"
 }
 
 import_sql_external() { # 外部库: 在 compose up 之前导表
@@ -598,7 +622,7 @@ import_sql_local() { # 本地库: 在 compose up 且 MySQL 健康之后兜底导
 
   if [ "${NACOS_IMPORT:-0}" = "1" ] && [ "$NACOS_DB_MODE" = "local" ]; then
     svc="$LOCAL_MYSQL_SVC"; sql="$BASE_DIR/$NACOS_SQL"; schema="$NACOS_SCHEMA"
-    wait_mysql_healthy "$svc"
+    wait_mysql_ready "$svc"
     cnt=$(local_table_count "$svc" "$schema")
     if [ "${cnt:-0}" -gt 0 ]; then
       log "Nacos 库($schema)已有表, 跳过导入"
@@ -610,7 +634,7 @@ import_sql_local() { # 本地库: 在 compose up 且 MySQL 健康之后兜底导
 
   if [ "${XXL_IMPORT:-0}" = "1" ] && [ "$XXL_DB_MODE" = "local" ]; then
     svc="$LOCAL_MYSQL_SVC"; sql="$BASE_DIR/$XXL_SQL"; schema="$XXL_SCHEMA"
-    wait_mysql_healthy "$svc"
+    wait_mysql_ready "$svc"
     cnt=$(local_table_count "$svc" "$schema")
     if [ "${cnt:-0}" -gt 0 ]; then
       log "XXL-Job 库($schema)已有表, 跳过导入"
@@ -628,35 +652,84 @@ setup_mysql_replication() {
   [ "${MYSQL_TOPOLOGY:-single}" = "master-slave" ] || return 0
   local replica="mysql8-replica"
   hr; log "配置 MySQL 主从复制 (GTID 自动同步)..."
+  wait_mysql_ready "$LOCAL_MYSQL_SVC"   # 主库真实可用是授权语句的前提
   docker exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" "$LOCAL_MYSQL_SVC" mysql -uroot -e \
-    "CREATE USER IF NOT EXISTS 'repl'@'%' IDENTIFIED BY '$MYSQL_ROOT_PASSWORD'; GRANT REPLICATION SLAVE, REPLICATION CLIENT ON *.* TO 'repl'@'%'; FLUSH PRIVILEGES;" >/dev/null 2>&1 \
-    || warn "repl 账号授权语句执行失败(若已存在可忽略)"
-  wait_mysql_healthy "$replica"
+    "CREATE USER IF NOT EXISTS 'repl'@'%' IDENTIFIED BY '$MYSQL_ROOT_PASSWORD'; ALTER USER 'repl'@'%' IDENTIFIED BY '$MYSQL_ROOT_PASSWORD'; GRANT REPLICATION SLAVE, REPLICATION CLIENT ON *.* TO 'repl'@'%'; FLUSH PRIVILEGES;" \
+    || die "repl 账号授权失败(报错见上), 修复后重跑部署脚本"
+  wait_mysql_ready "$replica"
+  # 判定复制是否已在运行(IO 线程); 表必须真实存在, 查询报错按未运行处理
   local running
   running="$(docker exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" "$replica" mysql -uroot -N \
-    -e "SELECT COUNT(*) FROM performance_schema.replication_applier_status_by_channel WHERE SERVICE_STATE='ON';" 2>/dev/null || echo 0)"
+    -e "SELECT COUNT(*) FROM performance_schema.replication_connection_status WHERE SERVICE_STATE='ON';" 2>/dev/null || echo 0)"
   if [ "${running:-0}" -gt 0 ]; then
     log "从库复制已在运行, 跳过配置"
   else
+    # 残留的已停通道先停掉(未配置复制时该语句报错, 无害)
+    docker exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" "$replica" mysql -uroot \
+      -e "STOP REPLICA;" >/dev/null 2>&1 || true
     docker exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" "$replica" mysql -uroot -e \
       "CHANGE REPLICATION SOURCE TO SOURCE_HOST='$LOCAL_MYSQL_SVC', SOURCE_PORT=3306, SOURCE_USER='repl', SOURCE_PASSWORD='$MYSQL_ROOT_PASSWORD', SOURCE_AUTO_POSITION=1, GET_MASTER_PUBLIC_KEY=1; START REPLICA;" \
-      || die "从库复制配置失败, 请手工执行: docker exec -it $replica mysql -uroot"
+      || {
+        warn "$replica 复制配置执行失败, 容器日志尾部如下:"
+        docker logs --tail 20 "$replica" 2>&1 | sed 's/^/    /'
+        die "从库复制配置失败, 请按上方日志排查后重跑部署脚本"
+      }
     log "从库已指向主库 $LOCAL_MYSQL_SVC (GTID 自动定位)"
   fi
-  sleep 6
-  local st
-  st="$(docker exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" "$replica" mysql -uroot -N -e "SHOW REPLICA STATUS\G" 2>/dev/null || true)"
-  if echo "$st" | grep -q "Replica_IO_Running: Yes" && echo "$st" | grep -q "Replica_SQL_Running: Yes"; then
+  # 复制线程就绪需要时间(从库要拉取并回放 GTID 流), 轮询等待而非单次判定
+  local st ok=""
+  for i in $(seq 1 20); do
+    st="$(docker exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" "$replica" mysql -uroot -e "SHOW REPLICA STATUS\G" 2>/dev/null || true)"
+    if echo "$st" | grep -q "Replica_IO_Running: Yes" && echo "$st" | grep -q "Replica_SQL_Running: Yes"; then
+      ok=1; break
+    fi
+    sleep 3
+  done
+  if [ -n "$ok" ]; then
     log "主从复制状态: IO/SQL 线程运行正常"
   else
     warn "从库复制线程未就绪, 请复查: docker exec -it $replica mysql -uroot -e 'SHOW REPLICA STATUS\\G'"
   fi
+  # 从库加强只读(compose 仅带 --read-only, super_read_only 运行时置位; 重启后重跑本脚本即恢复)
+  docker exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" "$replica" mysql -uroot -e \
+    "SET GLOBAL read_only=1; SET GLOBAL super_read_only=1;" >/dev/null 2>&1 \
+    && log "从库已置 super_read_only(超管也只读)" \
+    || warn "super_read_only 置位失败(不影响复制), 可手工执行 SET GLOBAL super_read_only=1"
 }
 
 #------------------------------- 7. 启动 -------------------------------
 startup() {
   hr; log "【8/9】启动服务 (docker compose up -d)"
+  if [ "${REDIS_TOPOLOGY:-single}" = "sentinel" ] \
+     && ! (cd "$DEPLOY_DIR" && docker compose ps -q redis-sentinel 2>/dev/null | grep -q .); then
+    # 哨兵形态首启分两段: 先起主/从, 把主库真实 IP 写进哨兵配置后再起哨兵。
+    # 不能用主机名监控: 容器停止时 compose DNS 记录随之消失, 哨兵将无法完成故障仲裁。
+    (cd "$DEPLOY_DIR" && docker compose up -d --no-deps redis redis-replica)
+    local i ip="" health=""
+    for i in $(seq 1 60); do
+      ip="$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' redis 2>/dev/null || true)"
+      health="$(docker inspect -f '{{.State.Health.Status}}' redis 2>/dev/null || echo na)"
+      if [ -n "$ip" ] && [ "$health" = "healthy" ]; then break; fi
+      sleep 2
+    done
+    [ -n "$ip" ] || die "获取 redis 主库 IP 失败, 请重跑部署脚本"
+    sed -i "s|^sentinel monitor .*|sentinel monitor mymaster $ip 6379 2|" "$DEPLOY_DIR/redis/sentinel.conf" \
+      || die "写 sentinel.conf 失败"
+    chown 999:999 "$DEPLOY_DIR/redis/sentinel.conf" 2>/dev/null || true
+    log "哨兵监控地址已指向主库 $ip (故障转移后由哨兵自行维护)"
+  fi
   (cd "$DEPLOY_DIR" && docker compose up -d)
+  if [ "${REDIS_TOPOLOGY:-single}" = "sentinel" ]; then
+    local j
+    for j in $(seq 1 30); do
+      if (cd "$DEPLOY_DIR" && docker compose exec -T redis-sentinel redis-cli -p 26379 ping 2>/dev/null) | grep -q PONG; then
+        log "哨兵服务存活 (26379 PONG)"
+        break
+      fi
+      [ "$j" = "30" ] && warn "哨兵未响应 PING, 请查看: docker compose logs redis-sentinel"
+      sleep 2
+    done
+  fi
   sleep 5
   (cd "$DEPLOY_DIR" && docker compose ps)
 }

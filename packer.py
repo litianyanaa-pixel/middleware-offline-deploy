@@ -696,8 +696,9 @@ def gen_compose(cfg, catalog):
         repl_flags = []
         if s == "mysql8" and topology.get("mysql8") == "master-slave":
             # 主库: 开启 binlog + GTID, 供从库自动同步
+            # 注意: MySQL 8.0 没有 binlog-expire-logs-days, 7 天对应 binlog_expire_logs_seconds=604800
             repl_flags = ["--server-id=1", "--log-bin=mysql-bin", "--gtid-mode=ON",
-                          "--enforce-gtid-consistency=ON", "--binlog-expire-logs-days=7"]
+                          "--enforce-gtid-consistency=ON", "--binlog-expire-logs-seconds=604800"]
         out.append("""
   %(svc)s:
     image: %(image)s
@@ -752,8 +753,9 @@ def gen_compose(cfg, catalog):
       - --log-bin=mysql-bin
       - --gtid-mode=ON
       - --enforce-gtid-consistency=ON
+      # 只保留 read-only: super-read-only 会让官方镜像首启初始化(root 也被拒写)直接失败
+      # super_read_only 由 deploy.sh 在复制链路验证通过后运行时置位(幂等)
       - --read-only=ON
-      - --super-read-only=ON
     healthcheck:
       test: ["CMD-SHELL", "mysqladmin ping -h localhost -uroot -p\\"$$MYSQL_ROOT_PASSWORD\\""]
       interval: 10s
@@ -781,7 +783,8 @@ def gen_compose(cfg, catalog):
       - ./redis/data:/data
       - ./redis/log:/var/log/redis
       - ./redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
-    command: redis-server /usr/local/etc/redis/redis.conf --requirepass "${REDIS_PASSWORD}"
+    # masterauth 必备: 故障转移后被哨兵降级的一方要凭它连新主
+    command: redis-server /usr/local/etc/redis/redis.conf --requirepass "${REDIS_PASSWORD}" --masterauth "${REDIS_PASSWORD}"
     healthcheck:
       test: ["CMD-SHELL", "redis-cli -a \\"$$REDIS_PASSWORD\\" ping | grep -q PONG"]
       interval: 10s
@@ -821,7 +824,7 @@ def gen_compose(cfg, catalog):
       TZ: ${TZ}
     command: redis-server /usr/local/etc/redis/sentinel.conf --sentinel
     volumes:
-      - ./conf/redis/sentinel.conf:/usr/local/etc/redis/sentinel.conf
+      - ./redis/sentinel.conf:/usr/local/etc/redis/sentinel.conf
     deploy:
       replicas: 3
     networks:
@@ -998,6 +1001,9 @@ def gen_env(cfg, catalog):
     for svc in cfg["services"]:
         if svc in PLUGINS and hasattr(PLUGINS[svc], "env_lines"):
             lines += PLUGINS[svc].env_lines(cfg, cfg["ports"], ctx)
+    # promtail 需要挂载宿主机 docker 容器日志目录, 路径随 data-root 配置而变
+    if "promtail" in cfg["services"]:
+        lines.append("DOCKER_DATA_ROOT=%s" % cfg["docker_data_root"])
     return "\n".join(lines) + "\n"
 
 
@@ -1066,6 +1072,9 @@ def gen_manifest_sh(cfg, catalog, client_img, summary_lines, bundle_name=None):
         chown_dirs.append("redis-replica/log")
         port_keys.append(ports["redis_replica"])
         health_wait.append("redis-replica")
+        # 哨兵会把故障转移结果重写回自己的配置文件, 文件属主必须是容器内 redis(999)
+        # (部署布局是平铺的: conf/<svc>/* 会被 deploy.sh 放到 <DEPLOY_DIR>/<svc>/ 下)
+        chown_dirs.append("redis/sentinel.conf:999")
 
     def db_lines(app, prefix):
         conf = db.get(app)
@@ -1530,6 +1539,9 @@ def pack(cfg, catalog, out_dir=None, progress=None):
             conf_files["conf/redis/sentinel.conf"] = (
                 "# 由打包器生成 (Redis 哨兵配置, 重新部署时自动覆盖)\n"
                 "port 26379\n"
+                # 监控目标用 compose 服务名(主机名), Redis 6.2+ 需显式开启域名解析
+                "sentinel resolve-hostnames yes\n"
+                "sentinel announce-hostnames yes\n"
                 "sentinel monitor mymaster redis 6379 2\n"
                 "sentinel auth-pass mymaster %s\n"
                 "sentinel down-after-milliseconds mymaster 5000\n"

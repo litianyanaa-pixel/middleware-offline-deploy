@@ -41,7 +41,7 @@ def compose_block(cfg, ports, ctx):
     volumes:
       - /:/host:ro
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:9100/-/healthy || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- http://localhost:9100/metrics >/dev/null || exit 1"]
       interval: 15s
       timeout: 10s
       retries: 5

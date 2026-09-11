@@ -84,8 +84,8 @@ def compose_block(cfg, ports, ctx):
       - "%(port)d:3000"
 %(extra_ports)s    volumes:
       - ./grafana/data:/var/lib/grafana
-      - ./conf/grafana/provisioning:/etc/grafana/provisioning:ro
-      - ./conf/grafana/dashboards:/opt/dashboards:ro
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/opt/dashboards:ro
     healthcheck:
       test: ["CMD-SHELL", "curl -fs http://localhost:3000/api/health || exit 1"]
       interval: 15s

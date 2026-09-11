@@ -33,8 +33,8 @@ def compose_block(cfg, ports, ctx):
     restart: always
     command: -config.file=/etc/promtail/promtail-config.yml
     volumes:
-      - ./conf/promtail/promtail-config.yml:/etc/promtail/promtail-config.yml:ro
-      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - ./promtail/promtail-config.yml:/etc/promtail/promtail-config.yml:ro
+      - ${DOCKER_DATA_ROOT}/containers:/var/lib/docker/containers:ro
       - ./promtail/positions:/positions
     depends_on:
       - loki
@@ -59,9 +59,9 @@ def conf_files(cfg, ports, ctx):
             "  - job_name: docker-containers\n"
             "    static_configs:\n"
             "      - targets: [localhost]\n"
-            "        __path__: /var/lib/docker/containers/*/*.log\n"
             "        labels:\n"
             "          job: docker\n"
+            "          __path__: /var/lib/docker/containers/*/*.log\n"
             "    pipeline_stages:\n"
             "      - json:\n"
             "          expressions:\n"
