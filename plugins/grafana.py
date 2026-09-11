@@ -129,6 +129,19 @@ def conf_files(cfg, ports, ctx):
             "    type: loki\n"
             "    access: proxy\n"
             "    url: http://loki:3100\n")
+    if "elasticsearch" in services:
+        # ES 开启了安全认证, 数据源带 elastic 账号(密码写入 secureJsonData)
+        datasources.append(
+            "  - name: Elasticsearch\n"
+            "    type: elasticsearch\n"
+            "    access: proxy\n"
+            "    url: http://elasticsearch:9200\n"
+            "    basicAuth: true\n"
+            "    basicAuthUser: elastic\n"
+            "    jsonData:\n"
+            "      timeField: '@timestamp'\n"
+            "    secureJsonData:\n"
+            "      basicAuthPassword: %s\n" % ctx["secrets"].get("ELASTIC_PASSWORD", ""))
     conf = {}
     if datasources:
         conf["conf/grafana/provisioning/datasources/datasources.yml"] = (
@@ -137,6 +150,7 @@ def conf_files(cfg, ports, ctx):
             "deleteDatasources:\n"
             "  - name: Prometheus\n    orgId: 1\n"
             "  - name: Loki\n    orgId: 1\n"
+            "  - name: Elasticsearch\n    orgId: 1\n"
             "datasources:\n" + "".join(datasources))
         conf["conf/grafana/provisioning/dashboards/provider.yml"] = (
             "# 由打包器生成 (仪表盘目录预配, 重新部署时自动覆盖)\n"

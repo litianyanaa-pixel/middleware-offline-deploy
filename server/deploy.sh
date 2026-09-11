@@ -1025,6 +1025,42 @@ summary() {
   hr
 }
 
+#------------------------------- Kafka SASL 用户注册(可选) -------------------------------
+# manifest.sh 中 KAFKA_AUTH=1 时, 在 broker 就绪后于内网监听(9092)注册 SCRAM 用户 admin;
+# 宿主机监听(9094, SASL_PLAINTEXT)的 JAAS 在 compose 中已按 KAFKA_PASSWORD 配好。幂等可重跑。
+setup_kafka_auth() {
+  [ "${KAFKA_AUTH:-0}" = "1" ] || return 0
+  hr; log "注册 Kafka SCRAM 用户 (admin)..."
+  local i
+  for i in $(seq 1 80); do
+    [ "$(docker inspect -f '{{.State.Health.Status}}' kafka 2>/dev/null || echo na)" = "healthy" ] && break
+    [ "$i" = "80" ] && die "kafka 未就绪, 无法注册 SCRAM 用户, 请查看 docker logs kafka"
+    sleep 3
+  done
+  if docker exec kafka /opt/kafka/bin/kafka-configs.sh --bootstrap-server localhost:9092 \
+      --alter --entity-type users --entity-name admin \
+      --add-config "SCRAM-SHA-256=[password=${KAFKA_PASSWORD}]" >/dev/null 2>&1; then
+    log "Kafka SCRAM 用户 admin 已注册 (宿主机 9094 通过 SASL/SCRAM 访问)"
+  else
+    warn "SCRAM 用户注册失败, 宿主机 SASL 监听暂不可用; 可手工执行:"
+    warn "  docker exec kafka /opt/kafka/bin/kafka-configs.sh --bootstrap-server localhost:9092 --alter --entity-type users --entity-name admin --add-config 'SCRAM-SHA-256=[password=xxx]'"
+  fi
+}
+
+#------------------------------- Kibana 服务账号(可选) -------------------------------
+# kibana 9 禁止以 elastic 超级用户运行: 在 ES 就绪后启用内置 kibana_system 账号并置密码。幂等可重跑。
+setup_kibana_user() {
+  [ "${KIBANA_BOOTSTRAP:-0}" = "1" ] || return 0
+  hr; log "启用 Elasticsearch kibana_system 服务账号..."
+  local i code
+  for i in $(seq 1 60); do
+    code=$(curl -s -m 5 -o /dev/null -w '%{http_code}' -u "elastic:$ELASTIC_PASSWORD" -X PUT       "http://127.0.0.1:9200/_security/user/kibana_system/_password" -H 'Content-Type: application/json'       -d "{\"password\":\"$ELASTIC_PASSWORD\"}" 2>/dev/null || echo 000)
+    [ "$code" = "200" ] && { log "kibana_system 账号已启用"; return 0; }
+    sleep 5
+  done
+  warn "kibana_system 账号启用失败(ES 未就绪或密码不符), kibana 可能无法启动, 请检查 ES 后重跑部署脚本"
+}
+
 #===============================================================================
 main() {
   verify_bundle_integrity
@@ -1038,6 +1074,8 @@ main() {
   import_sql_external
   startup
   import_sql_local
+  setup_kafka_auth
+  setup_kibana_user
   setup_mysql_replication
   health_check
   summary

@@ -97,7 +97,13 @@
   input[data-port],input[data-eh],input[data-sec],#deploy_dir,#data_root,#project{font-family:var(--f-mono);font-variant-numeric:tabular-nums}
 
   /* ---- 中间件卡片 ---- */
-  .svc-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(242px,1fr));gap:14px}
+  .svc-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(208px,1fr));gap:12px}
+  #catChips{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px}
+  .chip-f{border:1px solid var(--line);background:#fff;border-radius:99px;padding:5px 13px;font-size:12.5px;color:#475569;cursor:pointer;transition:all .13s}
+  .chip-f:hover{border-color:#b6c4dd}
+  .chip-f i{font-style:normal;color:#94a3b8;margin-left:3px}
+  .chip-f.on{background:var(--acc);border-color:var(--acc);color:#fff}
+  .chip-f.on i{color:rgba(255,255,255,.75)}
   .cat{margin-bottom:20px}
   .cat:last-child{margin-bottom:0}
   .cat-h{font-size:13px;font-weight:600;color:var(--txt);margin:0 0 10px;display:flex;align-items:center;gap:8px}
@@ -113,7 +119,7 @@
   .suite .s-members{display:flex;flex-wrap:wrap;gap:6px}
   .suite .chip{display:inline-flex;align-items:center;gap:5px;font-size:11px;color:#475569;background:#f1f5f9;border-radius:99px;padding:2.5px 9px}
   .suite .chip img{width:13px;height:13px;object-fit:contain}
-  .svc{border:1px solid var(--line);border-radius:12px;padding:14px 15px;cursor:pointer;user-select:none;position:relative;background:#fff;transition:border-color .14s, background .14s, box-shadow .14s, transform .14s}
+  .svc{border:1px solid var(--line);border-radius:12px;padding:11px 12px;cursor:pointer;user-select:none;position:relative;background:#fff;transition:border-color .14s, background .14s, box-shadow .14s, transform .14s}
   .svc:hover{border-color:#c3cad4;box-shadow:var(--sh-2);transform:translateY(-1px)}
   .svc.on{border-color:var(--acc);background:linear-gradient(180deg,#f6f9ff,var(--acc-soft));box-shadow:0 0 0 1px var(--acc), var(--sh-1)}
   .svc.dis{opacity:.45;cursor:not-allowed}
@@ -319,6 +325,7 @@
         <h2><span class="num">2</span>选择中间件 <span class="hint">只打包勾选项, 也可接入 plugins/ 插件扩展</span></h2>
         <div class="body">
           <div id="suiteBox"></div>
+          <div id="catChips"></div>
           <div id="svcCats"></div>
           <div id="topoBox" style="margin-top:16px"></div>
         </div>
@@ -431,7 +438,7 @@
 <script>
 let CATALOG = null;
 const selected = new Set();
-const state = { ports: {}, secrets: {}, db: {}, extra: {}, backup: null, proxies: [], topology: { mysql8: 'single', mysql57: 'single', redis: 'single' } };
+const state = { ports: {}, secrets: {}, db: {}, extra: {}, backup: null, proxies: [], topology: { mysql8: 'single', mysql57: 'single', redis: 'single' }, svcFilter: 'all' };
 const WEEK = ["", "周一", "周二", "周三", "周四", "周五", "周六", "周日"];
 let previewData = { compose: "", env: "", manifest: "" };
 let curTab = "compose";
@@ -560,9 +567,24 @@ function svcCardHtml(key, meta){
     '<div class="warnline">'+esc(meta.warn || '')+'</div>';
 }
 
+function renderSvcChips(){
+  const bar = $('#catChips'); if (!bar) return;
+  const counts = {};
+  for (const [, m] of Object.entries(CATALOG.services)){ const c = (m.cat || 'other'); counts[c] = (counts[c] || 0) + 1; }
+  let html = '<button class="chip-f'+(state.svcFilter==='all'?' on':'')+'" data-cat="all">全部 <i>'+Object.keys(CATALOG.services).length+'</i></button>';
+  for (const [cat, label] of CAT_ORDER){
+    if (!counts[cat]) continue;
+    html += '<button class="chip-f'+(state.svcFilter===cat?' on':'')+'" data-cat="'+cat+'">'+label+' <i>'+counts[cat]+'</i></button>';
+  }
+  bar.innerHTML = html;
+  bar.querySelectorAll('.chip-f').forEach(b => b.onclick = () => { state.svcFilter = b.dataset.cat; renderSvcGrid(); });
+}
+
 function renderSvcGrid(){
+  renderSvcChips();
   const wrap = $('#svcCats'); wrap.innerHTML = '';
   for (const [cat, label] of CAT_ORDER){
+    if (state.svcFilter !== 'all' && cat !== state.svcFilter) continue;
     const entries = Object.entries(CATALOG.services).filter(([k, m]) => (m.cat || 'other') === cat);
     if (!entries.length) continue;
     const sec = document.createElement('div');

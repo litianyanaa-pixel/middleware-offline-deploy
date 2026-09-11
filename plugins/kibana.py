@@ -24,7 +24,7 @@ META = {
         {"key": "kibana_web", "label": "Kibana 端口", "default": 5601, "container": 5601},
     ],
     "secrets": [],
-    "note": "版本必须与 Elasticsearch 完全一致; 自动连接同网络内的 elasticsearch 服务",
+    "note": "版本必须与 Elasticsearch 完全一致; 服务账号 kibana_system 由部署脚本自动启用, 浏览器登录账号 elastic / ELASTIC_PASSWORD",
 }
 
 
@@ -37,6 +37,8 @@ def compose_block(cfg, ports, ctx):
     environment:
       TZ: ${TZ}
       ELASTICSEARCH_HOSTS: http://elasticsearch:9200
+      ELASTICSEARCH_USERNAME: kibana_system
+      ELASTICSEARCH_PASSWORD: ${ELASTIC_PASSWORD}
     depends_on:
       - elasticsearch
     ports:
@@ -52,8 +54,10 @@ def compose_block(cfg, ports, ctx):
 
 def manifest_lines(cfg, ports, ctx):
     # kibana 容器内无健康检查(启动慢), 用宿主机 HTTP 实测兜底
-    return ['HEALTH_HTTP+=("kibana|http://127.0.0.1:5601")']
+    # KIBANA_BOOTSTRAP 触发 deploy.sh 在 ES 中启用 kibana_system 服务账号(kibana 9 禁止以 elastic 超级用户运行)
+    return ['KIBANA_BOOTSTRAP=1',
+            'HEALTH_HTTP+=("kibana|http://127.0.0.1:5601")']
 
 
 def summary_lines(cfg, ports, ctx):
-    return ["Kibana         http://__IP__:%d" % ports["kibana_web"]]
+    return ["Kibana         http://__IP__:%d  (登录账号同 ES: elastic)" % ports["kibana_web"]]

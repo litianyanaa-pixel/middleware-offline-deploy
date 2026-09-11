@@ -21,10 +21,15 @@ META = {
         "arm64": "warehouse/images/kafka-ui/v0.7.2/arm64.tar",
     },
     "ports": [
-        {"key": "ui", "label": "Kafka UI 端口", "default": 18090, "container": 8080},
+        {"key": "ui", "label": "Kafka UI 端口", "default": 18092, "container": 8080},
     ],
-    "secrets": [],
-    "note": "需与 Kafka 同选; 自动连接 kafka:9092, 浏览器打开 http://ip:18090",
+    "secrets": [
+        {"key": "KAFKA_UI_USER", "label": "Kafka UI 登录账号",
+         "default": "admin", "services": ["kafka-ui"], "secret": False},
+        {"key": "KAFKA_UI_PASSWORD", "label": "Kafka UI 登录密码",
+         "default": "Ku9#pL3nBv@Wt6yY", "services": ["kafka-ui"], "secret": True},
+    ],
+    "note": "需与 Kafka 同选; 自动连接 kafka:9092, 控制台带登录鉴权, 浏览器打开 http://ip:18092",
 }
 
 
@@ -39,6 +44,10 @@ def compose_block(cfg, ports, ctx):
       DYNAMIC_CONFIG_ENABLED: "true"
       KAFKA_CLUSTERS_0_NAME: local
       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+      # 控制台登录鉴权(LOGIN_FORM)
+      AUTH_TYPE: "LOGIN_FORM"
+      SPRING_SECURITY_USER_NAME: ${KAFKA_UI_USER}
+      SPRING_SECURITY_USER_PASSWORD: ${KAFKA_UI_PASSWORD}
     depends_on:
       - kafka
     ports:
@@ -51,10 +60,17 @@ def compose_block(cfg, ports, ctx):
     }
 
 
+def env_lines(cfg, ports, ctx):
+    u = str(ctx["secrets"].get("KAFKA_UI_USER", "admin"))
+    v = str(ctx["secrets"].get("KAFKA_UI_PASSWORD", ""))
+    qv = '"%s"' % v if ("#" in v or " " in v) else v
+    return ["KAFKA_UI_USER=%s" % u, "KAFKA_UI_PASSWORD=%s" % qv]
+
+
 def manifest_lines(cfg, ports, ctx):
-    # 容器内无健康检查(镜像无 wget/curl), 用宿主机 HTTP 实测兜底
+    # 容器内无健康检查(镜像无 wget/curl), 用宿主机 HTTP 实测兜底; 登录页 302/200 均算通过
     return ['HEALTH_HTTP+=("kafka-ui|http://127.0.0.1:%d")' % ports["ui"]]
 
 
 def summary_lines(cfg, ports, ctx):
-    return ["Kafka UI       http://__IP__:%d" % ports["ui"]]
+    return ["Kafka UI       http://__IP__:%d  (登录账号 admin 或 .env 中 KAFKA_UI_USER)" % ports["ui"]]

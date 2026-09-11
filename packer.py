@@ -667,6 +667,7 @@ def plugin_ctx(cfg):
         "depends_on": depends_on,
         "extra_hosts": extra_hosts,
         "networks_tail": "    networks:\n      - app-network\n",
+        "bash_quote": bash_quote,
         "local_mysql": ("mysql8" if "mysql8" in services else "mysql57" if "mysql57" in services else ""),
     }
 
