@@ -9,6 +9,7 @@ Promtail 插件 (采集 docker 容器 json-file 日志推送 Loki)
 SERVICE_KEY = "promtail"
 
 META = {
+    "cat": "obs",
     "label": "Promtail",
     "image": "grafana/promtail",
     "tag": "3.6.11",

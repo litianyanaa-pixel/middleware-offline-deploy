@@ -9,6 +9,7 @@ MongoDB 中间件插件 (稳定版 8.0.x, 带内置 root 账号)
 SERVICE_KEY = "mongodb"
 
 META = {
+    "cat": "db",
     "label": "MongoDB",
     "image": "mongo",
     "tag": "8.0.30",

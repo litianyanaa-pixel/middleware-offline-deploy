@@ -646,14 +646,29 @@ import_sql_local() { # 本地库: 在 compose up 且 MySQL 健康之后兜底导
 }
 
 #------------------------------- MySQL 主从(可选形态) -------------------------------
-# manifest.sh 中 MYSQL_TOPOLOGY=master-slave 时自动配置 GTID 复制; 幂等可重跑。
+# manifest.sh 中 MYSQL8_TOPOLOGY / MYSQL57_TOPOLOGY = master-slave 时自动配置 GTID 复制; 幂等可重跑。
 # 注意: 从库与主库同时首次部署才自动同步; 给已有数据的主库"补挂"从库需手工全量迁移。
-setup_mysql_replication() {
-  [ "${MYSQL_TOPOLOGY:-single}" = "master-slave" ] || return 0
-  local replica="mysql8-replica"
-  hr; log "配置 MySQL 主从复制 (GTID 自动同步)..."
-  wait_mysql_ready "$LOCAL_MYSQL_SVC"   # 主库真实可用是授权语句的前提
-  docker exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" "$LOCAL_MYSQL_SVC" mysql -uroot -e \
+# 5.7 与 8.0 复制语句不同(CHANGE MASTER/SHOW SLAVE vs CHANGE REPLICATION SOURCE/SHOW REPLICA), 按 VERSION() 自动选择。
+mysql_is_v57() { # <svc> -> 返回 0 表示该容器是 5.7
+  local v
+  v="$(docker exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" "$1" mysql -uroot -N -e "SELECT VERSION();" 2>/dev/null || echo 0)"
+  case "$v" in 5.*) return 0 ;; *) return 1 ;; esac
+}
+
+setup_one_replication() { # <svc> 对某一代 MySQL 配置主从
+  local svc="$1" replica="${1}-replica" legacy=0 sql_change sql_show
+  hr; log "配置 $svc 主从复制 (GTID 自动同步)..."
+  mysql_is_v57 "$svc" && legacy=1
+  if [ "$legacy" = "1" ]; then
+    sql_change="CHANGE MASTER TO MASTER_HOST='$svc', MASTER_PORT=3306, MASTER_USER='repl', MASTER_PASSWORD='$MYSQL_ROOT_PASSWORD', MASTER_AUTO_POSITION=1; START SLAVE;"
+    sql_show="SHOW SLAVE STATUS\G"
+    log "检测到 MySQL 5.7, 使用 CHANGE MASTER/SHOW SLAVE 语法"
+  else
+    sql_change="CHANGE REPLICATION SOURCE TO SOURCE_HOST='$svc', SOURCE_PORT=3306, SOURCE_USER='repl', SOURCE_PASSWORD='$MYSQL_ROOT_PASSWORD', SOURCE_AUTO_POSITION=1, GET_MASTER_PUBLIC_KEY=1; START REPLICA;"
+    sql_show="SHOW REPLICA STATUS\G"
+  fi
+  wait_mysql_ready "$svc"   # 主库真实可用是授权语句的前提
+  docker exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" "$svc" mysql -uroot -e \
     "CREATE USER IF NOT EXISTS 'repl'@'%' IDENTIFIED BY '$MYSQL_ROOT_PASSWORD'; ALTER USER 'repl'@'%' IDENTIFIED BY '$MYSQL_ROOT_PASSWORD'; GRANT REPLICATION SLAVE, REPLICATION CLIENT ON *.* TO 'repl'@'%'; FLUSH PRIVILEGES;" \
     || die "repl 账号授权失败(报错见上), 修复后重跑部署脚本"
   wait_mysql_ready "$replica"
@@ -666,21 +681,20 @@ setup_mysql_replication() {
   else
     # 残留的已停通道先停掉(未配置复制时该语句报错, 无害)
     docker exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" "$replica" mysql -uroot \
-      -e "STOP REPLICA;" >/dev/null 2>&1 || true
-    docker exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" "$replica" mysql -uroot -e \
-      "CHANGE REPLICATION SOURCE TO SOURCE_HOST='$LOCAL_MYSQL_SVC', SOURCE_PORT=3306, SOURCE_USER='repl', SOURCE_PASSWORD='$MYSQL_ROOT_PASSWORD', SOURCE_AUTO_POSITION=1, GET_MASTER_PUBLIC_KEY=1; START REPLICA;" \
+      -e "STOP $([ "$legacy" = "1" ] && echo SLAVE || echo REPLICA);" >/dev/null 2>&1 || true
+    docker exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" "$replica" mysql -uroot -e "$sql_change" \
       || {
         warn "$replica 复制配置执行失败, 容器日志尾部如下:"
         docker logs --tail 20 "$replica" 2>&1 | sed 's/^/    /'
         die "从库复制配置失败, 请按上方日志排查后重跑部署脚本"
       }
-    log "从库已指向主库 $LOCAL_MYSQL_SVC (GTID 自动定位)"
+    log "从库已指向主库 $svc (GTID 自动定位)"
   fi
   # 复制线程就绪需要时间(从库要拉取并回放 GTID 流), 轮询等待而非单次判定
   local st ok=""
   for i in $(seq 1 20); do
-    st="$(docker exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" "$replica" mysql -uroot -e "SHOW REPLICA STATUS\G" 2>/dev/null || true)"
-    if echo "$st" | grep -q "Replica_IO_Running: Yes" && echo "$st" | grep -q "Replica_SQL_Running: Yes"; then
+    st="$(docker exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" "$replica" mysql -uroot -e "$sql_show" 2>/dev/null || true)"
+    if echo "$st" | grep -qE "(Replica|Slave)_IO_Running: Yes" && echo "$st" | grep -qE "(Replica|Slave)_SQL_Running: Yes"; then
       ok=1; break
     fi
     sleep 3
@@ -688,13 +702,22 @@ setup_mysql_replication() {
   if [ -n "$ok" ]; then
     log "主从复制状态: IO/SQL 线程运行正常"
   else
-    warn "从库复制线程未就绪, 请复查: docker exec -it $replica mysql -uroot -e 'SHOW REPLICA STATUS\\G'"
+    warn "从库复制线程未就绪, 请复查: docker exec -it $replica mysql -uroot -e '$sql_show'"
   fi
   # 从库加强只读(compose 仅带 --read-only, super_read_only 运行时置位; 重启后重跑本脚本即恢复)
   docker exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" "$replica" mysql -uroot -e \
     "SET GLOBAL read_only=1; SET GLOBAL super_read_only=1;" >/dev/null 2>&1 \
     && log "从库已置 super_read_only(超管也只读)" \
     || warn "super_read_only 置位失败(不影响复制), 可手工执行 SET GLOBAL super_read_only=1"
+}
+
+setup_mysql_replication() {
+  local svc topo
+  for svc in mysql8 mysql57; do
+    if [ "$svc" = "mysql8" ]; then topo="${MYSQL8_TOPOLOGY:-single}"; else topo="${MYSQL57_TOPOLOGY:-single}"; fi
+    [ "$topo" = "master-slave" ] || continue
+    setup_one_replication "$svc"
+  done
 }
 
 #------------------------------- 7. 启动 -------------------------------

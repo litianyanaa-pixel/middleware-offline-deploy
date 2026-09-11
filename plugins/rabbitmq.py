@@ -9,6 +9,7 @@ RabbitMQ 中间件插件 (management 版, 含控制台)
 SERVICE_KEY = "rabbitmq"
 
 META = {
+    "cat": "cache",
     "label": "RabbitMQ",
     "image": "rabbitmq",
     "tag": "4.3.5-management",

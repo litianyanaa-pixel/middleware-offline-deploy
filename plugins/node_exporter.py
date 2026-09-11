@@ -9,6 +9,7 @@ Node Exporter 插件 (主机指标采集, 配合 Prometheus + Grafana)
 SERVICE_KEY = "node-exporter"
 
 META = {
+    "cat": "obs",
     "label": "Node Exporter",
     "image": "prom/node-exporter",
     "tag": "v1.12.1",

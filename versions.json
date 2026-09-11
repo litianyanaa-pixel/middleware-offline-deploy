@@ -47,7 +47,8 @@
           "default": 9000,
           "container": 9000
         }
-      ]
+      ],
+      "cat": "web"
     },
     "mysql57": {
       "label": "MySQL 5.7",
@@ -69,7 +70,8 @@
           "default": 13306,
           "container": 3306
         }
-      ]
+      ],
+      "cat": "db"
     },
     "mysql8": {
       "label": "MySQL 8.0",
@@ -92,7 +94,8 @@
           "default": 13307,
           "container": 3306
         }
-      ]
+      ],
+      "cat": "db"
     },
     "redis": {
       "label": "Redis",
@@ -115,7 +118,8 @@
           "default": 16379,
           "container": 6379
         }
-      ]
+      ],
+      "cat": "cache"
     },
     "nacos": {
       "label": "Nacos",
@@ -151,7 +155,8 @@
           "default": 18080,
           "container": 8080
         }
-      ]
+      ],
+      "cat": "svc"
     },
     "xxljob": {
       "label": "XXL-Job-Admin",
@@ -175,7 +180,8 @@
           "default": 18081,
           "container": 8080
         }
-      ]
+      ],
+      "cat": "svc"
     },
     "minio": {
       "label": "MinIO",
@@ -204,7 +210,8 @@
           "default": 18083,
           "container": 9001
         }
-      ]
+      ],
+      "cat": "storage"
     }
   },
   "secrets": [
@@ -306,5 +313,57 @@
       "https://docker.aityp.com"
     ],
     "registry_mirrors_note": "2026-09 实测可用; 腾讯云源仅内网, 阿里云个人源已被官方限制, 中科大/163/百度/docker-cn/chenby/hpcloud/dockerhub.icu/ckyl/dockerproxy 已停服或不可达"
-  }
+  },
+  "suites": [
+    {
+      "key": "metrics",
+      "label": "指标监控套件",
+      "members": [
+        "node-exporter",
+        "prometheus",
+        "grafana"
+      ],
+      "desc": "采集主机指标 → Prometheus 存储 → Grafana 仪表盘"
+    },
+    {
+      "key": "logs",
+      "label": "日志套件",
+      "members": [
+        "loki",
+        "promtail",
+        "grafana"
+      ],
+      "desc": "采集容器日志 → Loki 聚合 → Grafana 查询"
+    },
+    {
+      "key": "search",
+      "label": "搜索套件",
+      "members": [
+        "elasticsearch",
+        "kibana"
+      ],
+      "desc": "Elasticsearch 搜索/日志存储 + Kibana 控制台"
+    },
+    {
+      "key": "mq",
+      "label": "消息队列套件",
+      "members": [
+        "kafka",
+        "kafka-ui"
+      ],
+      "desc": "Kafka (KRaft) + Kafka-UI 管理界面"
+    },
+    {
+      "key": "obs",
+      "label": "可观测全家桶",
+      "members": [
+        "node-exporter",
+        "prometheus",
+        "grafana",
+        "loki",
+        "promtail"
+      ],
+      "desc": "指标 + 日志一站式 (推荐)"
+    }
+  ]
 }

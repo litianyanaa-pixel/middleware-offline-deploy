@@ -9,6 +9,7 @@ Elasticsearch 中间件插件 (单节点, 默认关闭安全认证, 适合内网
 SERVICE_KEY = "elasticsearch"
 
 META = {
+    "cat": "obs",
     "label": "Elasticsearch",
     "image": "elasticsearch",
     "tag": "9.3.0",

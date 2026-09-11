@@ -98,6 +98,21 @@
 
   /* ---- 中间件卡片 ---- */
   .svc-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(242px,1fr));gap:14px}
+  .cat{margin-bottom:20px}
+  .cat:last-child{margin-bottom:0}
+  .cat-h{font-size:13px;font-weight:600;color:var(--txt);margin:0 0 10px;display:flex;align-items:center;gap:8px}
+  .cat-h i{font-style:normal;font-size:11px;color:#94a3b8;background:#f1f5f9;border-radius:99px;padding:1px 8px}
+  .suite-row{display:grid;grid-template-columns:repeat(auto-fill,minmax(252px,1fr));gap:12px;margin-bottom:20px}
+  .suite{border:1px solid var(--line);border-radius:12px;padding:12px 14px;cursor:pointer;user-select:none;background:#fff;transition:border-color .14s, background .14s}
+  .suite:hover{border-color:#b6c4dd}
+  .suite.on{border-color:var(--acc);background:#f5f9ff}
+  .suite .s-head{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:600;color:var(--txt)}
+  .suite .s-head .tick{position:static;width:18px;height:18px;border-radius:50%;border:1.5px solid var(--line2);background:#fff;flex:0 0 auto;transition:all .14s}
+  .suite.on .s-head .tick{background:var(--acc);border-color:var(--acc)}
+  .suite .s-desc{font-size:12px;color:#64748b;margin:7px 0 9px;line-height:1.5}
+  .suite .s-members{display:flex;flex-wrap:wrap;gap:6px}
+  .suite .chip{display:inline-flex;align-items:center;gap:5px;font-size:11px;color:#475569;background:#f1f5f9;border-radius:99px;padding:2.5px 9px}
+  .suite .chip img{width:13px;height:13px;object-fit:contain}
   .svc{border:1px solid var(--line);border-radius:12px;padding:14px 15px;cursor:pointer;user-select:none;position:relative;background:#fff;transition:border-color .14s, background .14s, box-shadow .14s, transform .14s}
   .svc:hover{border-color:#c3cad4;box-shadow:var(--sh-2);transform:translateY(-1px)}
   .svc.on{border-color:var(--acc);background:linear-gradient(180deg,#f6f9ff,var(--acc-soft));box-shadow:0 0 0 1px var(--acc), var(--sh-1)}
@@ -303,7 +318,8 @@
       <div class="card" id="sec-svc">
         <h2><span class="num">2</span>选择中间件 <span class="hint">只打包勾选项, 也可接入 plugins/ 插件扩展</span></h2>
         <div class="body">
-          <div class="svc-grid" id="svcGrid"></div>
+          <div id="suiteBox"></div>
+          <div id="svcCats"></div>
           <div id="topoBox" style="margin-top:16px"></div>
         </div>
       </div>
@@ -415,7 +431,7 @@
 <script>
 let CATALOG = null;
 const selected = new Set();
-const state = { ports: {}, secrets: {}, db: {}, extra: {}, backup: null, proxies: [], topology: { mysql8: 'single', redis: 'single' } };
+const state = { ports: {}, secrets: {}, db: {}, extra: {}, backup: null, proxies: [], topology: { mysql8: 'single', mysql57: 'single', redis: 'single' } };
 const WEEK = ["", "周一", "周二", "周三", "周四", "周五", "周六", "周日"];
 let previewData = { compose: "", env: "", manifest: "" };
 let curTab = "compose";
@@ -532,27 +548,77 @@ async function init(){
   checkRunning();
 }
 
+const CAT_ORDER = [['web','网关入口'],['db','数据库'],['cache','缓存与消息'],['svc','微服务支撑'],['storage','对象存储'],['obs','可观测性'],['other','其他']];
+
+function svcCardHtml(key, meta){
+  const size = (CATALOG.sizes.images[key] || {})[$('#arch').value] || 0;
+  return '<span class="tick"></span>'+
+    '<div class="head">'+avatarHtml(key)+
+    '<div><b>'+esc(meta.label)+'</b><span class="ver">'+esc(meta.tag)+'</span></div></div>'+
+    '<div class="foot"><span class="size">'+($('#arch').value==='amd64'?'x86':'ARM')+' '+fmtGB(size)+'</span>'+
+    '<span>'+((meta.supported_arch||[]).length>1?'双架构':'仅 x86')+(meta.is_plugin?' · 插件':'')+'</span></div>'+
+    '<div class="warnline">'+esc(meta.warn || '')+'</div>';
+}
+
 function renderSvcGrid(){
-  const grid = $('#svcGrid'); grid.innerHTML = '';
-  for (const [key, meta] of Object.entries(CATALOG.services)){
-    const d = document.createElement('div');
-    d.className = 'svc' + (key==='mysql57' && $('#arch').value==='arm64' ? ' dis' : '') + (selected.has(key) ? ' on' : '');
-    d.dataset.key = key;
-    const size = (CATALOG.sizes.images[key] || {})[$('#arch').value] || 0;
-    d.innerHTML =
-      '<span class="tick"></span>'+
-      '<div class="head">'+avatarHtml(key)+
-      '<div><b>'+esc(meta.label)+'</b><span class="ver">'+esc(meta.tag)+'</span></div></div>'+
-      '<div class="foot"><span class="size">'+($('#arch').value==='amd64'?'x86':'ARM')+' '+fmtGB(size)+'</span>'+
-      '<span>'+((meta.supported_arch||[]).length>1?'双架构':'仅 x86')+(meta.is_plugin?' · 插件':'')+'</span></div>'+
-      '<div class="warnline">'+esc(meta.warn || '')+'</div>';
-    d.onclick = () => toggleSvc(key);
-    grid.appendChild(d);
+  const wrap = $('#svcCats'); wrap.innerHTML = '';
+  for (const [cat, label] of CAT_ORDER){
+    const entries = Object.entries(CATALOG.services).filter(([k, m]) => (m.cat || 'other') === cat);
+    if (!entries.length) continue;
+    const sec = document.createElement('div');
+    sec.className = 'cat';
+    sec.innerHTML = '<h3 class="cat-h">'+label+' <i>'+entries.length+'</i></h3>'+
+      '<div class="svc-grid">'+entries.map(([k, m]) =>
+        '<div class="svc'+(k==='mysql57' && $('#arch').value==='arm64' ? ' dis' : '')+(selected.has(k) ? ' on' : '')+'" data-key="'+k+'">'+
+        svcCardHtml(k, m)+'</div>').join('')+'</div>';
+    wrap.appendChild(sec);
   }
+  wrap.querySelectorAll('.svc').forEach(d => d.onclick = () => toggleSvc(d.dataset.key));
+  renderSuites();
   updateSvcWarn();
   renderTopology();
 }
-/* ---- 部署形态: mysql8 主从 / redis 哨兵 ---- */
+
+function suiteAllOn(s){ return (s.members || []).every(m => selected.has(m)); }
+
+function renderSuites(){
+  const box = $('#suiteBox'); if (!box) return;
+  const suites = CATALOG.suites || [];
+  if (!suites.length){ box.innerHTML = ''; return; }
+  let html = '<h3 class="cat-h">套件 <span class="hint" style="font-weight:400">一键勾选一组配套组件, 也可在下方单独增删</span></h3><div class="suite-row">';
+  for (const s of suites){
+    const names = (s.members || []).map(m => (CATALOG.services[m] || {}).label || m);
+    const on = suiteAllOn(s);
+    html += '<div class="suite'+(on?' on':'')+'" data-suite="'+esc(s.key)+'" title="包含: '+esc(names.join('、'))+'">'+
+      '<div class="s-head"><span class="tick"></span><b>'+esc(s.label)+'</b></div>'+
+      '<div class="s-desc">'+esc(s.desc || '')+'</div>'+
+      '<div class="s-members">'+(s.members || []).map(m => {
+        const mm = CATALOG.services[m] || {};
+        return '<span class="chip">'+(typeof LOGOS !== 'undefined' && LOGOS[m] ? '<img src="'+LOGOS[m]+'" alt="">' : '')+esc(mm.label || m)+'</span>';
+      }).join('')+'</div></div>';
+  }
+  html += '</div>';
+  box.innerHTML = html;
+  box.querySelectorAll('.suite').forEach(el => el.onclick = () => {
+    const s = suites.find(x => x.key === el.dataset.suite); if (!s) return;
+    if (suiteAllOn(s)) (s.members || []).forEach(m => selected.delete(m));
+    else (s.members || []).forEach(m => selected.add(m));
+    renderSvcGridSync();
+  });
+}
+
+function renderSvcGridSync(){
+  $$('#svcCats .svc').forEach(d => {
+    const k = d.dataset.key;
+    d.classList.toggle('on', selected.has(k));
+    d.classList.toggle('dis', k==='mysql57' && $('#arch').value==='arm64');
+    const size = (CATALOG.sizes.images[k] || {})[$('#arch').value] || 0;
+    d.querySelector('.size').textContent = ($('#arch').value==='amd64'?'x86':'ARM') + ' ' + fmtGB(size);
+  });
+  renderSuites();
+  updateSvcWarn(); renderDynamic();
+}
+
 function renderTopology(){
   const box = $('#topoBox'); if (!box) return;
   let html = '';
@@ -562,6 +628,13 @@ function renderTopology(){
       '<label><input type="radio" name="topo_mysql8" value="single" '+(m==='single'?'checked':'')+'><span>单机</span></label>'+
       '<label><input type="radio" name="topo_mysql8" value="master-slave" '+(m==='master-slave'?'checked':'')+'><span>主从复制 (一主一从 · GTID)</span></label>'+
       '</div><div class="hint" style="margin-top:7px">主库服务名仍为 mysql8 (Nacos/XXL-Job 照常连它), 从库只读端口 13308 自动同步; 部署脚本自动配置复制关系</div></div>';
+  }
+  if (selected.has('mysql57')){
+    const m = state.topology.mysql57 || 'single';
+    html += '<div class="grp"><h3>MySQL 5.7 部署形态</h3><div class="segs">'+
+      '<label><input type="radio" name="topo_mysql57" value="single" '+(m==='single'?'checked':'')+'><span>单机</span></label>'+
+      '<label><input type="radio" name="topo_mysql57" value="master-slave" '+(m==='master-slave'?'checked':'')+'><span>主从复制 (一主一从 · GTID)</span></label>'+
+      '</div><div class="hint" style="margin-top:7px">主库服务名仍为 mysql57, 从库只读端口 13309 自动同步; 部署脚本按 5.7 语法 (CHANGE MASTER) 自动配置复制关系</div></div>';
   }
   if (selected.has('redis')){
     const r = state.topology.redis || 'single';
@@ -575,26 +648,16 @@ function renderTopology(){
     const k = r.name.replace('topo_', '');
     state.topology[k] = r.value;
     saveLocal();
-    toast(k === 'mysql8' ? (r.value === 'single' ? 'MySQL 单机模式' : 'MySQL 主从模式 (一主一从)') : (r.value === 'single' ? 'Redis 单机模式' : 'Redis 哨兵高可用'));
+    const name = k === 'mysql8' ? 'MySQL' : k === 'mysql57' ? 'MySQL 5.7' : 'Redis';
+    if (k === 'redis') toast(r.value === 'single' ? 'Redis 单机模式' : 'Redis 哨兵高可用');
+    else toast(name + (r.value === 'single' ? ' 单机模式' : ' 主从模式 (一主一从)'));
   });
-}
-function renderSvcGridSync(){
-  $$('#svcGrid .svc').forEach(d => {
-    const k = d.dataset.key;
-    d.classList.toggle('on', selected.has(k));
-    d.classList.toggle('dis', k==='mysql57' && $('#arch').value==='arm64');
-    const size = (CATALOG.sizes.images[k] || {})[$('#arch').value] || 0;
-    d.querySelector('.size').textContent = ($('#arch').value==='amd64'?'x86':'ARM') + ' ' + fmtGB(size);
-  });
-  updateSvcWarn(); renderDynamic();
 }
 function updateSvcWarn(){}
 function toggleSvc(key){
   if (key === 'mysql57' && $('#arch').value === 'arm64'){ toast('MySQL 5.7 不支持 arm64'); return; }
-  const el = document.querySelector('.svc[data-key="'+key+'"]');
-  if (selected.has(key)){ selected.delete(key); el.classList.remove('on'); }
-  else { selected.add(key); el.classList.add('on'); }
-  renderDynamic();
+  if (selected.has(key)) selected.delete(key); else selected.add(key);
+  renderSvcGridSync();
 }
 function onArchChange(){
   if ($('#arch').value === 'arm64' && selected.has('mysql57')){
@@ -1076,7 +1139,7 @@ function applyConfig(cfg){
   Object.keys(state.extra).forEach(k => delete state.extra[k]);
   const xp = cfg.extra_ports || {};
   for (const k of Object.keys(xp)) state.extra[k] = xp[k];
-  state.topology = Object.assign({ mysql8: 'single', redis: 'single' }, cfg.topology || {});
+  state.topology = Object.assign({ mysql8: 'single', mysql57: 'single', redis: 'single' }, cfg.topology || {});
   const bd = cfg.backup || {};
   state.backup = { enabled: bd.enabled !== false,
     days: (bd.days && bd.days.length ? bd.days : [1,2,3,4,5,6,7]).map(Number),

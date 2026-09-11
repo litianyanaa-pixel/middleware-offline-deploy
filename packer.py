@@ -184,6 +184,11 @@ def validate_config(cfg, catalog):
         if m not in ("single", "master-slave"):
             raise PackError("MySQL 部署形态不合法: %s (single / master-slave)" % m)
         topology["mysql8"] = m
+    if "mysql57" in services:
+        m = str(topo_raw.get("mysql57", "single"))
+        if m not in ("single", "master-slave"):
+            raise PackError("MySQL 5.7 部署形态不合法: %s (single / master-slave)" % m)
+        topology["mysql57"] = m
     if "redis" in services:
         r = str(topo_raw.get("redis", "single"))
         if r not in ("single", "sentinel"):
@@ -195,6 +200,8 @@ def validate_config(cfg, catalog):
     topo_port_defs = []
     if topology.get("mysql8") == "master-slave":
         topo_port_defs.append(("mysql8_replica", "MySQL 从库端口", 13308))
+    if topology.get("mysql57") == "master-slave":
+        topo_port_defs.append(("mysql57_replica", "MySQL 5.7 从库端口", 13309))
     if topology.get("redis") == "sentinel":
         topo_port_defs.append(("redis_replica", "Redis 从库端口", 16380))
     seen_topo = set(norm_ports.values())
@@ -694,11 +701,12 @@ def gen_compose(cfg, catalog):
             continue
         meta = catalog["services"][s]
         repl_flags = []
-        if s == "mysql8" and topology.get("mysql8") == "master-slave":
-            # 主库: 开启 binlog + GTID, 供从库自动同步
+        if s in ("mysql8", "mysql57") and topology.get(s) == "master-slave":
+            # 主库: 开启 binlog + GTID, 供从库自动同步 (两代的 binlog 过期参数名不同)
             # 注意: MySQL 8.0 没有 binlog-expire-logs-days, 7 天对应 binlog_expire_logs_seconds=604800
+            expire = "--binlog-expire-logs-seconds=604800" if s == "mysql8" else "--expire-logs-days=7"
             repl_flags = ["--server-id=1", "--log-bin=mysql-bin", "--gtid-mode=ON",
-                          "--enforce-gtid-consistency=ON", "--binlog-expire-logs-seconds=604800"]
+                          "--enforce-gtid-consistency=ON", expire]
         out.append("""
   %(svc)s:
     image: %(image)s
@@ -729,12 +737,12 @@ def gen_compose(cfg, catalog):
                           "port": ports[meta["ports"][0]["key"]], "dir": meta["data_dir"],
                           "extra_ports": extra_lines(s),
                           "repl_flags": "".join("      - %s\n" % f for f in repl_flags)})
-        if s == "mysql8" and topology.get("mysql8") == "master-slave":
+        if s in ("mysql8", "mysql57") and topology.get(s) == "master-slave":
             # 从库: 只读, GTID 自动定位, 不挂 init 目录(数据由主库复制而来)
             out.append("""
-  mysql8-replica:
+  %(svc)s:
     image: %(image)s
-    container_name: mysql8-replica
+    container_name: %(svc)s
     restart: always
     environment:
       TZ: ${TZ}
@@ -742,8 +750,8 @@ def gen_compose(cfg, catalog):
     ports:
       - "%(rport)d:3306"
     volumes:
-      - ./mysql8-replica/data:/var/lib/mysql
-      - ./mysql8-replica/log:/var/log/mysql
+      - ./%(dir)s/data:/var/lib/mysql
+      - ./%(dir)s/log:/var/log/mysql
     command:
       - --log-error=/var/log/mysql/error.log
       - --character-set-server=utf8mb4
@@ -763,8 +771,10 @@ def gen_compose(cfg, catalog):
       retries: 12
       start_period: 60s
     networks:
-      - app-network""" % {"image": "%s:%s" % (meta["image"], meta["tag"]),
-                          "rport": ports["mysql8_replica"]})
+      - app-network""" % {"svc": "%s-replica" % s,
+                          "image": "%s:%s" % (meta["image"], meta["tag"]),
+                          "rport": ports["%s_replica" % s],
+                          "dir": "%s-replica" % s})
 
     # ---- Redis ----
     if "redis" in services:
@@ -1066,6 +1076,12 @@ def gen_manifest_sh(cfg, catalog, client_img, summary_lines, bundle_name=None):
         chown_dirs.append("mysql8-replica/log")
         port_keys.append(ports["mysql8_replica"])
         health_wait.append("mysql8-replica")
+    if topology.get("mysql57") == "master-slave":
+        container_names.append("mysql57-replica")
+        data_dirs += ["mysql57-replica/data", "mysql57-replica/log"]
+        chown_dirs.append("mysql57-replica/log")
+        port_keys.append(ports["mysql57_replica"])
+        health_wait.append("mysql57-replica")
     if topology.get("redis") == "sentinel":
         container_names.append("redis-replica")
         data_dirs += ["redis-replica/data", "redis-replica/log"]
@@ -1106,7 +1122,9 @@ def gen_manifest_sh(cfg, catalog, client_img, summary_lines, bundle_name=None):
         "DATA_DIRS=(%s)" % " ".join(bash_quote(d) for d in data_dirs),
         "CHOWN_DIRS=(%s)" % " ".join(bash_quote(d) for d in chown_dirs),
         "LOCAL_MYSQL_SVC=%s" % bash_quote(local_mysql),
-        "MYSQL_TOPOLOGY=%s" % bash_quote(topology.get("mysql8", "single")),
+        "MYSQL_TOPOLOGY=%s" % bash_quote(topology.get(local_mysql, "single") if local_mysql else "single"),
+        "MYSQL8_TOPOLOGY=%s" % bash_quote(topology.get("mysql8", "single")),
+        "MYSQL57_TOPOLOGY=%s" % bash_quote(topology.get("mysql57", "single")),
         "REDIS_TOPOLOGY=%s" % bash_quote(topology.get("redis", "single")),
         "MYSQL_ROOT_PASSWORD=%s" % bash_quote(cfg["secrets"].get("MYSQL_ROOT_PASSWORD", "")),
         "MYSQL_CLIENT_IMG=%s" % bash_quote(client_img),
@@ -1135,6 +1153,8 @@ def build_summary_lines(cfg, catalog):
         lines.append("NGINX        http://__IP__:%d   (配置目录 %s/nginx)" % (ports["nginx_http"], cfg["deploy_dir"]))
     if "mysql57" in services_of(cfg):
         lines.append("MySQL 5.7    __IP__:%d  mysql -h<ip> -P%d -uroot" % (ports["mysql57"], ports["mysql57"]))
+        if (cfg.get("topology") or {}).get("mysql57") == "master-slave":
+            lines.append("MySQL 5.7 从库 __IP__:%d  (只读, GTID 自动同步主库)" % ports["mysql57_replica"])
     if "mysql8" in services_of(cfg):
         lines.append("MySQL 8.0    __IP__:%d  mysql -h<ip> -P%d -uroot" % (ports["mysql8"], ports["mysql8"]))
         if (cfg.get("topology") or {}).get("mysql8") == "master-slave":
@@ -1742,7 +1762,8 @@ def catalog_response(catalog):
                 present["img_%s_%s" % (s, a)] = (BASE_DIR / rel).is_file()
                 sizes["images"].setdefault(s, {})[a] = _fsize_mb(rel)
     return {"services": catalog["services"], "secrets": catalog["secrets"],
-            "defaults": catalog["defaults"], "files_present": present, "sizes": sizes}
+            "defaults": catalog["defaults"], "files_present": present, "sizes": sizes,
+            "suites": catalog.get("suites", [])}
 
 
 def make_handler(catalog):

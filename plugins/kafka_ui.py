@@ -9,6 +9,7 @@ Kafka UI 插件 (Kafka 可视化管理, 连接同网络的 kafka 服务)
 SERVICE_KEY = "kafka-ui"
 
 META = {
+    "cat": "cache",
     "label": "Kafka UI",
     "image": "provectuslabs/kafka-ui",
     "tag": "v0.7.2",

@@ -9,6 +9,7 @@ PostgreSQL 中间件插件
 SERVICE_KEY = "postgres"
 
 META = {
+    "cat": "db",
     "label": "PostgreSQL",
     "image": "postgres",
     "tag": "15.19",

@@ -9,6 +9,7 @@ Grafana 插件 (可视化面板, 数据源/仪表盘自动预配)
 SERVICE_KEY = "grafana"
 
 META = {
+    "cat": "obs",
     "label": "Grafana",
     "image": "grafana/grafana",
     "tag": "13.2.1",

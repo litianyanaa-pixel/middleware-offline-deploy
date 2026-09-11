@@ -9,6 +9,7 @@ Prometheus 中间件插件 (监控采集, 自带默认抓取配置)
 SERVICE_KEY = "prometheus"
 
 META = {
+    "cat": "obs",
     "label": "Prometheus",
     "image": "prom/prometheus",
     "tag": "v3.14.0",

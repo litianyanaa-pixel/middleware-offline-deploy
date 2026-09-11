@@ -9,6 +9,7 @@ Loki 插件 (日志聚合, 单节点文件存储; 配合 promtail 采集容器�
 SERVICE_KEY = "loki"
 
 META = {
+    "cat": "obs",
     "label": "Loki",
     "image": "grafana/loki",
     "tag": "3.7.7",

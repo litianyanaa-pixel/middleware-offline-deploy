@@ -9,6 +9,7 @@ Apache Kafka 插件 (KRaft 单节点, 无 ZooKeeper)
 SERVICE_KEY = "kafka"
 
 META = {
+    "cat": "cache",
     "label": "Kafka",
     "image": "apache/kafka",
     "tag": "4.3.1",

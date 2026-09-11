@@ -9,6 +9,7 @@ Kibana 中间件插件 (Elasticsearch 可视化, 版本须与 ES 完全一致)
 SERVICE_KEY = "kibana"
 
 META = {
+    "cat": "obs",
     "label": "Kibana",
     "image": "kibana",
     "tag": "9.3.0",
