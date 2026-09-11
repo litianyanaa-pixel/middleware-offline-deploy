@@ -621,6 +621,38 @@ import_sql_local() { # 本地库: 在 compose up 且 MySQL 健康之后兜底导
   fi
 }
 
+#------------------------------- MySQL 主从(可选形态) -------------------------------
+# manifest.sh 中 MYSQL_TOPOLOGY=master-slave 时自动配置 GTID 复制; 幂等可重跑。
+# 注意: 从库与主库同时首次部署才自动同步; 给已有数据的主库"补挂"从库需手工全量迁移。
+setup_mysql_replication() {
+  [ "${MYSQL_TOPOLOGY:-single}" = "master-slave" ] || return 0
+  local replica="mysql8-replica"
+  hr; log "配置 MySQL 主从复制 (GTID 自动同步)..."
+  docker exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" "$LOCAL_MYSQL_SVC" mysql -uroot -e \
+    "CREATE USER IF NOT EXISTS 'repl'@'%' IDENTIFIED BY '$MYSQL_ROOT_PASSWORD'; GRANT REPLICATION SLAVE, REPLICATION CLIENT ON *.* TO 'repl'@'%'; FLUSH PRIVILEGES;" >/dev/null 2>&1 \
+    || warn "repl 账号授权语句执行失败(若已存在可忽略)"
+  wait_mysql_healthy "$replica"
+  local running
+  running="$(docker exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" "$replica" mysql -uroot -N \
+    -e "SELECT COUNT(*) FROM performance_schema.replication_applier_status_by_channel WHERE SERVICE_STATE='ON';" 2>/dev/null || echo 0)"
+  if [ "${running:-0}" -gt 0 ]; then
+    log "从库复制已在运行, 跳过配置"
+  else
+    docker exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" "$replica" mysql -uroot -e \
+      "CHANGE REPLICATION SOURCE TO SOURCE_HOST='$LOCAL_MYSQL_SVC', SOURCE_PORT=3306, SOURCE_USER='repl', SOURCE_PASSWORD='$MYSQL_ROOT_PASSWORD', SOURCE_AUTO_POSITION=1, GET_MASTER_PUBLIC_KEY=1; START REPLICA;" \
+      || die "从库复制配置失败, 请手工执行: docker exec -it $replica mysql -uroot"
+    log "从库已指向主库 $LOCAL_MYSQL_SVC (GTID 自动定位)"
+  fi
+  sleep 6
+  local st
+  st="$(docker exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" "$replica" mysql -uroot -N -e "SHOW REPLICA STATUS\G" 2>/dev/null || true)"
+  if echo "$st" | grep -q "Replica_IO_Running: Yes" && echo "$st" | grep -q "Replica_SQL_Running: Yes"; then
+    log "主从复制状态: IO/SQL 线程运行正常"
+  else
+    warn "从库复制线程未就绪, 请复查: docker exec -it $replica mysql -uroot -e 'SHOW REPLICA STATUS\\G'"
+  fi
+}
+
 #------------------------------- 7. 启动 -------------------------------
 startup() {
   hr; log "【8/9】启动服务 (docker compose up -d)"
@@ -910,6 +942,7 @@ main() {
   import_sql_external
   startup
   import_sql_local
+  setup_mysql_replication
   health_check
   summary
 }

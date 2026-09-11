@@ -35,6 +35,11 @@
 - **定时备份 + 一键恢复**：crontab + 容器内 mysqldump 按库分文件 gzip，超出保留份数自动轮转；`restore.sh` 一条命令恢复指定库
 - **镜像统一 tag**：tar 内镜像无论带什么仓库前缀/tag 后缀，自动归一为短名，并校验架构一致，不符拦截
 - **插件化扩展**：新增中间件只需一个插件文件 + 镜像 tar，页面勾选/端口/密码表单/编排生成全自动纳入
+- **集群形态**：MySQL 8.0 单机 / **主从复制**(一主一从 · GTID 自动同步 · 部署时自动配置复制)；
+  Redis 单机 / **哨兵高可用**(主 + 从 + 3 哨兵，故障自动切换)
+- **观测三件套闭环**：Node Exporter(主机指标) + Prometheus + Loki/Promtail(容器日志) +
+  Grafana 数据源/仪表盘**自动预配**——部署完打开 Grafana 即有现成主机监控面板
+- **消息队列**：Apache Kafka(KRaft 单节点, 免 ZooKeeper) + Kafka UI 可视化控制台
 
 ## 🖼 界面导览
 
@@ -223,6 +228,23 @@ cd /data/middleware
 | Grafana | 13.2.1 | 3000 | 管理员账号密码见 `.env`，数据源加 `http://prometheus:9090` |
 | Elasticsearch | 9.3.0 | 9200 | 单节点；部署时自动设置 `vm.max_map_count=262144`；默认关闭安全认证（内网） |
 | Kibana | 9.3.0 | 5601 | 与 Elasticsearch **必须同版本**，自动连接同网络 `elasticsearch` 服务 |
+| Node Exporter | v1.12.1 | 9100 | 主机指标采集（CPU/内存/磁盘/网络） |
+| Loki | 3.7.7 | 3100 | 日志聚合（单节点文件存储），配合 Promtail |
+| Promtail | 3.6.11 | - | 采集 `/var/lib/docker/containers` 容器日志推送 Loki |
+| Kafka | 4.3.1 | 9092 / 9094 | KRaft 单节点；容器内 `kafka:9092`，宿主机 `localhost:9094` |
+| Kafka UI | v0.7.2 | 18090 | Kafka 可视化管理，自动连接 `kafka:9092` |
+
+### 集群形态（MySQL 主从 / Redis 哨兵）
+
+勾选 MySQL 8.0 或 Redis 后，"选择中间件"卡片下方出现**部署形态**选择：
+
+- **MySQL 主从复制**：主库服务名仍为 `mysql8`（Nacos/XXL-Job 照常连它），从库 `mysql8-replica`
+  只读（端口 13308），GTID 自动同步。部署脚本自动完成：创建 repl 复制账号 → 从库
+  `CHANGE REPLICATION SOURCE`（幂等，重跑自动跳过）→ 校验 IO/SQL 线程运行状态。
+- **Redis 哨兵**：主库 `redis` + 从库 `redis-replica`（端口 16380，`replicaof` 指向主库）+
+  3 个哨兵实例（`deploy.replicas: 3`，quorum 2）。应用侧应使用 **sentinel 协议**
+  （地址 `redis-sentinel:26379`，master 名称 `mymaster`）实现故障自动切换。
+- 注意：从库与主库**同批首次部署**时才自动全量同步；给已有数据的主库"补挂"从库需手工迁移数据。
 
 示例（PostgreSQL）：
 

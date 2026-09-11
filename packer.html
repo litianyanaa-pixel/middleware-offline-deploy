@@ -302,7 +302,10 @@
 
       <div class="card" id="sec-svc">
         <h2><span class="num">2</span>选择中间件 <span class="hint">只打包勾选项, 也可接入 plugins/ 插件扩展</span></h2>
-        <div class="body"><div class="svc-grid" id="svcGrid"></div></div>
+        <div class="body">
+          <div class="svc-grid" id="svcGrid"></div>
+          <div id="topoBox" style="margin-top:16px"></div>
+        </div>
       </div>
 
       <div class="card" id="sec-port" style="display:none">
@@ -412,7 +415,7 @@
 <script>
 let CATALOG = null;
 const selected = new Set();
-const state = { ports: {}, secrets: {}, db: {}, extra: {}, backup: null, proxies: [] };
+const state = { ports: {}, secrets: {}, db: {}, extra: {}, backup: null, proxies: [], topology: { mysql8: 'single', redis: 'single' } };
 const WEEK = ["", "周一", "周二", "周三", "周四", "周五", "周六", "周日"];
 let previewData = { compose: "", env: "", manifest: "" };
 let curTab = "compose";
@@ -547,6 +550,33 @@ function renderSvcGrid(){
     grid.appendChild(d);
   }
   updateSvcWarn();
+  renderTopology();
+}
+/* ---- 部署形态: mysql8 主从 / redis 哨兵 ---- */
+function renderTopology(){
+  const box = $('#topoBox'); if (!box) return;
+  let html = '';
+  if (selected.has('mysql8')){
+    const m = state.topology.mysql8 || 'single';
+    html += '<div class="grp"><h3>MySQL 8.0 部署形态</h3><div class="segs">'+
+      '<label><input type="radio" name="topo_mysql8" value="single" '+(m==='single'?'checked':'')+'><span>单机</span></label>'+
+      '<label><input type="radio" name="topo_mysql8" value="master-slave" '+(m==='master-slave'?'checked':'')+'><span>主从复制 (一主一从 · GTID)</span></label>'+
+      '</div><div class="hint" style="margin-top:7px">主库服务名仍为 mysql8 (Nacos/XXL-Job 照常连它), 从库只读端口 13308 自动同步; 部署脚本自动配置复制关系</div></div>';
+  }
+  if (selected.has('redis')){
+    const r = state.topology.redis || 'single';
+    html += '<div class="grp"><h3>Redis 部署形态</h3><div class="segs">'+
+      '<label><input type="radio" name="topo_redis" value="single" '+(r==='single'?'checked':'')+'><span>单机</span></label>'+
+      '<label><input type="radio" name="topo_redis" value="sentinel" '+(r==='sentinel'?'checked':'')+'><span>哨兵高可用 (主 + 从 + 3 哨兵)</span></label>'+
+      '</div><div class="hint" style="margin-top:7px">哨兵: 从库端口 16380 只读; 应用侧使用 sentinel 协议 (redis-sentinel:26379, master 名称 mymaster) 实现故障自动切换</div></div>';
+  }
+  box.innerHTML = html;
+  box.querySelectorAll('input[name^="topo_"]').forEach(r => r.onchange = () => {
+    const k = r.name.replace('topo_', '');
+    state.topology[k] = r.value;
+    saveLocal();
+    toast(k === 'mysql8' ? (r.value === 'single' ? 'MySQL 单机模式' : 'MySQL 主从模式 (一主一从)') : (r.value === 'single' ? 'Redis 单机模式' : 'Redis 哨兵高可用'));
+  });
 }
 function renderSvcGridSync(){
   $$('#svcGrid .svc').forEach(d => {
@@ -600,6 +630,7 @@ function renderDynamic(){
   $('#sec-db').style.display   = has && svcs.some(s => s==='nacos'||s==='xxljob') ? '' : 'none';
   $('#sec-backup').style.display = has && svcs.some(s => s==='mysql57'||s==='mysql8') ? '' : 'none';
   renumberSections();
+  renderTopology();
 
   // ---- 端口映射: host → container ----
   const pb = $('#portBox'); pb.innerHTML = '';
@@ -1023,6 +1054,7 @@ function buildConfig(){
     extra_ports: JSON.parse(JSON.stringify(state.extra)),
     backup: JSON.parse(JSON.stringify(state.backup)),
     db: JSON.parse(JSON.stringify(state.db)),
+    topology: JSON.parse(JSON.stringify(state.topology || {})),
     proxies: state.proxies.map(p => {
       const o = JSON.parse(JSON.stringify(p));
       o.trusted_proxies = p.realip ? String(p.trusted||'').split(/[\s,]+/).filter(Boolean) : [];
@@ -1044,6 +1076,7 @@ function applyConfig(cfg){
   Object.keys(state.extra).forEach(k => delete state.extra[k]);
   const xp = cfg.extra_ports || {};
   for (const k of Object.keys(xp)) state.extra[k] = xp[k];
+  state.topology = Object.assign({ mysql8: 'single', redis: 'single' }, cfg.topology || {});
   const bd = cfg.backup || {};
   state.backup = { enabled: bd.enabled !== false,
     days: (bd.days && bd.days.length ? bd.days : [1,2,3,4,5,6,7]).map(Number),

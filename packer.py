@@ -176,6 +176,41 @@ def validate_config(cfg, catalog):
             norm_ports[key] = v
     cfg["ports"] = norm_ports
 
+    # ---- 部署形态(可选): mysql8 主从 / redis 哨兵 ----
+    topo_raw = cfg.get("topology") or {}
+    topology = {}
+    if "mysql8" in services:
+        m = str(topo_raw.get("mysql8", "single"))
+        if m not in ("single", "master-slave"):
+            raise PackError("MySQL 部署形态不合法: %s (single / master-slave)" % m)
+        topology["mysql8"] = m
+    if "redis" in services:
+        r = str(topo_raw.get("redis", "single"))
+        if r not in ("single", "sentinel"):
+            raise PackError("Redis 部署形态不合法: %s (single / sentinel)" % r)
+        topology["redis"] = r
+    cfg["topology"] = topology
+
+    # 集群形态附加端口键(并入全局查重)
+    topo_port_defs = []
+    if topology.get("mysql8") == "master-slave":
+        topo_port_defs.append(("mysql8_replica", "MySQL 从库端口", 13308))
+    if topology.get("redis") == "sentinel":
+        topo_port_defs.append(("redis_replica", "Redis 从库端口", 16380))
+    seen_topo = set(norm_ports.values())
+    for key, label, default in topo_port_defs:
+        raw = (cfg.get("ports") or {}).get(key, default)
+        try:
+            v = int(raw)
+        except (TypeError, ValueError):
+            raise PackError("端口 %s 不合法: %s" % (label, raw))
+        if not (1 <= v <= 65535):
+            raise PackError("端口 %s 超出范围 1-65535: %d" % (label, v))
+        if v in seen_topo:
+            raise PackError("端口冲突: %s 与其他端口都用了 %d" % (label, v))
+        seen_topo.add(v)
+        norm_ports[key] = v
+
     # ---- 密码/账号 ----
     secrets_cfg = cfg.get("secrets") or {}
     need_keys = [x["key"] for x in catalog["secrets"]
@@ -653,10 +688,16 @@ def gen_compose(cfg, catalog):
         return []
 
     # ---- MySQL ----
+    topology = cfg.get("topology") or {}
     for s in ("mysql57", "mysql8"):
         if s not in services:
             continue
         meta = catalog["services"][s]
+        repl_flags = []
+        if s == "mysql8" and topology.get("mysql8") == "master-slave":
+            # 主库: 开启 binlog + GTID, 供从库自动同步
+            repl_flags = ["--server-id=1", "--log-bin=mysql-bin", "--gtid-mode=ON",
+                          "--enforce-gtid-consistency=ON", "--binlog-expire-logs-days=7"]
         out.append("""
   %(svc)s:
     image: %(image)s
@@ -676,7 +717,7 @@ def gen_compose(cfg, catalog):
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_unicode_ci
       - --default-authentication-plugin=mysql_native_password
-    healthcheck:
+%(repl_flags)s    healthcheck:
       test: ["CMD-SHELL", "mysqladmin ping -h localhost -uroot -p\\"$$MYSQL_ROOT_PASSWORD\\""]
       interval: 10s
       timeout: 5s
@@ -685,7 +726,43 @@ def gen_compose(cfg, catalog):
     networks:
       - app-network""" % {"svc": s, "image": "%s:%s" % (meta["image"], meta["tag"]),
                           "port": ports[meta["ports"][0]["key"]], "dir": meta["data_dir"],
-                          "extra_ports": extra_lines(s)})
+                          "extra_ports": extra_lines(s),
+                          "repl_flags": "".join("      - %s\n" % f for f in repl_flags)})
+        if s == "mysql8" and topology.get("mysql8") == "master-slave":
+            # 从库: 只读, GTID 自动定位, 不挂 init 目录(数据由主库复制而来)
+            out.append("""
+  mysql8-replica:
+    image: %(image)s
+    container_name: mysql8-replica
+    restart: always
+    environment:
+      TZ: ${TZ}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+    ports:
+      - "%(rport)d:3306"
+    volumes:
+      - ./mysql8-replica/data:/var/lib/mysql
+      - ./mysql8-replica/log:/var/log/mysql
+    command:
+      - --log-error=/var/log/mysql/error.log
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-authentication-plugin=mysql_native_password
+      - --server-id=2
+      - --log-bin=mysql-bin
+      - --gtid-mode=ON
+      - --enforce-gtid-consistency=ON
+      - --read-only=ON
+      - --super-read-only=ON
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -uroot -p\\"$$MYSQL_ROOT_PASSWORD\\""]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+    networks:
+      - app-network""" % {"image": "%s:%s" % (meta["image"], meta["tag"]),
+                          "rport": ports["mysql8_replica"]})
 
     # ---- Redis ----
     if "redis" in services:
@@ -714,6 +791,42 @@ def gen_compose(cfg, catalog):
       - app-network""" % {"image": "%s:%s" % (meta["image"], meta["tag"]),
                           "port": ports["redis"],
                           "extra_ports": extra_lines("redis")})
+    if topology.get("redis") == "sentinel":
+        # 哨兵形态: 1 主 + 1 从 + 3 哨兵(副本数为 3, 应用侧走 sentinel 协议)
+        out.append("""
+  redis-replica:
+    image: %(image)s
+    container_name: redis-replica
+    restart: always
+    environment:
+      TZ: ${TZ}
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    command: redis-server --requirepass "${REDIS_PASSWORD}" --masterauth "${REDIS_PASSWORD}" --replicaof redis 6379 --appendonly no
+    ports:
+      - "%(rport)d:6379"
+    volumes:
+      - ./redis-replica/data:/data
+      - ./redis-replica/log:/var/log/redis
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \\"$$REDIS_PASSWORD\\" ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - app-network
+  redis-sentinel:
+    image: %(image)s
+    restart: always
+    environment:
+      TZ: ${TZ}
+    command: redis-server /usr/local/etc/redis/sentinel.conf --sentinel
+    volumes:
+      - ./conf/redis/sentinel.conf:/usr/local/etc/redis/sentinel.conf
+    deploy:
+      replicas: 3
+    networks:
+      - app-network""" % {"image": "%s:%s" % (meta["image"], meta["tag"]),
+                          "rport": ports["redis_replica"]})
 
     # ---- Nacos ----
     if "nacos" in services:
@@ -939,6 +1052,21 @@ def gen_manifest_sh(cfg, catalog, client_img, summary_lines, bundle_name=None):
     if "minio" in services:
         health_http.append("minio|http://127.0.0.1:%d/minio/health/live" % ports["minio_api"])
 
+    # 集群形态附加的容器/目录/端口/健康清单
+    topology = cfg.get("topology") or {}
+    if topology.get("mysql8") == "master-slave":
+        container_names.append("mysql8-replica")
+        data_dirs += ["mysql8-replica/data", "mysql8-replica/log"]
+        chown_dirs.append("mysql8-replica/log")
+        port_keys.append(ports["mysql8_replica"])
+        health_wait.append("mysql8-replica")
+    if topology.get("redis") == "sentinel":
+        container_names.append("redis-replica")
+        data_dirs += ["redis-replica/data", "redis-replica/log"]
+        chown_dirs.append("redis-replica/log")
+        port_keys.append(ports["redis_replica"])
+        health_wait.append("redis-replica")
+
     def db_lines(app, prefix):
         conf = db.get(app)
         if not conf:
@@ -969,6 +1097,8 @@ def gen_manifest_sh(cfg, catalog, client_img, summary_lines, bundle_name=None):
         "DATA_DIRS=(%s)" % " ".join(bash_quote(d) for d in data_dirs),
         "CHOWN_DIRS=(%s)" % " ".join(bash_quote(d) for d in chown_dirs),
         "LOCAL_MYSQL_SVC=%s" % bash_quote(local_mysql),
+        "MYSQL_TOPOLOGY=%s" % bash_quote(topology.get("mysql8", "single")),
+        "REDIS_TOPOLOGY=%s" % bash_quote(topology.get("redis", "single")),
         "MYSQL_ROOT_PASSWORD=%s" % bash_quote(cfg["secrets"].get("MYSQL_ROOT_PASSWORD", "")),
         "MYSQL_CLIENT_IMG=%s" % bash_quote(client_img),
         "HEALTH_WAIT=(%s)" % " ".join(bash_quote(n) for n in health_wait),
@@ -998,8 +1128,12 @@ def build_summary_lines(cfg, catalog):
         lines.append("MySQL 5.7    __IP__:%d  mysql -h<ip> -P%d -uroot" % (ports["mysql57"], ports["mysql57"]))
     if "mysql8" in services_of(cfg):
         lines.append("MySQL 8.0    __IP__:%d  mysql -h<ip> -P%d -uroot" % (ports["mysql8"], ports["mysql8"]))
+        if (cfg.get("topology") or {}).get("mysql8") == "master-slave":
+            lines.append("MySQL 8.0 从库 __IP__:%d  (只读, GTID 自动同步主库)" % ports["mysql8_replica"])
     if "redis" in services_of(cfg):
         lines.append("Redis        __IP__:%d" % ports["redis"])
+        if (cfg.get("topology") or {}).get("redis") == "sentinel":
+            lines.append("Redis 哨兵    主+从+3哨兵 (从库 __IP__:%d, 应用走 sentinel 协议 redis-sentinel:26379)" % ports["redis_replica"])
     if "nacos" in services_of(cfg):
         lines.append("Nacos 控制台  http://__IP__:%d/nacos  (账号见 .env)" % ports["nacos_console"])
     if "xxljob" in services_of(cfg):
@@ -1391,6 +1525,21 @@ def pack(cfg, catalog, out_dir=None, progress=None):
                 conf_files["conf/nginx/ssl/%s/privkey.pem" % rel] = s["key_pem"]
     if "redis" in cfg["services"]:
         conf_files["conf/redis/redis.conf"] = TPL_DIR / "redis.conf"
+        if (cfg.get("topology") or {}).get("redis") == "sentinel":
+            _rp = cfg["secrets"].get("REDIS_PASSWORD", "")
+            conf_files["conf/redis/sentinel.conf"] = (
+                "# 由打包器生成 (Redis 哨兵配置, 重新部署时自动覆盖)\n"
+                "port 26379\n"
+                "sentinel monitor mymaster redis 6379 2\n"
+                "sentinel auth-pass mymaster %s\n"
+                "sentinel down-after-milliseconds mymaster 5000\n"
+                "sentinel failover-timeout mymaster 60000\n"
+                "sentinel parallel-syncs mymaster 1\n" % _rp)
+
+    # ---- 插件附带的配置文件(可选 conf_files 钩子) ----
+    for s in cfg["services"]:
+        if s in PLUGINS and hasattr(PLUGINS[s], "conf_files"):
+            conf_files.update(PLUGINS[s].conf_files(cfg, cfg["ports"], plugin_ctx(cfg)))
 
     # ---- 生成 ----
     prog.stage("生成配置文件")

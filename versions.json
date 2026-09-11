@@ -239,7 +239,7 @@
     {
       "key": "NACOS_AUTH_TOKEN",
       "label": "Nacos Auth Token",
-      "default": "zvO4kaTOrl8hKBVA6xPWr3WSyjtrGCZT8ZiSMMqhUmrH8KsnRPaXoRIMnhhS7Bnh",
+      "default": "SecretKeyyi1OM51Ap1H6DATXXQYCXy7kl2bZs9wsH3mySmdNhEzo8ivw36wSGr51ZUaulwOS",
       "services": [
         "nacos"
       ],
