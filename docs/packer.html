@@ -53,6 +53,7 @@
   .chip:hover{border-color:var(--line2)}
   .chip .dot{width:8px;height:8px;border-radius:50%;background:var(--ok);flex:none}
   .chip.bad .dot{background:var(--bad)}
+  .tbtn.warn{color:#dc2626;border-color:#fca5a5}
 
   /* ============ 主区 ============ */
   .main{flex:1;min-width:0;display:flex;flex-direction:column}
@@ -255,109 +256,66 @@
     .content{padding:20px 16px 130px}
     .topbar,.actionbar{padding-left:16px;padding-right:16px}
   }
+
+  /* ---- 向导步骤条 ---- */
+  .wstep{display:none}
+  .wstep.on{display:block}
+  .wiz-steps{display:flex;gap:6px;padding:10px 32px 0;max-width:1064px;margin:0 auto;width:100%}
+  .wtab{flex:1;display:flex;align-items:center;justify-content:center;gap:8px;padding:10px 8px;border:1px solid var(--line);border-bottom:none;border-radius:10px 10px 0 0;background:#eef0f3;color:var(--txt2);font-size:13px;font-weight:600;cursor:pointer;transition:background .13s,color .13s}
+  .wtab i{width:20px;height:20px;flex:none;border-radius:6px;background:#e2e5ea;color:#6b7280;font-style:normal;font-size:11px;display:flex;align-items:center;justify-content:center;font-weight:700;font-family:var(--f-mono)}
+  .wtab.on{background:#fff;color:var(--acc)}
+  .wtab.on i{background:var(--acc);color:#fff}
+  .wbadge{font-style:normal;font-size:10.5px;background:#e2e5ea;color:#6b7280;border-radius:99px;padding:1px 7px;font-family:var(--f-mono)}
+  .wbadge.warn{background:#fee2e2;color:#dc2626}
+  .wtab.on .wbadge{background:var(--acc-soft);color:var(--acc)}
+  .lowdrawer{max-width:1064px;margin:10px auto 0;width:100%;padding:0 32px}
+  .lowdrawer .drawer-tabs{display:flex;gap:6px;align-items:center;margin-bottom:8px}
+  .lowdrawer .card{margin-bottom:0}
+  .brand-inline{display:flex;align-items:center;gap:8px}
+  .brand-inline .mark{width:28px;height:28px;border-radius:8px;background:var(--acc);display:flex;align-items:center;justify-content:center}
+  .brand-inline b{font-size:14.5px}
+  /* ---- 紧凑化 ---- */
+  .wstep .card{margin-bottom:12px}
+  .wstep .card h2{font-size:14px;padding:10px 16px}
+  .wstep .card .body{padding:12px 16px}
+  .wstep input[type=text],.wstep input[type=number],.wstep input[type=password],.wstep select{height:30px;font-size:12.5px}
+  .wstep .card .body>.hint,.wstep .hint{font-size:11.5px}
+  .content{padding-bottom:96px}
   </style>
 </head>
 <body>
 <div class="app">
-
-  <aside class="side">
-    <div class="brand">
-      <div class="mark">
-        <svg width="20" height="20" viewBox="0 0 24 24"><path fill="#fff" d="M12 2 2 7v10l10 5 10-5V7L12 2zm0 2.2L19.5 8 12 11.8 4.5 8 12 4.2z"/></svg>
-      </div>
-      <div><b>中间件离线包打包器</b><span>Local Bundle Studio</span></div>
-    </div>
-    <nav class="steps" id="stepsNav">
-      <a data-sec="sec-basic"><svg viewBox="0 0 24 24"><path d="M4 6h9M17 6h3M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="15" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg><i>1</i>基础设置</a>
-      <a data-sec="sec-svc"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/></svg><i>2</i>选择中间件</a>
-      <a data-sec="sec-port"><svg viewBox="0 0 24 24"><path d="M3.5 8h14M13.5 4l4 4-4 4"/><path d="M20.5 16h-14M10.5 12l-4 4 4 4"/></svg><i>3</i>端口映射</a>
-      <a data-sec="sec-proxy"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17"/><path d="M12 3.5c2.6 2.8 2.6 14.2 0 17-2.6-2.8-2.6-14.2 0-17z"/></svg><i>4</i>反向代理</a>
-      <a data-sec="sec-pwd"><svg viewBox="0 0 24 24"><rect x="5" y="10.5" width="14" height="9.5" rx="2"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5"/></svg><i>5</i>账号密码</a>
-      <a data-sec="sec-db"><svg viewBox="0 0 24 24"><ellipse cx="12" cy="5.5" rx="7.5" ry="3"/><path d="M4.5 5.5v13c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3v-13"/><path d="M4.5 12c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3"/></svg><i>6</i>数据库</a>
-      <a data-sec="sec-backup"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg><i>7</i>数据库备份</a>
-      <a data-sec="sec-wh"><svg viewBox="0 0 24 24"><path d="M12 2.5 21 7v10l-9 4.5L3 17V7z"/><path d="M3 7l9 4.5L21 7M12 11.5v10"/></svg><i>8</i>物料仓库</a>
-      <a data-sec="sec-out"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="5" rx="1"/><path d="M5 9v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9"/><path d="M10 13h4"/></svg><i>9</i>历史产物</a>
-    </nav>
-    <div class="side-foot">
-      <div class="chip" id="whChip" title="点击查看物料仓库状态"><span class="dot"></span><span id="whChipTxt">检查中...</span></div>
-    </div>
-  </aside>
-
   <main class="main">
     <div class="topbar">
-      <h1>打包配置</h1>
+      <div class="brand-inline">
+        <div class="mark">
+          <svg width="18" height="18" viewBox="0 0 24 24"><path fill="#fff" d="M12 2 2 7v10l10 5 10-5V7L12 2zm0 2.2L19.5 8 12 11.8 4.5 8 12 4.2z"/></svg>
+        </div>
+        <b>中间件离线包打包器</b>
+      </div>
       <span class="crumb">本地选型 → 生成编排 → 按需打包 → 服务器零交互部署</span>
       <span class="sp"></span>
+      <button class="tbtn" id="btnDrawerWh">物料仓库</button>
+      <button class="tbtn" id="btnDrawerHist">历史产物</button>
       <button class="tbtn" id="btnExport">保存配置</button>
       <button class="tbtn" id="btnImport">导入配置</button>
       <input type="file" id="importFile" accept=".json" class="hidden">
     </div>
-
-    <div class="content">
-
-      <div class="card" id="sec-basic">
-        <h2><span class="num">1</span>基础设置</h2>
-        <div class="body">
-          <div class="row">
-            <div><label>项目名 <span class="hint">compose 项目名与包名</span></label>
-              <input type="text" id="project" value="demo"></div>
-            <div><label>目标服务器架构</label>
-              <select id="arch">
-                <option value="amd64">x86_64 (amd64)</option>
-                <option value="arm64">ARM (aarch64)</option>
-              </select></div>
-          </div>
-          <div class="row" style="margin-top:12px">
-            <div><label>部署目录 <span class="hint">compose / .env / 数据 / 日志 / 配置都在这里</span></label>
-              <input type="text" id="deploy_dir" value="/data/middleware"></div>
-            <div><label>Docker 数据目录 data-root</label>
-              <input type="text" id="data_root" value="/data/docker"></div>
-          </div>
-          <div style="margin-top:12px">
-            <label>镜像加速器 <span class="hint">写入 daemon.json; <span id="mirrorNote"></span></span></label>
-            <textarea id="mirrors" rows="3" placeholder="https://... 每行一个"></textarea>
-            <div style="margin-top:8px"><button class="mini" id="btnFillMirrors">一键填入实测可用源</button></div>
-          </div>
-        </div>
+    <div class="wiz-steps" id="wizSteps">
+      <button class="wtab on" data-step="1"><i>1</i>基础设置</button>
+      <button class="wtab" data-step="2"><i>2</i>选择中间件<b class="wbadge" id="badge2"></b></button>
+      <button class="wtab" data-step="3"><i>3</i>端口与反代<b class="wbadge" id="badge3"></b></button>
+      <button class="wtab" data-step="4"><i>4</i>账号与数据<b class="wbadge warn" id="badge4"></b></button>
+      <button class="wtab" data-step="5"><i>5</i>预览打包</button>
+    </div>
+    <div class="lowdrawer" id="lowDrawer" style="display:none">
+      <div class="drawer-tabs">
+        <button class="tab on" data-d="sec-wh">物料仓库</button>
+        <button class="tab" data-d="sec-out">历史产物</button>
+        <span style="flex:1"></span>
+        <button class="mini" id="btnDrawerClose">收起</button>
       </div>
-
-      <div class="card" id="sec-svc">
-        <h2><span class="num">2</span>选择中间件 <span class="hint">只打包勾选项, 也可接入 plugins/ 插件扩展</span></h2>
-        <div class="body">
-          <div id="suiteBox"></div>
-          <div id="catChips"></div>
-          <div id="svcCats"></div>
-          <div id="topoBox" style="margin-top:16px"></div>
-        </div>
-      </div>
-
-      <div class="card" id="sec-port" style="display:none">
-        <h2><span class="num">3</span>端口映射 <span class="hint">左侧宿主机端口, 箭头后为容器内端口; 支持追加自定义映射</span></h2>
-        <div class="body" id="portBox"></div>
-      </div>
-
-      <div class="card" id="sec-proxy" style="display:none">
-        <h2><span class="num">4</span>反向代理向导 <span class="hint">域名 / 前后端转发 / 真实IP / WebSocket, 自动生成 nginx 站点配置</span></h2>
-        <div class="body" id="proxyBox"></div>
-      </div>
-
-      <div class="card" id="sec-pwd" style="display:none">
-        <h2><span class="num">4</span>账号密码 <span class="hint">禁止空格与 $ ` " ' \ ; | ; 部署后存于 .env (600)</span></h2>
-        <div class="body">
-          <div id="pwdBox"></div>
-        </div>
-      </div>
-
-      <div class="card" id="sec-db" style="display:none">
-        <h2><span class="num">5</span>数据库来源 <span class="hint">Nacos / XXL-Job 的建库连库方式</span></h2>
-        <div class="body" id="dbBox"></div>
-      </div>
-
-      <div class="card" id="sec-backup" style="display:none">
-        <h2><span class="num">6</span>数据库备份 <span class="hint">crontab + 容器内 mysqldump, 按库分文件 gzip</span></h2>
-        <div class="body" id="backupBox"></div>
-      </div>
-
+      <div id="drawerBody">
       <div class="card" id="sec-wh">
         <h2><span class="num">7</span>物料仓库状态
           <span style="flex:1"></span>
@@ -395,6 +353,89 @@
         </div>
       </div>
 
+      </div>
+      </div>
+
+    <div class="content">
+
+      <div class="wstep on" data-step="1">
+      <div class="card" id="sec-basic">
+        <h2><span class="num">1</span>基础设置</h2>
+        <div class="body">
+          <div class="row">
+            <div><label>项目名 <span class="hint">compose 项目名与包名</span></label>
+              <input type="text" id="project" value="demo"></div>
+            <div><label>目标服务器架构</label>
+              <select id="arch">
+                <option value="amd64">x86_64 (amd64)</option>
+                <option value="arm64">ARM (aarch64)</option>
+              </select></div>
+          </div>
+          <div class="row" style="margin-top:12px">
+            <div><label>部署目录 <span class="hint">compose / .env / 数据 / 日志 / 配置都在这里</span></label>
+              <input type="text" id="deploy_dir" value="/data/middleware"></div>
+            <div><label>Docker 数据目录 data-root</label>
+              <input type="text" id="data_root" value="/data/docker"></div>
+          </div>
+          <div style="margin-top:12px">
+            <label>镜像加速器 <span class="hint">写入 daemon.json; <span id="mirrorNote"></span></span></label>
+            <textarea id="mirrors" rows="3" placeholder="https://... 每行一个"></textarea>
+            <div style="margin-top:8px"><button class="mini" id="btnFillMirrors">一键填入实测可用源</button></div>
+          </div>
+        </div>
+      </div>
+
+      </div>
+
+      <div class="wstep" data-step="2">
+      <div class="card" id="sec-svc">
+        <h2><span class="num">2</span>选择中间件 <span class="hint">只打包勾选项, 也可接入 plugins/ 插件扩展</span></h2>
+        <div class="body">
+          <div id="suiteBox"></div>
+          <div id="catChips"></div>
+          <div id="svcCats"></div>
+          <div id="topoBox" style="margin-top:16px"></div>
+        </div>
+      </div>
+
+      </div>
+
+      <div class="wstep" data-step="3">
+      <div class="card" id="step3Empty"><div class="body hint">请先在「选择中间件」步骤勾选组件, 这里会出现端口与反代配置。</div></div>
+      <div class="card" id="sec-port" style="display:none">
+        <h2><span class="num">3</span>端口映射 <span class="hint">左侧宿主机端口, 箭头后为容器内端口; 支持追加自定义映射</span></h2>
+        <div class="body" id="portBox"></div>
+      </div>
+
+      <div class="card" id="sec-proxy" style="display:none">
+        <h2><span class="num">4</span>反向代理向导 <span class="hint">域名 / 前后端转发 / 真实IP / WebSocket, 自动生成 nginx 站点配置</span></h2>
+        <div class="body" id="proxyBox"></div>
+      </div>
+
+      </div>
+
+      <div class="wstep" data-step="4">
+      <div class="card" id="step4Empty"><div class="body hint">当前选择不需要账号密码 / 数据库配置。</div></div>
+      <div class="card" id="sec-pwd" style="display:none">
+        <h2><span class="num">4</span>账号密码 <span class="hint">禁止空格与 $ ` " ' \ ; | ; 部署后存于 .env (600)</span></h2>
+        <div class="body">
+          <div id="pwdBox"></div>
+        </div>
+      </div>
+
+      <div class="card" id="sec-db" style="display:none">
+        <h2><span class="num">5</span>数据库来源 <span class="hint">Nacos / XXL-Job 的建库连库方式</span></h2>
+        <div class="body" id="dbBox"></div>
+      </div>
+
+      <div class="card" id="sec-backup" style="display:none">
+        <h2><span class="num">6</span>数据库备份 <span class="hint">crontab + 容器内 mysqldump, 按库分文件 gzip</span></h2>
+        <div class="body" id="backupBox"></div>
+      </div>
+
+      </div>
+      <div class="wstep" data-step="5">
+      <div class="card" id="step5Empty"><div class="body hint">勾选组件后, 点击下方「生成预览」查看 docker-compose / .env / manifest 最终内容; 确认无误后「开始打包」。</div></div>
       <div class="card" id="previewCard" style="display:none">
         <div class="tabs">
           <button class="tab on" data-t="compose">docker-compose.yml</button>
@@ -407,11 +448,15 @@
       </div>
 
       <div id="msg"></div>
+      </div>
+
     </div>
 
     <div class="actionbar">
       <span class="stat" id="statLine">未选择组件</span>
       <span class="sp"></span>
+      <button class="btn ghost" id="btnPrev">上一步</button>
+      <button class="btn ghost" id="btnNext">下一步</button>
       <button class="btn ghost" id="btnPreview">生成预览</button>
       <button class="btn" id="btnPack">开始打包</button>
     </div>
@@ -539,19 +584,28 @@ async function init(){
   $('#btnImport').onclick = () => $('#importFile').click();
   $('#importFile').onchange = doImport;
   $('#btnCopy').onclick = doCopy;
-  $('#whChip').onclick = () => $('#sec-wh').scrollIntoView({behavior:'smooth'});
-  $$('#stepsNav a').forEach(a => a.onclick = () => {
-    document.getElementById(a.dataset.sec).scrollIntoView({behavior:'smooth'});
-  });
+  $$('#wizSteps .wtab').forEach(b => b.onclick = () => gotoStep(+b.dataset.step));
+  $('#btnPrev').onclick = () => gotoStep(Math.max(1, curStep - 1));
+  $('#btnNext').onclick = () => gotoStep(Math.min(5, curStep + 1));
+  $('#btnPreview').onclick = () => { gotoStep(5); doPreview(); };
+  const drawer = $('#lowDrawer'), dBody = $('#drawerBody');
+  const openDrawer = (which) => {
+    if (drawer.style.display === 'none') drawer.style.display = '';
+    $$('#lowDrawer .tab[data-d]').forEach(b => b.classList.toggle('on', b.dataset.d === which));
+    const sec = document.getElementById(which);
+    if (sec && sec.parentNode !== dBody) dBody.appendChild(sec);
+    [...dBody.children].forEach(ch => { if (ch.id !== which) ch.style.display = 'none'; });
+    sec.style.display = '';
+  };
+  $('#btnDrawerWh').onclick = () => openDrawer('sec-wh');
+  $('#btnDrawerHist').onclick = () => openDrawer('sec-out');
+  $('#btnDrawerClose').onclick = () => { drawer.style.display = 'none'; };
+  $$('#lowDrawer .tab[data-d]').forEach(b => b.onclick = () => openDrawer(b.dataset.d));
   $$('#previewCard .tabs button[data-t]').forEach(b => b.onclick = () => switchTab(b.dataset.t));
   $('#mCancel').onclick = async () => { try{ await api('/api/cancel', {}); }catch(e){} toast('已请求取消'); };
   $('#mClose').onclick = () => { $('#modal').classList.add('hidden'); loadBundles(); };
   document.addEventListener('input', saveLocal);
-  // 侧边导航高亮
-  const obs = new IntersectionObserver(es => {
-    es.forEach(e => { if (e.isIntersecting) $$('#stepsNav a').forEach(a => a.classList.toggle('act', a.dataset.sec === e.target.id)); });
-  }, { rootMargin: '-30% 0px -60% 0px' });
-  $$('.card[id^=sec-]').forEach(c => obs.observe(c));
+  gotoStep(1);
   checkRunning();
 }
 
@@ -689,21 +743,28 @@ function onArchChange(){
 }
 
 /* ================= 动态渲染 ================= */
-const SEC_ORDER = ['sec-basic','sec-svc','sec-port','sec-proxy','sec-pwd','sec-db','sec-backup','sec-wh','sec-out'];
-/* 隐藏条件区块(数据库/备份)后, 侧栏与卡片编号顺延, 不再跳号 */
-function renumberSections(){
-  let n = 0;
-  for (const id of SEC_ORDER){
-    const card = document.getElementById(id);
-    const link = document.querySelector('#stepsNav a[data-sec="'+id+'"]');
-    const visible = card && card.style.display !== 'none';
-    if (link) link.style.display = visible ? '' : 'none';
-    if (!visible) continue;
-    n++;
-    const num = card.querySelector('h2 .num');
-    if (num) num.textContent = n;
-    if (link) link.querySelector('i').textContent = n;
-  }
+/* ---- 五步向导引擎 ---- */
+let curStep = 1;
+function gotoStep(n){
+  curStep = n;
+  $$('.wstep').forEach(w => w.classList.toggle('on', +w.dataset.step === n));
+  $$('#wizSteps .wtab').forEach(b => b.classList.toggle('on', +b.dataset.step === n));
+  $('#btnPrev').disabled = (n === 1);
+  $('#btnNext').disabled = (n === 5);
+  $('#btnPreview').style.display = $('#btnPack').style.display = (n === 5) ? '' : 'none';
+  window.scrollTo(0, 0);
+}
+function updateStepBadges(){
+  const svcs = [...selected];
+  $('#badge2').textContent = svcs.length ? (svcs.length + ' 项') : '';
+  // 步骤4: 需要填写的账号/数据库是否齐备
+  let pending = 0;
+  if (svcs.some(s => s==='nacos'||s==='xxljob') && (!state.db.nacos || !state.db.xxljob)) pending++;
+  const hasSecret = CATALOG.secrets.some(it => it.services.some(s => selected.has(s)));
+  if (hasSecret && Object.values(state.secrets).some(v => !String(v||'').trim())) pending++;
+  const b4 = $('#badge4');
+  if (pending){ b4.textContent = pending + ' 项待配置'; b4.className = 'wbadge warn'; }
+  else { b4.textContent = hasSecret ? '已配置' : ''; b4.className = 'wbadge'; }
 }
 function renderDynamic(){
   const svcs = [...selected];
@@ -714,7 +775,11 @@ function renderDynamic(){
   $('#sec-pwd').style.display  = has && hasSecret ? '' : 'none';
   $('#sec-db').style.display   = has && svcs.some(s => s==='nacos'||s==='xxljob') ? '' : 'none';
   $('#sec-backup').style.display = has && svcs.some(s => s==='mysql57'||s==='mysql8') ? '' : 'none';
-  renumberSections();
+  const vis = id => { const el = document.getElementById(id); return el && el.style.display !== 'none'; };
+  $('#step3Empty').style.display = (vis('sec-port') || vis('sec-proxy')) ? 'none' : '';
+  $('#step4Empty').style.display = (vis('sec-pwd') || vis('sec-db') || vis('sec-backup')) ? 'none' : '';
+  $('#step5Empty').style.display = vis('previewCard') ? 'none' : '';
+  updateStepBadges();
   renderTopology();
 
   // ---- 端口映射: host → container ----
@@ -1285,7 +1350,7 @@ const whFilter = { kind: 'all', arch: 'all' };
 function renderWarehouse(){
   if (typeof STATIC_MODE !== 'undefined' && STATIC_MODE){
     $('#whBody').innerHTML = '<tr><td colspan="5" class="hint">静态演示模式: 物料状态需在本地运行 python packer.py 后查看</td></tr>';
-    $('#whChipTxt').textContent = '演示模式';
+    $('#btnDrawerWh').textContent = '物料仓库 · 演示模式';
     return;
   }
   const p = CATALOG.files_present, sz = CATALOG.sizes;
@@ -1309,9 +1374,9 @@ function renderWarehouse(){
   }
   $('#whBody').innerHTML = rows;
   applyWhFilter();
-  const chip = $('#whChip');
-  chip.classList.toggle('bad', miss > 0);
-  $('#whChipTxt').textContent = miss > 0 ? ('物料缺失 ' + miss + ' 项') : '物料仓库就绪';
+  const btn = $('#btnDrawerWh');
+  btn.textContent = miss > 0 ? ('物料仓库 · 缺 ' + miss + ' 项') : '物料仓库';
+  btn.classList.toggle('warn', miss > 0);
 }
 function applyWhFilter(){
   $$('#whBody tr').forEach(tr => {
