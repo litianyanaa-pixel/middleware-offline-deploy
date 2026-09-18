@@ -271,9 +271,18 @@
   .wbadge{font-style:normal;font-size:10.5px;background:#eef0f3;color:#6b7280;border-radius:99px;padding:1px 7px;font-family:var(--f-mono)}
   .wbadge.warn{background:#fee2e2;color:#dc2626}
   .wtab.on .wbadge{background:rgba(255,255,255,.22);color:#fff}
-  .lowdrawer{max-width:1064px;margin:10px auto 0;width:100%;padding:0 32px}
-  .lowdrawer .drawer-tabs{display:flex;gap:6px;align-items:center;margin-bottom:8px}
-  .lowdrawer .card{margin-bottom:0}
+  .wiz-steps{position:relative;display:flex;align-items:center;gap:2px;width:max-content;max-width:100%;margin:12px auto 0;padding:5px;background:#e9ecf1;border-radius:999px;box-shadow:inset 0 1px 3px rgba(15,23,42,.06)}
+  .wiz-pill{position:absolute;top:5px;bottom:5px;left:5px;width:80px;border-radius:999px;background:var(--acc);box-shadow:0 2px 10px rgba(37,99,235,.35);transition:left .3s cubic-bezier(.4,0,.2,1), width .3s cubic-bezier(.4,0,.2,1);will-change:left,width}
+  .wtab{position:relative;z-index:1;display:flex;align-items:center;justify-content:center;gap:7px;padding:8px 16px;border:none;background:transparent;color:var(--txt2);font-size:13px;font-weight:600;cursor:pointer;border-radius:999px;transition:color .2s;white-space:nowrap}
+  .wtab i{width:19px;height:19px;flex:none;border-radius:999px;background:#dde1e7;color:#6b7280;font-style:normal;font-size:11px;display:flex;align-items:center;justify-content:center;font-weight:700;font-family:var(--f-mono);transition:background .2s,color .2s}
+  .wtab:hover{color:var(--txt)}
+  .wtab.on{color:#fff}
+  .wtab.on i{background:rgba(255,255,255,.24);color:#fff}
+  .wsep{width:1px;height:20px;flex:none;background:#d8dce3;margin:0 6px}
+  .wlow{font-weight:500}
+  .wview{display:none}
+  .wview.on{display:block;animation:wfade .22s ease}
+  @keyframes wfade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
   .brand-inline{display:flex;align-items:center;gap:8px}
   .brand-inline .mark{width:28px;height:28px;border-radius:8px;background:var(--acc);display:flex;align-items:center;justify-content:center}
   .brand-inline b{font-size:14.5px}
@@ -298,27 +307,22 @@
       </div>
       <span class="crumb">本地选型 → 生成编排 → 按需打包 → 服务器零交互部署</span>
       <span class="sp"></span>
-      <button class="tbtn" id="btnDrawerWh">物料仓库</button>
-      <button class="tbtn" id="btnDrawerHist">历史产物</button>
       <button class="tbtn" id="btnExport">保存配置</button>
       <button class="tbtn" id="btnImport">导入配置</button>
       <input type="file" id="importFile" accept=".json" class="hidden">
     </div>
     <div class="wiz-steps" id="wizSteps">
-      <button class="wtab on" data-step="1"><i>1</i>基础设置</button>
-      <button class="wtab" data-step="2"><i>2</i>选择中间件<b class="wbadge" id="badge2"></b></button>
-      <button class="wtab" data-step="3"><i>3</i>端口与反代<b class="wbadge" id="badge3"></b></button>
-      <button class="wtab" data-step="4"><i>4</i>账号与数据<b class="wbadge warn" id="badge4"></b></button>
-      <button class="wtab" data-step="5"><i>5</i>预览打包</button>
+      <span class="wiz-pill" id="wizPill"></span>
+      <button class="wtab on" data-v="1"><i>1</i>基础设置</button>
+      <button class="wtab" data-v="2"><i>2</i>选择中间件<b class="wbadge" id="badge2"></b></button>
+      <button class="wtab" data-v="3"><i>3</i>端口与反代<b class="wbadge" id="badge3"></b></button>
+      <button class="wtab" data-v="4"><i>4</i>账号与数据<b class="wbadge warn" id="badge4"></b></button>
+      <button class="wtab" data-v="5"><i>5</i>预览打包</button>
+      <span class="wsep"></span>
+      <button class="wtab wlow" data-v="wh">物料仓库<b class="wbadge warn" id="badgeWh"></b></button>
+      <button class="wtab wlow" data-v="out">历史产物</button>
     </div>
-    <div class="lowdrawer" id="lowDrawer" style="display:none">
-      <div class="drawer-tabs">
-        <button class="tab on" data-d="sec-wh">物料仓库</button>
-        <button class="tab" data-d="sec-out">历史产物</button>
-        <span style="flex:1"></span>
-        <button class="mini" id="btnDrawerClose">收起</button>
-      </div>
-      <div id="drawerBody">
+    <div class="wview" id="view-wh" style="display:none">
       <div class="card" id="sec-wh">
         <h2><span class="num">7</span>物料仓库状态
           <span style="flex:1"></span>
@@ -345,7 +349,8 @@
           </table>
         </div>
       </div>
-
+    </div>
+    <div class="wview" id="view-out" style="display:none">
       <div class="card" id="sec-out">
         <h2><span class="num">8</span>历史产物 <span class="hint">dist/ 目录 · 传输后可用 .sha256 校验完整性</span></h2>
         <div class="body">
@@ -355,9 +360,7 @@
           </table>
         </div>
       </div>
-
-      </div>
-      </div>
+    </div>
 
     <div class="content">
 
@@ -591,24 +594,14 @@ async function init(){
   $('#btnPrev').onclick = () => gotoStep(Math.max(1, curStep - 1));
   $('#btnNext').onclick = () => gotoStep(Math.min(5, curStep + 1));
   $('#btnPreview').onclick = () => { gotoStep(5); doPreview(); };
-  const drawer = $('#lowDrawer'), dBody = $('#drawerBody');
-  const openDrawer = (which) => {
-    if (drawer.style.display === 'none') drawer.style.display = '';
-    $$('#lowDrawer .tab[data-d]').forEach(b => b.classList.toggle('on', b.dataset.d === which));
-    const sec = document.getElementById(which);
-    if (sec && sec.parentNode !== dBody) dBody.appendChild(sec);
-    [...dBody.children].forEach(ch => { if (ch.id !== which) ch.style.display = 'none'; });
-    sec.style.display = '';
-  };
-  $('#btnDrawerWh').onclick = () => openDrawer('sec-wh');
-  $('#btnDrawerHist').onclick = () => openDrawer('sec-out');
-  $('#btnDrawerClose').onclick = () => { drawer.style.display = 'none'; };
-  $$('#lowDrawer .tab[data-d]').forEach(b => b.onclick = () => openDrawer(b.dataset.d));
+  $$('#wizSteps .wtab').forEach(b => b.onclick = () => gotoView(b.dataset.v));
+  window.addEventListener('resize', () => movePill(curStep));
   $$('#previewCard .tabs button[data-t]').forEach(b => b.onclick = () => switchTab(b.dataset.t));
   $('#mCancel').onclick = async () => { try{ await api('/api/cancel', {}); }catch(e){} toast('已请求取消'); };
   $('#mClose').onclick = () => { $('#modal').classList.add('hidden'); loadBundles(); };
   document.addEventListener('input', saveLocal);
-  gotoStep(1);
+  gotoView('1');
+  requestAnimationFrame(() => movePill('1'));
   checkRunning();
 }
 
@@ -751,17 +744,29 @@ function onArchChange(){
 }
 
 /* ================= 动态渲染 ================= */
-/* ---- 五步向导引擎 ---- */
+/* ---- 五步向导引擎 (低频视图同导航) ---- */
 let curStep = 1;
-function gotoStep(n){
-  curStep = n;
-  $$('.wstep').forEach(w => w.classList.toggle('on', +w.dataset.step === n));
-  $$('#wizSteps .wtab').forEach(b => b.classList.toggle('on', +b.dataset.step === n));
-  $('#btnPrev').disabled = (n === 1);
-  $('#btnNext').disabled = (n === 5);
-  $('#btnPreview').style.display = $('#btnPack').style.display = (n === 5) ? '' : 'none';
+function movePill(v){
+  const tab = document.querySelector('#wizSteps .wtab[data-v="'+v+'"]');
+  const pill = document.getElementById('wizPill');
+  if (!tab || !pill) return;
+  pill.style.left = tab.offsetLeft + 'px';
+  pill.style.width = tab.offsetWidth + 'px';
+}
+function gotoView(v){
+  curStep = v;
+  $$('.wstep').forEach(w => w.classList.toggle('on', w.dataset.step === String(v)));
+  $$('.wview').forEach(w => w.classList.toggle('on', w.id === 'view-' + v));
+  $$('#wizSteps .wtab').forEach(b => b.classList.toggle('on', b.dataset.v === String(v)));
+  const isStep = ['1','2','3','4','5'].includes(String(v));
+  $('#btnPrev').disabled = (v === 1);
+  $('#btnNext').disabled = (v === 5 || !isStep);
+  $('#btnPrev').style.display = $('#btnNext').style.display = isStep ? '' : 'none';
+  $('#btnPreview').style.display = $('#btnPack').style.display = (v === 5) ? '' : 'none';
+  movePill(v);
   window.scrollTo(0, 0);
 }
+const gotoStep = gotoView;
 function updateStepBadges(){
   const svcs = [...selected];
   $('#badge2').textContent = svcs.length ? (svcs.length + ' 项') : '';
@@ -1358,7 +1363,7 @@ const whFilter = { kind: 'all', arch: 'all' };
 function renderWarehouse(){
   if (typeof STATIC_MODE !== 'undefined' && STATIC_MODE){
     $('#whBody').innerHTML = '<tr><td colspan="5" class="hint">静态演示模式: 物料状态需在本地运行 python packer.py 后查看</td></tr>';
-    $('#btnDrawerWh').textContent = '物料仓库 · 演示模式';
+    const bd = $('#badgeWh'); if (bd){ bd.textContent = '演示'; bd.className = 'wbadge warn'; }
     return;
   }
   const p = CATALOG.files_present, sz = CATALOG.sizes;
@@ -1382,9 +1387,8 @@ function renderWarehouse(){
   }
   $('#whBody').innerHTML = rows;
   applyWhFilter();
-  const btn = $('#btnDrawerWh');
-  btn.textContent = miss > 0 ? ('物料仓库 · 缺 ' + miss + ' 项') : '物料仓库';
-  btn.classList.toggle('warn', miss > 0);
+  const bd = $('#badgeWh');
+  if (bd){ bd.textContent = miss > 0 ? ('缺 ' + miss) : ''; bd.className = 'wbadge' + (miss > 0 ? ' warn' : ''); }
 }
 function applyWhFilter(){
   $$('#whBody tr').forEach(tr => {
