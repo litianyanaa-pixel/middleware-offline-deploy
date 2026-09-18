@@ -25,6 +25,14 @@ die()  { err "$*"; exit 1; }
 hr()   { echo -e "${CYAN}--------------------------------------------------------------${NC}"; }
 
 TMP="$(mktemp -d)"
+
+# 部分系统 PATH 不含 /usr/local/bin, 会导致装好的 docker 命令不可见:
+# 本脚本内立即补齐; 同时写入 profile.d 持久化(登录 shell 生效)
+case ":$PATH:" in
+  *:/usr/local/bin:*) ;;
+  *) export PATH="/usr/local/bin:$PATH"
+     echo 'export PATH="/usr/local/bin:$PATH"' > /etc/profile.d/zz-local-bin.sh 2>/dev/null || true ;;
+esac
 trap 'rm -rf "$TMP"' EXIT
 
 #------------------------------- 0. 前置检查 -------------------------------
@@ -239,6 +247,11 @@ install_docker() {
   log "解压安装 $(basename "$tgz") ..."
   tar -xzf "$tgz" -C "$TMP"
   install -m 755 "$TMP"/docker/* /usr/local/bin/
+  if ! command -v docker >/dev/null 2>&1; then
+    warn "/usr/local/bin 不在 PATH 中, 已将 docker 工具软链到 /usr/bin"
+    for b in "$TMP"/docker/*; do ln -sf "/usr/local/bin/$(basename "$b")" "/usr/bin/$(basename "$b")" 2>/dev/null || true; done
+    export PATH="/usr/local/bin:$PATH"
+  fi
 
   cat > /etc/systemd/system/containerd.service <<'EOF'
 [Unit]

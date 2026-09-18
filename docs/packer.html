@@ -54,6 +54,8 @@
   .chip .dot{width:8px;height:8px;border-radius:50%;background:var(--ok);flex:none}
   .chip.bad .dot{background:var(--bad)}
   .tbtn.warn{color:#dc2626;border-color:#fca5a5}
+  .chip-f.clear{color:#dc2626;border-color:#fecaca}
+  .chip-f.clear:hover{background:#fef2f2;border-color:#fca5a5}
 
   /* ============ 主区 ============ */
   .main{flex:1;min-width:0;display:flex;flex-direction:column}
@@ -260,14 +262,15 @@
   /* ---- 向导步骤条 ---- */
   .wstep{display:none}
   .wstep.on{display:block}
-  .wiz-steps{display:flex;gap:6px;padding:10px 32px 0;max-width:1064px;margin:0 auto;width:100%}
-  .wtab{flex:1;display:flex;align-items:center;justify-content:center;gap:8px;padding:10px 8px;border:1px solid var(--line);border-bottom:none;border-radius:10px 10px 0 0;background:#eef0f3;color:var(--txt2);font-size:13px;font-weight:600;cursor:pointer;transition:background .13s,color .13s}
-  .wtab i{width:20px;height:20px;flex:none;border-radius:6px;background:#e2e5ea;color:#6b7280;font-style:normal;font-size:11px;display:flex;align-items:center;justify-content:center;font-weight:700;font-family:var(--f-mono)}
-  .wtab.on{background:#fff;color:var(--acc)}
-  .wtab.on i{background:var(--acc);color:#fff}
-  .wbadge{font-style:normal;font-size:10.5px;background:#e2e5ea;color:#6b7280;border-radius:99px;padding:1px 7px;font-family:var(--f-mono)}
+  .wiz-steps{display:flex;gap:10px;padding:12px 32px 4px;max-width:1064px;margin:0 auto;width:100%}
+  .wtab{flex:1;display:flex;align-items:center;justify-content:center;gap:8px;padding:9px 10px;border:1px solid var(--line);border-radius:999px;background:#fff;color:var(--txt2);font-size:13px;font-weight:600;cursor:pointer;transition:all .14s}
+  .wtab:hover{border-color:#b6c4dd;color:var(--txt)}
+  .wtab i{width:20px;height:20px;flex:none;border-radius:999px;background:#eef0f3;color:#6b7280;font-style:normal;font-size:11px;display:flex;align-items:center;justify-content:center;font-weight:700;font-family:var(--f-mono)}
+  .wtab.on{background:var(--acc);border-color:var(--acc);color:#fff;box-shadow:0 2px 8px rgba(37,99,235,.25)}
+  .wtab.on i{background:rgba(255,255,255,.22);color:#fff}
+  .wbadge{font-style:normal;font-size:10.5px;background:#eef0f3;color:#6b7280;border-radius:99px;padding:1px 7px;font-family:var(--f-mono)}
   .wbadge.warn{background:#fee2e2;color:#dc2626}
-  .wtab.on .wbadge{background:var(--acc-soft);color:var(--acc)}
+  .wtab.on .wbadge{background:rgba(255,255,255,.22);color:#fff}
   .lowdrawer{max-width:1064px;margin:10px auto 0;width:100%;padding:0 32px}
   .lowdrawer .drawer-tabs{display:flex;gap:6px;align-items:center;margin-bottom:8px}
   .lowdrawer .card{margin-bottom:0}
@@ -630,8 +633,12 @@ function renderSvcChips(){
     if (!counts[cat]) continue;
     html += '<button class="chip-f'+(state.svcFilter===cat?' on':'')+'" data-cat="'+cat+'">'+label+' <i>'+counts[cat]+'</i></button>';
   }
+  if (selected.size) html += '<button class="chip-f clear" data-clear="1">✕ 清空选择 <i>'+selected.size+'</i></button>';
   bar.innerHTML = html;
-  bar.querySelectorAll('.chip-f').forEach(b => b.onclick = () => { state.svcFilter = b.dataset.cat; renderSvcGrid(); });
+  bar.querySelectorAll('.chip-f[data-cat]').forEach(b => b.onclick = () => { state.svcFilter = b.dataset.cat; renderSvcGrid(); });
+  bar.querySelectorAll('.chip-f[data-clear]').forEach(b => b.onclick = () => {
+    selected.clear(); renderSvcGridSync(); toast('已清空全部选择');
+  });
 }
 
 function renderSvcGrid(){
@@ -691,6 +698,7 @@ function renderSvcGridSync(){
     const size = (CATALOG.sizes.images[k] || {})[$('#arch').value] || 0;
     d.querySelector('.size').textContent = ($('#arch').value==='amd64'?'x86':'ARM') + ' ' + fmtGB(size);
   });
+  renderSvcChips();
   renderSuites();
   updateSvcWarn(); renderDynamic();
 }

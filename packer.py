@@ -247,7 +247,8 @@ def validate_config(cfg, catalog):
             if not USERNAME_RE.match(val):
                 raise PackError("%s 含不合法字符: %s" % (item["label"], key))
         secrets_cfg[key] = val
-    cfg["secrets"] = secrets_cfg
+    # 只保留本次所选服务的密钥: 未选组件的账号密码不写入 .env / manifest.sh
+    cfg["secrets"] = {k: secrets_cfg[k] for k in need_keys}
 
     # ---- 目录/镜像源 ----
     deploy_dir = str(cfg.get("deploy_dir") or catalog["defaults"]["deploy_dir"]).strip()

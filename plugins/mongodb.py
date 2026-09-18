@@ -46,7 +46,8 @@ def compose_block(cfg, ports, ctx):
 %(extra_ports)s    volumes:
       - ./mongodb/data:/data/db
     healthcheck:
-      test: ["CMD-SHELL", "mongosh --quiet --eval 'db.adminCommand({ ping: 1 })' | grep -q '\\"ok\\"'"]
+      # 建库完成后 ping 需要认证; mongosh 对 .ok 的输出是不带引号的 1
+      test: ["CMD-SHELL", "mongosh --quiet -u \\"$$MONGO_INITDB_ROOT_USERNAME\\" -p \\"$$MONGO_INITDB_ROOT_PASSWORD\\" --eval 'db.adminCommand({ ping: 1 }).ok' 2>/dev/null | grep -q 1"]
       interval: 15s
       timeout: 10s
       retries: 8
