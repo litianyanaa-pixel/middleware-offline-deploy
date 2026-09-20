@@ -9,7 +9,7 @@
   :root{
     --txt:#0f172a; --txt2:#334155; --mut:#64748b;
     --line:rgba(15,23,42,.08); --line2:rgba(15,23,42,.15);
-    --acc:#4f46e5; --acc-h:#4338ca;
+    --acc:#0a84ff; --acc-h:#0071e3;
     --ok:#10b981; --warn:#d97706; --bad:#e11d48; --bad-soft:rgba(225,29,72,.09);
     --glass:rgba(255,255,255,.62); --edge:rgba(255,255,255,.72);
     --f-body:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei UI","Microsoft YaHei",sans-serif;
@@ -19,12 +19,12 @@
     --sh-2:0 6px 22px rgba(15,23,42,.11);
     --sh-3:0 18px 50px rgba(15,23,42,.24);
     --spring:cubic-bezier(.32,1.28,.34,1);
-    --grad:linear-gradient(135deg,#0ea5e9,#6366f1 52%,#a855f7);
-    --grad-acc:linear-gradient(135deg,#4f46e5,#7c3aed);
+    --grad:linear-gradient(135deg,#31b2ff,#0a84ff 52%,#00c7be);
+    --grad-acc:linear-gradient(135deg,#0a84ff,#00b2a9);
   }
   *{box-sizing:border-box;margin:0;padding:0}
   html{scroll-behavior:smooth}
-  ::selection{background:rgba(129,140,248,.35)}
+  ::selection{background:rgba(10,132,255,.25)}
   ::-webkit-scrollbar{width:10px;height:10px}
   ::-webkit-scrollbar-thumb{background:rgba(100,116,139,.35);border-radius:999px;border:3px solid transparent;background-clip:content-box}
   ::-webkit-scrollbar-thumb:hover{background:rgba(100,116,139,.55);background-clip:content-box;border:3px solid transparent}
@@ -33,11 +33,11 @@
   /* 环境光: 液态玻璃后面的彩色渐变 */
   body::before{content:"";position:fixed;inset:-22%;z-index:-1;pointer-events:none;
     background:
-      radial-gradient(34% 40% at 16% 12%, rgba(56,189,248,.52), transparent 62%),
-      radial-gradient(30% 36% at 85% 8%, rgba(165,180,252,.58), transparent 64%),
-      radial-gradient(34% 40% at 88% 80%, rgba(249,168,212,.46), transparent 62%),
-      radial-gradient(36% 42% at 6% 88%, rgba(94,234,212,.44), transparent 64%),
-      radial-gradient(24% 28% at 55% 46%, rgba(199,210,254,.42), transparent 66%);
+      radial-gradient(34% 40% at 16% 12%, rgba(56,189,248,.50), transparent 62%),
+      radial-gradient(30% 36% at 85% 8%, rgba(110,231,255,.48), transparent 64%),
+      radial-gradient(34% 40% at 88% 80%, rgba(45,212,191,.40), transparent 62%),
+      radial-gradient(36% 42% at 6% 88%, rgba(147,197,253,.44), transparent 64%),
+      radial-gradient(24% 28% at 55% 46%, rgba(253,230,138,.32), transparent 66%);
     filter:blur(52px) saturate(150%);
     animation:ambient 26s ease-in-out infinite alternate}
   @keyframes ambient{
@@ -46,9 +46,11 @@
     100%{transform:translate3d(-1.5%,1.5%,0) rotate(-2deg) scale(1.02)}}
   input[type=checkbox],input[type=radio]{accent-color:var(--acc)}
   input[type=file]{font-size:12px;color:var(--mut)}
-  input[type=file]::file-selector-button{border:1px solid var(--edge);background:rgba(255,255,255,.7);border-radius:999px;
-    padding:5px 13px;font-size:12px;cursor:pointer;color:var(--txt);margin-right:10px;font-family:inherit;transition:background .18s}
-  input[type=file]::file-selector-button:hover{background:#fff}
+  input[type=file]::file-selector-button{border:0;background:var(--grad-acc);border-radius:999px;
+    padding:6px 15px;font-size:12px;cursor:pointer;color:#fff;font-weight:600;margin-right:10px;font-family:inherit;
+    box-shadow:0 3px 12px rgba(10,132,255,.35), inset 0 1px 0 rgba(255,255,255,.35);transition:all .18s var(--spring)}
+  input[type=file]::file-selector-button:hover{filter:brightness(1.08);box-shadow:0 5px 16px rgba(10,132,255,.45), inset 0 1px 0 rgba(255,255,255,.4)}
+  input[type=file]::file-selector-button:active{transform:scale(.96)}
 
   /* ============ 主区 ============ */
   .app{display:flex;min-height:100vh}
@@ -73,7 +75,7 @@
     margin-bottom:16px;overflow:hidden;scroll-margin-top:86px;transition:box-shadow .3s}
   .card:hover{box-shadow:0 14px 50px rgba(31,41,55,.14), inset 0 1px 0 rgba(255,255,255,.9)}
   .card>h2{font-size:14px;padding:13px 18px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:10px;flex-wrap:wrap;row-gap:2px;font-weight:650;letter-spacing:-.1px}
-  .card>h2 .num{background:var(--grad);color:#fff;border-radius:8px;width:22px;height:22px;display:inline-flex;align-items:center;justify-content:center;font-size:12px;flex:none;font-weight:700;font-family:var(--f-mono);box-shadow:0 2px 8px rgba(99,102,241,.35), inset 0 1px 0 rgba(255,255,255,.45)}
+  .card>h2 .num{background:var(--grad);color:#fff;border-radius:8px;width:22px;height:22px;display:inline-flex;align-items:center;justify-content:center;font-size:12px;flex:none;font-weight:700;font-family:var(--f-mono);box-shadow:0 2px 8px rgba(10,132,255,.35), inset 0 1px 0 rgba(255,255,255,.45)}
   .card>h2 .hint{flex:1;min-width:180px;font-weight:400;color:var(--mut);font-size:12px;line-height:1.5}
   .card .body{padding:18px}
   label{display:block;font-weight:600;font-size:12.5px;margin-bottom:6px;color:var(--txt)}
@@ -93,8 +95,8 @@
     background-repeat:no-repeat;background-position:right 10px center;background-size:14px}
   ::placeholder{color:#94a3b8;opacity:1}
   input:hover:not(:focus):not(:disabled),select:hover:not(:focus):not(:disabled),textarea:hover:not(:focus):not(:disabled){border-color:rgba(15,23,42,.2);background:rgba(255,255,255,.88)}
-  input:focus,select:focus,textarea:focus{border-color:#818cf8;background:#fff;box-shadow:0 0 0 3.5px rgba(99,102,241,.16), inset 0 1px 2px rgba(15,23,42,.03)}
-  .tbtn:focus-visible,.mini:focus-visible,.btn:focus-visible,.fgroup button:focus-visible,.tab:focus-visible,.wtab:focus-visible{outline:none;box-shadow:0 0 0 3.5px rgba(99,102,241,.28)}
+  input:focus,select:focus,textarea:focus{border-color:#69b4ff;background:#fff;box-shadow:0 0 0 3.5px rgba(10,132,255,.16), inset 0 1px 2px rgba(15,23,42,.03)}
+  .tbtn:focus-visible,.mini:focus-visible,.btn:focus-visible,.fgroup button:focus-visible,.tab:focus-visible,.wtab:focus-visible{outline:none;box-shadow:0 0 0 3.5px rgba(10,132,255,.28)}
   input.bad{border-color:var(--bad);box-shadow:0 0 0 3.5px rgba(225,29,72,.14)}
   input:disabled,select:disabled{background:rgba(241,245,249,.7);color:var(--mut);cursor:not-allowed}
   input:-webkit-autofill,input:-webkit-autofill:hover,input:-webkit-autofill:focus{
@@ -109,10 +111,10 @@
   .suite:hover{transform:translateY(-2px);box-shadow:var(--sh-2), inset 0 1px 0 rgba(255,255,255,.85)}
   .suite.on{border:1px solid transparent;
     background:linear-gradient(rgba(255,255,255,.85),rgba(255,255,255,.8)) padding-box, var(--grad) border-box;
-    box-shadow:0 8px 26px rgba(99,102,241,.25), inset 0 1px 0 rgba(255,255,255,.9)}
+    box-shadow:0 8px 26px rgba(10,132,255,.25), inset 0 1px 0 rgba(255,255,255,.9)}
   .suite .s-head{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:600;color:var(--txt)}
   .suite .s-head .tick{position:static;width:18px;height:18px;border-radius:50%;border:1.5px solid rgba(15,23,42,.18);background:#fff;flex:0 0 auto;transition:all .2s}
-  .suite.on .s-head .tick{background:var(--grad-acc);border-color:transparent;box-shadow:0 2px 8px rgba(79,70,229,.4)}
+  .suite.on .s-head .tick{background:var(--grad-acc);border-color:transparent;box-shadow:0 2px 8px rgba(10,132,255,.4)}
   .suite .s-desc{font-size:12px;color:#64748b;margin:7px 0 9px;line-height:1.5}
   .suite .s-members{display:flex;flex-wrap:wrap;gap:6px}
   .suite .chip{display:inline-flex;align-items:center;gap:5px;font-size:11px;color:#475569;background:rgba(241,245,249,.85);border:1px solid rgba(255,255,255,.7);border-radius:99px;padding:2.5px 9px}
@@ -126,7 +128,7 @@
     box-shadow:var(--sh-1), inset 0 1px 0 rgba(255,255,255,.7);transition:all .22s var(--spring)}
   .chip-f:hover{transform:translateY(-1px);background:rgba(255,255,255,.85)}
   .chip-f i{font-style:normal;color:#94a3b8;margin-left:3px}
-  .chip-f.on{background:var(--grad-acc);border-color:transparent;color:#fff;box-shadow:0 4px 14px rgba(79,70,229,.4), inset 0 1px 0 rgba(255,255,255,.35)}
+  .chip-f.on{background:var(--grad-acc);border-color:transparent;color:#fff;box-shadow:0 4px 14px rgba(10,132,255,.4), inset 0 1px 0 rgba(255,255,255,.35)}
   .chip-f.on i{color:rgba(255,255,255,.75)}
   .chip-f.clear{color:#e11d48;border-color:rgba(225,29,72,.35)}
   .chip-f.clear:hover{background:rgba(225,29,72,.08)}
@@ -140,7 +142,7 @@
   .svc:hover{transform:translateY(-2px);border-color:rgba(255,255,255,.95);box-shadow:var(--sh-2), inset 0 1px 0 rgba(255,255,255,.85)}
   .svc.on{border:1px solid transparent;
     background:linear-gradient(rgba(255,255,255,.86),rgba(255,255,255,.8)) padding-box, var(--grad) border-box;
-    box-shadow:0 8px 26px rgba(99,102,241,.28), inset 0 1px 0 rgba(255,255,255,.9)}
+    box-shadow:0 8px 26px rgba(10,132,255,.28), inset 0 1px 0 rgba(255,255,255,.9)}
   .svc.dis{opacity:.45;cursor:not-allowed;filter:saturate(.4)}
   .svc.dis:hover{transform:none;box-shadow:var(--sh-1), inset 0 1px 0 rgba(255,255,255,.7)}
   .svc .head{display:flex;align-items:center;gap:11px}
@@ -151,9 +153,9 @@
   .svc b{display:block;font-size:13.5px;font-weight:600;color:var(--txt)}
   .svc .ver{display:block;font-size:11px;color:var(--mut);font-family:var(--f-mono);word-break:break-all;line-height:1.5;margin-top:2px}
   .svc .foot{display:flex;justify-content:space-between;align-items:center;margin-top:11px;font-size:11.5px;color:var(--mut)}
-  .svc .size{background:rgba(238,242,255,.9);border:1px solid rgba(99,102,241,.28);color:#4f46e5;border-radius:99px;padding:2px 9px;font-family:var(--f-mono);font-size:11px}
+  .svc .size{background:rgba(224,242,254,.92);border:1px solid rgba(10,132,255,.30);color:#0369a1;border-radius:99px;padding:2px 9px;font-family:var(--f-mono);font-size:11px}
   .svc .tick{position:absolute;top:12px;right:12px;width:18px;height:18px;border-radius:50%;border:1.5px solid rgba(15,23,42,.18);background:#fff;transition:all .2s}
-  .svc.on .tick{background:var(--grad-acc);border-color:transparent;box-shadow:0 2px 8px rgba(79,70,229,.4)}
+  .svc.on .tick{background:var(--grad-acc);border-color:transparent;box-shadow:0 2px 8px rgba(10,132,255,.4)}
   .svc.on .tick::after{content:"";display:block;width:5px;height:9px;border:solid #fff;border-width:0 2px 2px 0;transform:rotate(45deg);margin:2px auto 0}
   .svc .warnline{margin-top:10px;background:rgba(254,243,199,.75);border:1px solid rgba(217,119,6,.3);color:#92400e;font-size:11.5px;border-radius:8px;padding:6px 10px;display:none;line-height:1.5}
   .svc.showwarn .warnline{display:block}
@@ -175,13 +177,13 @@
   .delrow{border:1px solid rgba(15,23,42,.12);background:rgba(255,255,255,.6);color:var(--bad);border-radius:9px;cursor:pointer;font-size:15px;height:34px;flex:none;transition:all .2s var(--spring)}
   .delrow:hover{background:rgba(225,29,72,.08);border-color:rgba(225,29,72,.35);transform:scale(1.06)}
   .addport{margin-top:10px;margin-left:170px;border:1px dashed rgba(15,23,42,.22);background:rgba(255,255,255,.5);color:var(--acc);border-radius:50%;width:30px;height:30px;font-size:17px;line-height:1;display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0;transition:all .22s var(--spring)}
-  .addport:hover{border-color:#818cf8;background:rgba(99,102,241,.1);transform:scale(1.1)}
+  .addport:hover{border-color:#69b4ff;background:rgba(10,132,255,.1);transform:scale(1.1)}
   .addport.wide{display:inline-flex;width:auto;height:auto;margin-left:0;align-self:flex-start;border-radius:999px;padding:6px 15px;font-size:13px;line-height:1.5}
   .addport.wide:hover{transform:translateY(-1px)}
   .pxexample{font-family:var(--f-mono);font-size:11.5px;color:#475569;background:rgba(241,245,249,.75);border:1px solid rgba(255,255,255,.75);border-radius:10px;padding:8px 12px;margin-top:10px;display:inline-block;line-height:1.6}
   .pxsub{background:rgba(248,250,252,.6);border:1px solid rgba(255,255,255,.75);border-radius:12px;padding:14px 16px;margin-top:12px}
   .pxsub .row:last-child{margin-bottom:0}
-  .pxidx{width:24px;height:24px;flex:none;border-radius:8px;background:var(--grad);color:#fff;font-size:12px;font-weight:700;display:inline-flex;align-items:center;justify-content:center;font-family:var(--f-mono);box-shadow:0 2px 8px rgba(99,102,241,.35)}
+  .pxidx{width:24px;height:24px;flex:none;border-radius:8px;background:var(--grad);color:#fff;font-size:12px;font-weight:700;display:inline-flex;align-items:center;justify-content:center;font-family:var(--f-mono);box-shadow:0 2px 8px rgba(10,132,255,.35)}
 
   /* ---- 密码 ---- */
   .pwline{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
@@ -238,9 +240,9 @@
   .actionbar .sp{flex:1}
   .btn{border:0;border-radius:999px;height:38px;padding:0 26px;font-size:13.5px;cursor:pointer;color:#fff;font-weight:600;
     background:var(--grad-acc);
-    box-shadow:0 6px 20px rgba(79,70,229,.38), inset 0 1px 0 rgba(255,255,255,.35);
+    box-shadow:0 6px 20px rgba(10,132,255,.38), inset 0 1px 0 rgba(255,255,255,.35);
     transition:all .22s var(--spring)}
-  .btn:hover{transform:translateY(-1px);box-shadow:0 9px 26px rgba(79,70,229,.46), inset 0 1px 0 rgba(255,255,255,.4)}
+  .btn:hover{transform:translateY(-1px);box-shadow:0 9px 26px rgba(10,132,255,.46), inset 0 1px 0 rgba(255,255,255,.4)}
   .btn:active{transform:scale(.97)}
   .btn:disabled{opacity:.45;cursor:not-allowed;transform:none}
   .btn.ghost{background:rgba(255,255,255,.6);backdrop-filter:blur(14px) saturate(160%);-webkit-backdrop-filter:blur(14px) saturate(160%);
@@ -277,7 +279,7 @@
   #toast{position:fixed;top:20px;right:20px;z-index:300;display:flex;flex-direction:column;gap:8px}
   .toast{background:rgba(15,23,42,.82);backdrop-filter:blur(20px) saturate(160%);-webkit-backdrop-filter:blur(20px) saturate(160%);color:#fff;border:1px solid rgba(255,255,255,.16);border-radius:14px;padding:11px 17px;font-size:12.5px;box-shadow:var(--sh-3);animation:fadein .28s var(--spring);max-width:360px}
   @keyframes fadein{from{opacity:0;transform:translateY(-10px) scale(.96)}to{opacity:1;transform:none}}
-  .spin{width:15px;height:15px;border:2px solid rgba(99,102,241,.25);border-top-color:var(--acc);border-radius:50%;display:inline-block;animation:sp .8s linear infinite;vertical-align:-3px;margin-right:7px}
+  .spin{width:15px;height:15px;border:2px solid rgba(10,132,255,.25);border-top-color:var(--acc);border-radius:50%;display:inline-block;animation:sp .8s linear infinite;vertical-align:-3px;margin-right:7px}
   @keyframes sp{to{transform:rotate(360deg)}}
 
   @media (max-width:900px){
@@ -285,7 +287,6 @@
     .topbar,.actionbar{padding-left:14px;padding-right:14px}
     .wiz-steps{max-width:calc(100% - 16px)}
     .wtab{padding:8px 10px;font-size:12px}
-    .wview{padding:18px 14px 120px}
   }
 
   /* ---- 向导胶囊步骤条 ---- */
@@ -298,22 +299,35 @@
     box-shadow:0 10px 34px rgba(31,41,55,.12), inset 0 1px 0 rgba(255,255,255,.9)}
   .wiz-pill{position:absolute;top:5px;bottom:5px;left:5px;width:80px;border-radius:999px;
     background:var(--grad);
-    box-shadow:0 4px 18px rgba(99,102,241,.45), inset 0 1px 0 rgba(255,255,255,.45), inset 0 -1px 0 rgba(255,255,255,.15);
+    box-shadow:0 4px 18px rgba(10,132,255,.45), inset 0 1px 0 rgba(255,255,255,.45), inset 0 -1px 0 rgba(255,255,255,.15);
     transition:left .5s var(--spring), width .5s var(--spring);will-change:left,width}
   .wtab{position:relative;z-index:1;display:flex;align-items:center;justify-content:center;gap:7px;padding:8px 16px;border:none;background:transparent;color:var(--txt2);font-size:13px;font-weight:600;cursor:pointer;border-radius:999px;transition:color .25s;white-space:nowrap}
   .wtab i{width:19px;height:19px;flex:none;border-radius:999px;background:rgba(15,23,42,.07);color:#64748b;font-style:normal;font-size:11px;display:flex;align-items:center;justify-content:center;font-weight:700;font-family:var(--f-mono);transition:all .25s}
   .wtab:hover{color:var(--txt)}
   .wtab.on{color:#fff}
   .wtab.on i{background:rgba(255,255,255,.25);color:#fff}
-  .wsep{width:1px;height:20px;flex:none;background:rgba(15,23,42,.12);margin:0 7px}
-  .wlow{font-weight:550}
   .wbadge{font-style:normal;font-size:10.5px;background:rgba(15,23,42,.07);color:#64748b;border-radius:99px;padding:1px 7px;font-family:var(--f-mono);transition:all .25s}
   .wbadge.warn{background:rgba(225,29,72,.12);color:#e11d48}
+  .wbadge:empty{display:none}
   .wtab.on .wbadge{background:rgba(255,255,255,.25);color:#fff}
-  .wview{display:none;padding:18px 28px 96px;max-width:1064px;margin:0 auto;width:100%}
-  .wview.on{display:block;animation:wfade .32s var(--spring)}
+  .tbtn .wbadge{margin-left:7px}
+  /* ---- 侧滑抽屉(物料仓库/历史产物): 不占用主页面 ---- */
+  .dw-wrap{position:fixed;inset:0;z-index:80}
+  .dw-wrap.hidden{display:none}
+  .dw-mask{position:absolute;inset:0;background:rgba(15,23,42,.32);backdrop-filter:blur(10px) saturate(140%);-webkit-backdrop-filter:blur(10px) saturate(140%);animation:fadein .25s}
+  .dw{position:absolute;top:0;right:0;bottom:0;width:min(680px,94vw);display:flex;flex-direction:column;
+    background:rgba(255,255,255,.82);backdrop-filter:blur(36px) saturate(180%);-webkit-backdrop-filter:blur(36px) saturate(180%);
+    border-left:1px solid rgba(255,255,255,.75);box-shadow:-24px 0 60px rgba(15,23,42,.18);
+    animation:dwin .38s var(--spring)}
+  @keyframes dwin{from{transform:translateX(48px);opacity:0}to{transform:none;opacity:1}}
+  .dw-head{display:flex;align-items:center;gap:10px;padding:15px 20px;border-bottom:1px solid var(--line)}
+  .dw-head>b{font-size:14.5px;flex:none}
+  .dw-head .hint{flex:1;text-align:right}
+  .dw-x{flex:none;border:1px solid rgba(15,23,42,.1);background:rgba(255,255,255,.7);width:30px;height:30px;border-radius:50%;font-size:16px;line-height:1;cursor:pointer;color:var(--txt2);transition:all .2s var(--spring)}
+  .dw-x:hover{background:#fff;color:var(--txt);transform:rotate(90deg)}
+  .dw-body{flex:1;overflow:auto;padding:16px 20px 24px}
   .brand-inline{display:flex;align-items:center;gap:9px}
-  .brand-inline .mark{width:30px;height:30px;border-radius:10px;background:var(--grad);display:flex;align-items:center;justify-content:center;box-shadow:0 4px 12px rgba(99,102,241,.4), inset 0 1px 0 rgba(255,255,255,.45)}
+  .brand-inline .mark{width:30px;height:30px;border-radius:10px;background:var(--grad);display:flex;align-items:center;justify-content:center;box-shadow:0 4px 12px rgba(10,132,255,.4), inset 0 1px 0 rgba(255,255,255,.45)}
   .brand-inline b{font-size:14.5px;letter-spacing:-.2px}
   /* ---- 紧凑化 ---- */
   .wstep .card{margin-bottom:12px}
@@ -337,6 +351,8 @@
       <span class="sp"></span>
       <button class="tbtn" id="btnExport">保存配置</button>
       <button class="tbtn" id="btnImport">导入配置</button>
+      <button class="tbtn" id="btnWh">物料仓库<b class="wbadge" id="badgeWh"></b></button>
+      <button class="tbtn" id="btnOut">历史产物</button>
       <input type="file" id="importFile" accept=".json" class="hidden">
     </div>
     <div class="wiz-steps" id="wizSteps">
@@ -346,17 +362,14 @@
       <button class="wtab" data-v="3"><i>3</i>端口与反代<b class="wbadge" id="badge3"></b></button>
       <button class="wtab" data-v="4"><i>4</i>账号与数据<b class="wbadge warn" id="badge4"></b></button>
       <button class="wtab" data-v="5"><i>5</i>预览打包</button>
-      <span class="wsep"></span>
-      <button class="wtab wlow" data-v="wh">物料仓库<b class="wbadge warn" id="badgeWh"></b></button>
-      <button class="wtab wlow" data-v="out">历史产物</button>
     </div>
-    <div class="wview" id="view-wh">
-      <div class="card" id="sec-wh">
-        <h2><span class="num">7</span>物料仓库状态
-          <span style="flex:1"></span>
+    <div class="dw-wrap hidden" id="dw-wh">
+      <div class="dw-mask" data-dwclose></div>
+      <aside class="dw">
+        <div class="dw-head"><b>物料仓库</b><span class="hint">缺失项放入 wares/ 后重新检查</span>
           <button class="mini" id="btnRecheck">重新检查</button>
-        </h2>
-        <div class="body">
+          <button class="dw-x" data-dwclose title="关闭 (Esc)">×</button></div>
+        <div class="dw-body">
           <div class="fbar">
             <span class="flabel">类型</span>
             <div class="fgroup" id="fKind">
@@ -376,18 +389,21 @@
             <tbody id="whBody"></tbody>
           </table>
         </div>
-      </div>
+      </aside>
     </div>
-    <div class="wview" id="view-out">
-      <div class="card" id="sec-out">
-        <h2><span class="num">8</span>历史产物 <span class="hint">dist/ 目录 · 传输后可用 .sha256 校验完整性</span></h2>
-        <div class="body">
+
+    <div class="dw-wrap hidden" id="dw-out">
+      <div class="dw-mask" data-dwclose></div>
+      <aside class="dw">
+        <div class="dw-head"><b>历史产物</b><span class="hint">dist/ 目录 · 传输后可用 .sha256 校验完整性</span>
+          <button class="dw-x" data-dwclose title="关闭 (Esc)">×</button></div>
+        <div class="dw-body">
           <table>
             <thead><tr><th>文件</th><th>大小</th><th>生成时间</th><th>SHA256</th></tr></thead>
             <tbody id="outBody"><tr><td colspan="4" class="hint">暂无产物</td></tr></tbody>
           </table>
         </div>
-      </div>
+      </aside>
     </div>
 
     <div class="content">
@@ -423,7 +439,7 @@
 
       <div class="wstep" data-step="2">
       <div class="card" id="sec-svc">
-        <h2><span class="num">2</span>选择中间件 <span class="hint">只打包勾选项, 也可接入 plugins/ 插件扩展</span></h2>
+        <h2><span class="num">1</span>选择中间件 <span class="hint">只打包勾选项, 也可接入 plugins/ 插件扩展</span></h2>
         <div class="body">
           <div id="suiteBox"></div>
           <div id="catChips"></div>
@@ -437,12 +453,12 @@
       <div class="wstep" data-step="3">
       <div class="card" id="step3Empty"><div class="body hint">请先在「选择中间件」步骤勾选组件, 这里会出现端口与反代配置。</div></div>
       <div class="card" id="sec-port" style="display:none">
-        <h2><span class="num">3</span>端口映射 <span class="hint">左侧宿主机端口, 箭头后为容器内端口; 支持追加自定义映射</span></h2>
+        <h2><span class="num">1</span>端口映射 <span class="hint">左侧宿主机端口, 箭头后为容器内端口; 支持追加自定义映射</span></h2>
         <div class="body" id="portBox"></div>
       </div>
 
       <div class="card" id="sec-proxy" style="display:none">
-        <h2><span class="num">4</span>反向代理向导 <span class="hint">域名 / 前后端转发 / 真实IP / WebSocket, 自动生成 nginx 站点配置</span></h2>
+        <h2><span class="num">2</span>反向代理向导 <span class="hint">域名 / 前后端转发 / 真实IP / WebSocket, 自动生成 nginx 站点配置</span></h2>
         <div class="body" id="proxyBox"></div>
       </div>
 
@@ -451,19 +467,19 @@
       <div class="wstep" data-step="4">
       <div class="card" id="step4Empty"><div class="body hint">当前选择不需要账号密码 / 数据库配置。</div></div>
       <div class="card" id="sec-pwd" style="display:none">
-        <h2><span class="num">4</span>账号密码 <span class="hint">禁止空格与 $ ` " ' \ ; | ; 部署后存于 .env (600)</span></h2>
+        <h2><span class="num">1</span>账号密码 <span class="hint">禁止空格与 $ ` " ' \ ; | ; 部署后存于 .env (600)</span></h2>
         <div class="body">
           <div id="pwdBox"></div>
         </div>
       </div>
 
       <div class="card" id="sec-db" style="display:none">
-        <h2><span class="num">5</span>数据库来源 <span class="hint">Nacos / XXL-Job 的建库连库方式</span></h2>
+        <h2><span class="num">2</span>数据库来源 <span class="hint">Nacos / XXL-Job 的建库连库方式</span></h2>
         <div class="body" id="dbBox"></div>
       </div>
 
       <div class="card" id="sec-backup" style="display:none">
-        <h2><span class="num">6</span>数据库备份 <span class="hint">crontab + 容器内 mysqldump, 按库分文件 gzip</span></h2>
+        <h2><span class="num">3</span>数据库备份 <span class="hint">crontab + 容器内 mysqldump, 按库分文件 gzip</span></h2>
         <div class="body" id="backupBox"></div>
       </div>
 
@@ -618,9 +634,13 @@ async function init(){
   $('#btnImport').onclick = () => $('#importFile').click();
   $('#importFile').onchange = doImport;
   $('#btnCopy').onclick = doCopy;
-  $('#btnPrev').onclick = () => gotoStep(Math.max(1, curStep - 1));
-  $('#btnNext').onclick = () => gotoStep(Math.min(5, curStep + 1));
+  $('#btnPrev').onclick = () => gotoStep(Math.max(1, +curStep - 1));
+  $('#btnNext').onclick = () => gotoStep(Math.min(5, +curStep + 1));
   $('#btnPreview').onclick = () => { gotoStep(5); doPreview(); };
+  $('#btnWh').onclick = () => openDrawer('wh');
+  $('#btnOut').onclick = () => { openDrawer('out'); loadBundles(); };
+  $$('[data-dwclose]').forEach(el => el.onclick = closeDrawers);
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDrawers(); });
   $$('#wizSteps .wtab').forEach(b => b.onclick = () => gotoView(b.dataset.v));
   window.addEventListener('resize', () => movePill(curStep));
   window.addEventListener('load', () => movePill(curStep));
@@ -782,17 +802,21 @@ function movePill(v){
   pill.style.left = tab.offsetLeft + 'px';
   pill.style.width = tab.offsetWidth + 'px';
 }
+function openDrawer(id){
+  $$('.dw-wrap').forEach(w => w.classList.add('hidden'));
+  const el = document.getElementById('dw-' + id);
+  if (el) el.classList.remove('hidden');
+}
+function closeDrawers(){
+  $$('.dw-wrap').forEach(w => w.classList.add('hidden'));
+}
 function gotoView(v){
   v = String(v);
   curStep = v;
   $$('.wstep').forEach(w => w.classList.toggle('on', w.dataset.step === v));
-  $$('.wview').forEach(w => w.classList.toggle('on', w.id === 'view-' + v));
   $$('#wizSteps .wtab').forEach(b => b.classList.toggle('on', b.dataset.v === v));
-  const isStep = ['1','2','3','4','5'].includes(v);
-  $('.content').style.display = isStep ? '' : 'none';
   $('#btnPrev').disabled = (v === '1');
-  $('#btnNext').disabled = (v === '5' || !isStep);
-  $('#btnPrev').style.display = $('#btnNext').style.display = isStep ? '' : 'none';
+  $('#btnNext').disabled = (v === '5');
   $('#btnPreview').style.display = $('#btnPack').style.display = (v === '5') ? '' : 'none';
   movePill(v);
   window.scrollTo(0, 0);
