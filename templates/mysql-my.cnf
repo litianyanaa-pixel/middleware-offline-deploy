@@ -1,0 +1,7 @@
+# MySQL 配置(随包分发, 挂载于容器 /etc/mysql/conf.d/my.cnf)
+# 首次部署落盘到 <部署目录>/mysqlX/my.cnf, 之后手工修改不会被重新部署覆盖; 改完重启对应容器生效
+# 注意: 字符集/校验集/认证方式由 docker-compose 的 command 参数设定, 与本文件叠加生效
+[mysqld]
+# SQL 模式: 严格写入、拒绝零日期、除零报错、禁止无效引擎替换
+# (MySQL 8.0 默认值, 显式声明以统一 5.7 / 8.0 行为)
+sql_mode = STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION

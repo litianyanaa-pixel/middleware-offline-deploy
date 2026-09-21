@@ -723,6 +723,7 @@ def gen_compose(cfg, catalog):
       - ./%(dir)s/data:/var/lib/mysql
       - ./%(dir)s/log:/var/log/mysql
       - ./%(dir)s/init:/docker-entrypoint-initdb.d
+      - ./%(dir)s/my.cnf:/etc/mysql/conf.d/my.cnf:ro
     command:
       - --log-error=/var/log/mysql/error.log
       - --character-set-server=utf8mb4
@@ -754,6 +755,7 @@ def gen_compose(cfg, catalog):
     volumes:
       - ./%(dir)s/data:/var/lib/mysql
       - ./%(dir)s/log:/var/log/mysql
+      - ./%(dir)s/my.cnf:/etc/mysql/conf.d/my.cnf:ro
     command:
       - --log-error=/var/log/mysql/error.log
       - --character-set-server=utf8mb4
@@ -1569,6 +1571,14 @@ def pack(cfg, catalog, out_dir=None, progress=None):
                 "sentinel down-after-milliseconds mymaster 5000\n"
                 "sentinel failover-timeout mymaster 60000\n"
                 "sentinel parallel-syncs mymaster 1\n" % _rp)
+
+    # MySQL 配置文件挂载出来(容器内 /etc/mysql/conf.d/my.cnf), 主库/从库各一份
+    if "mysql8" in cfg["services"] or "mysql57" in cfg["services"]:
+        for _ms in ("mysql8", "mysql57"):
+            if _ms in cfg["services"]:
+                conf_files["conf/%s/my.cnf" % _ms] = TPL_DIR / "mysql-my.cnf"
+                if (cfg.get("topology") or {}).get(_ms) == "master-slave":
+                    conf_files["conf/%s-replica/my.cnf" % _ms] = TPL_DIR / "mysql-my.cnf"
 
     # ---- 插件附带的配置文件(可选 conf_files 钩子) ----
     for s in cfg["services"]:
