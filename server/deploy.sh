@@ -486,6 +486,10 @@ prepare_deploy_dir() {
         else
           cp -an "$src" "$dest" 2>/dev/null || true
         fi
+        # MySQL 会静默忽略"全局可写"的配置文件, 落盘后强制收紧权限
+        case "$dest" in
+          *.cnf) chmod 644 "$dest" 2>/dev/null || true ;;
+        esac
       done
     done
   fi
@@ -851,12 +855,24 @@ health_check() {
     tcp)  warn "未检测到 curl/wget, HTTP 实测降级为 bash /dev/tcp 裸请求(https 仅验证端口连通性)" ;;
   esac
 
-  local name r url code rc
+  local name r url code rc rounds
   for name in "${HEALTH_WAIT[@]+"${HEALTH_WAIT[@]}"}"; do
     [ -z "$name" ] && continue
     printf "  %-12s 容器健康检查 ...\r" "$name"
+    # MySQL(含从库)先用鉴权探活判定: 老机器首次初始化(建系统表+临时库)可达数分钟,
+    # compose 健康状态常落后于真实可用性, 曾造成"库已能用却报健康检查未通过"
+    case "$name" in
+      mysql*)
+        if docker exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" "$name" mysql -uroot -N -e "SELECT 1;" >/dev/null 2>&1; then
+          HEALTH_LINES+=("OK|$name|MySQL 鉴权探活通过(实测 SELECT 1)")
+          continue
+        fi
+        ;;
+    esac
     rc=0
-    wait_healthy "$name" 60 || rc=$?
+    rounds=60
+    case "$name" in mysql*) rounds=100 ;; esac   # MySQL 首启初始化预算放宽到 300s
+    wait_healthy "$name" "$rounds" || rc=$?
     case "$rc" in
       0) HEALTH_LINES+=("OK|$name|容器健康检查通过") ;;
       2) HEALTH_LINES+=("BAD|$name|容器未运行(排查: docker ps -a | grep $name)"); HEALTH_BAD=1 ;;

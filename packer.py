@@ -734,7 +734,7 @@ def gen_compose(cfg, catalog):
       interval: 10s
       timeout: 5s
       retries: 12
-      start_period: 60s
+      start_period: 300s
     networks:
       - app-network""" % {"svc": s, "image": "%s:%s" % (meta["image"], meta["tag"]),
                           "port": ports[meta["ports"][0]["key"]], "dir": meta["data_dir"],
@@ -773,7 +773,7 @@ def gen_compose(cfg, catalog):
       interval: 10s
       timeout: 5s
       retries: 12
-      start_period: 60s
+      start_period: 300s
     networks:
       - app-network""" % {"svc": "%s-replica" % s,
                           "image": "%s:%s" % (meta["image"], meta["tag"]),
