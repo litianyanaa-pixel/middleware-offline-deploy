@@ -21,10 +21,10 @@ META = {
         "arm64": "warehouse/images/elasticsearch/9.3.0/arm64.tar",
     },
     "ports": [
-        {"key": "es_http", "label": "HTTP 端口", "default": 9200, "container": 9200},
+        {"key": "es_http", "label": "HTTP 端口|HTTP port", "default": 9200, "container": 9200},
     ],
     "secrets": [
-        {"key": "ELASTIC_PASSWORD", "label": "Elasticsearch elastic 密码",
+        {"key": "ELASTIC_PASSWORD", "label": "Elasticsearch elastic 密码|Elasticsearch elastic password",
          "default": "Es6#wR9tYu@Pq4nN", "services": ["elasticsearch"], "secret": True},
     ],
     "note": "部署时自动设置 vm.max_map_count=262144; 内网单节点未启 TLS(HTTP 明文+账号认证), 堆内存 512m 可按需调大",
@@ -79,4 +79,4 @@ def manifest_lines(cfg, ports, ctx):
 
 
 def summary_lines(cfg, ports, ctx):
-    return ["Elasticsearch http://__IP__:%d  (账号 elastic, 密码见 .env)" % ports["es_http"]]
+    return ["Elasticsearch http://__IP__:%d  (账号 elastic, 密码见 .env)|Elasticsearch http://__IP__:%d  (user elastic, password in .env)" % (ports["es_http"], ports["es_http"])]

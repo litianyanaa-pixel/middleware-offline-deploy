@@ -75,4 +75,4 @@ def conf_files(cfg, ports, ctx):
 
 
 def summary_lines(cfg, ports, ctx):
-    return ["Promtail      采集容器日志 -> Loki (内部组件, 无对外端口)"]
+    return ["Promtail      采集容器日志 -> Loki (内部组件, 无对外端口)|Promtail      ships container logs -> Loki (internal, no exposed port)"]

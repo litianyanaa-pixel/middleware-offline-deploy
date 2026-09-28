@@ -21,14 +21,14 @@ META = {
         "arm64": "warehouse/images/rabbitmq/4.3.5-management/arm64.tar",
     },
     "ports": [
-        {"key": "amqp", "label": "AMQP 端口",       "default": 5672,  "container": 5672},
-        {"key": "mgmt", "label": "管理控制台端口", "default": 15672, "container": 15672},
+        {"key": "amqp", "label": "AMQP 端口|AMQP port",       "default": 5672,  "container": 5672},
+        {"key": "mgmt", "label": "管理控制台端口|Management console port", "default": 15672, "container": 15672},
     ],
     "secrets": [
-        {"key": "RABBITMQ_USER",     "label": "RabbitMQ 账号",     "default": "admin",             "services": ["rabbitmq"], "secret": False},
-        {"key": "RABBITMQ_PASSWORD", "label": "RabbitMQ 密码",     "default": "aFeP#iNVGj39hCZ7",  "services": ["rabbitmq"], "secret": True},
+        {"key": "RABBITMQ_USER",     "label": "RabbitMQ 账号|RabbitMQ username",     "default": "admin",             "services": ["rabbitmq"], "secret": False},
+        {"key": "RABBITMQ_PASSWORD", "label": "RabbitMQ 密码|RabbitMQ password",     "default": "aFeP#iNVGj39hCZ7",  "services": ["rabbitmq"], "secret": True},
     ],
-    "note": "控制台 http://ip:15672, AMQP 端口 5672; 账号密码见 .env",
+    "note": "控制台 http://ip:15672, AMQP 端口 5672; 账号密码见 .env|Console http://ip:15672, AMQP port 5672; credentials in .env",
 }
 
 
@@ -74,4 +74,4 @@ def env_lines(cfg, ports, ctx):
 
 
 def summary_lines(cfg, ports, ctx):
-    return ["RabbitMQ      http://__IP__:%d  控制台 (AMQP __IP__:%d, 账号见 .env)" % (ports["mgmt"], ports["amqp"])]
+    return ["RabbitMQ      http://__IP__:%d  控制台 (AMQP __IP__:%d, 账号见 .env)|RabbitMQ      http://__IP__:%d  console (AMQP __IP__:%d, credentials in .env)" % (ports["mgmt"], ports["amqp"], ports["mgmt"], ports["amqp"])]

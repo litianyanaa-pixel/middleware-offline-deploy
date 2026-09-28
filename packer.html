@@ -349,6 +349,7 @@
       </div>
       <span class="crumb">本地选型 → 生成编排 → 按需打包 → 服务器零交互部署</span>
       <span class="sp"></span>
+      <button class="tbtn" id="btnLang" title="切换语言 / Switch language">EN</button>
       <button class="tbtn" id="btnExport">保存配置</button>
       <button class="tbtn" id="btnImport">导入配置</button>
       <button class="tbtn" id="btnWh">物料仓库<b class="wbadge" id="badgeWh"></b></button>
@@ -533,7 +534,7 @@
 <script>
 let CATALOG = null;
 const selected = new Set();
-const state = { ports: {}, secrets: {}, db: {}, extra: {}, backup: null, proxies: [], topology: { mysql8: 'single', mysql57: 'single', redis: 'single' }, svcFilter: 'all' };
+const state = { ports: {}, secrets: {}, db: {}, extra: {}, backup: null, proxies: [], topology: { mysql8: 'single', mysql57: 'single', redis: 'single', kafka: 'single' }, svcFilter: 'all' };
 const WEEK = ["", "周一", "周二", "周三", "周四", "周五", "周六", "周日"];
 let previewData = { compose: "", env: "", manifest: "" };
 let curTab = "compose";
@@ -542,15 +543,194 @@ const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
 const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const FALLBACK_COLORS = { nginx:"#009639", mysql57:"#00758f", mysql8:"#00758f", redis:"#d82c20", nacos:"#1b6dc1", xxljob:"#7c3aed", minio:"#c72e49" };
+/* ================= i18n 中英切换 ================= */
+const LANG_KEY = 'packer-lang';
+let LANG = 'zh';
+try { LANG = localStorage.getItem(LANG_KEY) === 'en' ? 'en' : 'zh'; } catch(e){}
+// 界面英文词典: 键为渲染后的中文文本(按长度降序做整词替换; 未命中回退中文)
+const EN_DICT = {
+  "中间件离线包打包器": "Middleware Offline Bundle Packer",
+  "本地选型 → 生成编排 → 按需打包 → 服务器零交互部署": "Select locally → generate compose → pack on demand → zero-touch deploy",
+  "保存配置": "Save Config", "导入配置": "Import Config", "物料仓库": "Warehouse", "历史产物": "Artifacts",
+  "基础设置": "Basics", "选择中间件": "Select Middleware", "端口与反代": "Ports & Proxy",
+  "账号与数据": "Accounts & Data", "预览打包": "Preview & Pack", "关闭 (Esc)": "Close (Esc)",
+  "重新检查": "Re-check", "类型": "Type", "架构": "Arch", "全部": "All", "安装包": "Packages", "镜像": "Images",
+  "物料": "Item", "状态": "Status", "体积": "Size", "说明": "Notes", "文件": "File", "大小": "Size", "生成时间": "Generated at",
+  "缺失项放入 wares/ 后重新检查": "Put missing items into wares/ then re-check",
+  "dist/ 目录 · 传输后可用 .sha256 校验完整性": "dist/ directory · verify with .sha256 after transfer",
+  "暂无产物": "No artifacts yet",
+  "compose 项目名与包名": "Compose project & bundle name", "项目名": "Project", "目标服务器架构": "Target server arch",
+  "部署目录": "Deploy dir", "Docker 数据目录 data-root": "Docker data-root", "镜像加速器": "Registry mirrors",
+  "https://... 每行一个": "https://... one per line", "一键填入实测可用源": "Fill verified mirrors",
+  "compose / .env / 数据 / 日志 / 配置都在这里": "compose / .env / data / logs / config all live here",
+  "一键勾选一组配套组件, 也可在下方单独增删": "One click for a curated suite; fine-tune below",
+  "套件": "Suites", "可多选": "multi-select", "网关入口": "Gateway", "数据库": "Databases", "缓存与消息": "Cache & MQ",
+  "微服务支撑": "Microservice", "对象存储": "Object storage", "可观测性": "Observability", "其他": "Other",
+  "插件": "Plugins", "只打包勾选项": "Pack only selected",
+  "端口映射": "Port Mapping", "外部访问端口(宿主机)": "Host port", "容器端口": "Container port",
+  "箭头后为容器内端口; 支持追加自定义映射": "Right side is the container port; custom mappings supported",
+  "添加自定义端口": "Add custom port", "自定义映射": "custom mapping", "默认映射": "default mapping", "未映射": "unmapped",
+  "反向代理向导": "Reverse Proxy Wizard", "添加站点": "Add site", "删除站点": "Remove site",
+  "域名": "Domain", "域名, 多个空格分隔; _ 为默认站点": "domains, space-separated; _ is the default site",
+  "监听(容器端口)": "Listen (container port)", "静态": "Static", "整站反代": "Full proxy",
+  "前端目录": "Web root", "容器内绝对路径": "absolute path in container",
+  "容器内绝对路径, html 挂载于 /usr/share/nginx/html": "absolute path in container; html mounted at /usr/share/nginx/html",
+  "留空则不托管静态页": "empty = no static hosting", "单页应用(SPA)": "SPA",
+  "刷新子路径时回退 index.html": "fallback to index.html on subpath refresh",
+  "接口前缀": "API prefix", "后端地址": "Backend", "http://服务名:容器端口": "http://service:container-port",
+  "留空不代理": "empty = no proxy", "整站所有路径转发到该服务": "forward all paths to this service",
+  "转发时去掉前缀": "Strip prefix", "后端收到的路径不含前缀": "backend receives paths without the prefix",
+  "真实IP还原": "Real IP", "前面有 CDN/负载均衡时勾选": "enable when behind CDN/LB", "可信代理网段": "Trusted proxies",
+  "逗号或换行分隔; 只有这些来源的 XFF 头会被采信": "comma/newline separated; only these sources' XFF headers are trusted",
+  "HTTP 跳转": "HTTP redirect", "80 端口 301 到 https": "301 port 80 to https",
+  "HTTPS 证书": "HTTPS cert", "上传证书": "Upload cert", "证书文件": "Certificate", "证书": "Certificate",
+  "fullchain.pem / .crt(含中间证书)": "fullchain.pem / .crt (with intermediate)",
+  "私钥文件": "Private key", "私钥": "Private key", ".key(暂不支持加密私钥)": ".key (encrypted keys unsupported)",
+  "挂载于容器 /etc/nginx/ssl。": "mounted at /etc/nginx/ssl in the container",
+  "部署即配好 SSL": "SSL configured on deploy", "证书随包分发到 nginx/ssl/": "certs ship to nginx/ssl/",
+  "生成的配置自动包含代理优化: upstream 长连接复用(keepalive) · 连接/读写超时 · 响应缓冲 · X-Real-IP / X-Forwarded-": "Generated config includes proxy tuning: upstream keepalive · timeouts · response buffering · X-Real-IP / X-Forwarded-",
+  "前缀改写示例: 随 输入实时更新": "prefix rewrite preview updates live", "示例: 浏览器请求": "Example: browser requests",
+  "后端实际收到": "backend receives", "还原出的 IP 写入": "restored IP written to",
+  "账号密码": "Accounts", "账号": "Username", "密码": "Password", "显示": "Show", "隐藏": "Hide", "随机": "Random",
+  "弱": "Weak", "一般": "Fair", "良好": "Good", "强": "Strong",
+  "数据库来源": "Database Source", "使用本次部署的 MySQL": "Use bundled MySQL", "使用外部数据库": "Use external database",
+  "数据库地址": "DB host", "库名": "Database", "连接账号": "DB user",
+  "建库建表 SQL 会在首次启动时自动导入": "schema SQL auto-imported on first start",
+  "部署时先测连再建库建表(已存在则跳过)": "connectivity tested before import; existing schemas skipped",
+  "Nacos / XXL-Job 的建库连库方式": "how Nacos / XXL-Job connect to their database",
+  "MySQL 服务": "MySQL service", "使用哪个 MySQL": "Which MySQL", "root (自动使用 root 密码)": "root (uses root password)",
+  "数据库备份": "Database Backup", "启用备份": "Enable backup", "部署时自动写入 crontab": "crontab written on deploy",
+  "备份日": "Days", "工作日": "Weekdays", "每天": "Every day",
+  "周一": "Mon", "周二": "Tue", "周三": "Wed", "周四": "Thu", "周五": "Fri", "周六": "Sat", "周日": "Sun",
+  "备份时间": "Time", "每库保留份数": "Copies kept per DB", "备份目录(服务器)": "Backup dir (server)",
+  "按库分文件 gzip": "one gzip per database",
+  "每库一个 .sql.gz; 超出保留份数自动轮转删除": "one .sql.gz per DB; oldest rotated out beyond retention",
+  "当前选择不需要账号密码 / 数据库配置。": "Current selection needs no accounts / database config.",
+  "项待配置": " to configure", "已配置": "Configured",
+  "Nacos 控制台密码为初始登记值": "Nacos console password is the initial value",
+  "部署后请登录控制台改为自己要用的密码; .env 中该值仅作登记": "change it in the console after deploy; the .env value is for registration",
+  "XXL-Job 控制台初始账号 admin": "XXL-Job console initial user admin",
+  "初始密码即上面登记的 XXL-Job admin 密码(打包时按该值初始化 SQL)": "initial password is the XXL-Job admin password above (SQL initialized with it)",
+  "预览 / 打包": "Preview / Pack", "生成预览": "Generate Preview", "开始打包": "Start Packing", "取消打包": "Cancel",
+  "正在打包": "Packing", "复制当前内容": "Copy contents",
+  "查看 docker-compose / .env / manifest 最终内容; 确认无误后": "inspect final docker-compose / .env / manifest; when confirmed",
+  "服务器部署: 解压后进入目录执行  ./deploy.sh  (root)": "Server deploy: extract, enter the dir and run  ./deploy.sh  (root)",
+  "服务器零手工配置": "zero manual config on the server", "幂等可重跑": "idempotent, safe to re-run",
+  "产物大小": "Artifact size", "原始物料": "raw materials",
+  "备份计划(crontab):": "backup plan (crontab):", "提示:": "Notes:", "将打包镜像:": "images to pack:",
+  "预览已生成": "Preview ready", "打包完成": "Pack finished", "打包失败": "Pack failed",
+  "打包已取消": "Pack cancelled", "已请求取消": "Cancellation requested",
+  "已生成同名 .sha256 校验文件": "matching .sha256 generated",
+  "与压缩包一起拷贝到服务器可在部署时自动校验完整性": "copy alongside the bundle; integrity auto-verified on deploy",
+  "个镜像包": " image archive(s)",
+  "Docker 静态二进制": "Docker static binary", "docker 安装包": "docker package",
+  "docker-compose 插件": "docker-compose plugin", "compose v2 二进制": "compose v2 binary",
+  "双架构": "dual-arch", "仅 x86": "x86 only", "缺": "missing", "缺失": "Missing", "就绪": "Ready",
+  "物料状态已刷新": "Warehouse refreshed",
+  "演示模式: 物料检查需本地运行 packer.py": "Demo: run packer.py locally for warehouse check",
+  "静态演示版不支持该操作": "Not available in static demo — run python packer.py locally",
+  "请在本地运行 python packer.py 体验完整功能": "run python packer.py locally for the full experience",
+  "完整使用请克隆本仓库后本地运行": "clone this repo and run locally for full features",
+  "静态演示模式: 物料状态需在本地运行 python packer.py 后查看": "Static demo: run python packer.py locally to see warehouse status",
+  "静态演示模式: 打包功能需本地运行 packer.py": "Static demo: run packer.py locally to pack",
+  "静态演示版": "Static demo",
+  "已清空全部选择": "Selection cleared", "已移除 MySQL 5.7 (arm64 不支持)": "MySQL 5.7 removed (no arm64)",
+  "MySQL 5.7 不支持 arm64": "MySQL 5.7 has no arm64 image",
+  "已恢复上次填写的配置": "Restored your last configuration",
+  "配置已导出, 可用 python packer.py --config 直接打包": "Config exported; pack with python packer.py --config",
+  "配置已导入": "Config imported", "导入失败:": "Import failed:",
+  "已复制到剪贴板": "Copied to clipboard", "复制失败, 请手动选择复制": "Copy failed; select & copy manually",
+  "已填入实测可用的镜像加速器": "Verified mirrors filled in", "已读取": "Loaded",
+  "证书文件过大(>200KB), 请确认选对了文件": "cert/key over 200KB; check the file",
+  "已改为使用外部数据库": "switched to external database",
+  "单机模式": "standalone", "主从模式 (一主一从)": "master-replica (1+1)", "哨兵高可用": "Sentinel HA",
+  "Kafka 单节点模式": "Kafka single-node mode", "Redis 单机模式": "Redis standalone mode",
+  "Kafka 3 节点集群模式 (KRaft": "Kafka 3-node cluster mode (KRaft",
+  "SASL_PLAINTEXT 多用户鉴权": "SASL_PLAINTEXT multi-user auth",
+  "体积约为单节点的 3 倍)": "about 3x the single-node size)",
+  "无 ZooKeeper)": "no ZooKeeper)", "3 哨兵)": "3 sentinels)",
+  "单机": "Standalone", "主从复制 (一主一从 · GTID)": "Master-replica (1+1 · GTID)",
+  "单节点 (KRaft)": "Single node (KRaft)", "3 节点集群 (KRaft": "3-node cluster (KRaft",
+  "哨兵高可用 (主": "Sentinel HA (master",
+  "集群: 3 broker 互为副本与仲裁 (KRaft 组合模式": "cluster: 3 brokers with replication & quorum (KRaft combined mode",
+  "主库服务名仍为 mysql8 (Nacos/XXL-Job 照常连它)": "master service stays mysql8 (Nacos/XXL-Job still connect to it)",
+  "主库服务名仍为 mysql57": "master service stays mysql57",
+  "从库只读端口 13308 自动同步; 部署脚本自动配置复制关系": "replica read-only port 13308 auto-syncs; deploy script configures replication",
+  "从库只读端口 13309 自动同步; 部署脚本按 5.7 语法 (CHANGE MASTER) 自动配置复制关系": "replica read-only port 13309 auto-syncs; deploy script configures replication using 5.7 syntax (CHANGE MASTER)",
+  "哨兵: 从库端口 16380 只读; 应用侧使用 sentinel 协议 (redis-sentinel:26379, master 名称 mymaster) 实现故障自动切换":
+    "Sentinel: replica port 16380 read-only; clients use sentinel protocol (redis-sentinel:26379, master name mymaster) for failover",
+  "Kafka 部署形态": "Kafka Topology", "MySQL 8.0 部署形态": "MySQL 8.0 Topology",
+  "MySQL 5.7 部署形态": "MySQL 5.7 Topology", "Redis 部署形态": "Redis Topology",
+  "3 节点集群 · SASL 端口": "3-node cluster · SASL port",
+  "未选择组件": "No components selected", "端口不合法或冲突": "invalid or conflicting port",
+  "也可接入 plugins/ 插件扩展": "extensible via plugins/",
+  "部署时自动把广播地址改写为服务器 IP; 镜像改用 bitnami/kafka 3.7.0 (双架构": "advertised host rewritten to the server IP on deploy; image switched to bitnami/kafka 3.7.0 (dual-arch",
+  "点击下方": "Click ", "步骤勾选组件": " to select components in the steps",
+};
+const EN_KEYS = Object.keys(EN_DICT).sort((a, b) => b.length - a.length);
+const EN_RE = new RegExp(EN_KEYS.map(k => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|'), 'g');
+// 目录数据(zh|en)取半边; 后端消息(带|)取半边
+function trLabel(s){
+  s = String(s == null ? '' : s);
+  if (!s.includes('|')) return s;
+  const i = s.indexOf('|');
+  return (LANG === 'en' ? s.slice(i + 1) : s.slice(0, i)).trim();
+}
+function trMsg(s){
+  s = String(s == null ? '' : s);
+  if (!s.includes('|')) return s;
+  const i = s.indexOf('|');
+  return (LANG === 'en' ? s.slice(i + 1) : s.slice(0, i)).trim();
+}
+function trText(s){ return LANG === 'en' ? String(s).replace(EN_RE, m => EN_DICT[m] || m) : String(s); }
+function applyI18n(root){
+  if (LANG !== 'en') return;
+  const scope = root || document;
+  // 文本节点
+  const walker = document.createTreeWalker(scope, NodeFilter.SHOW_TEXT);
+  const nodes = [];
+  while (walker.nextNode()) nodes.push(walker.currentNode);
+  for (const n of nodes){
+    if (!/[\u4e00-\u9fff]/.test(n.nodeValue)) continue;
+    const v = trText(n.nodeValue);
+    if (v !== n.nodeValue) n.nodeValue = v;
+  }
+  // 常用属性
+  scope.querySelectorAll && scope.querySelectorAll('[title],[placeholder]').forEach(el => {
+    for (const a of ['title', 'placeholder']){
+      const v = el.getAttribute && el.getAttribute(a);
+      if (v && /[\u4e00-\u9fff]/.test(v)){
+        const t = trText(v);
+        if (t !== v) el.setAttribute(a, t);
+      }
+    }
+  });
+}
+// 动态渲染的内容自动翻译(仅在英文模式)
+new MutationObserver(muts => {
+  if (LANG !== 'en') return;
+  for (const m of muts){
+    m.addedNodes && m.addedNodes.forEach(n => {
+      if (n.nodeType === 1) applyI18n(n);
+      else if (n.nodeType === 3 && /[\u4e00-\u9fff]/.test(n.nodeValue)){
+        const v = trText(n.nodeValue); if (v !== n.nodeValue) n.nodeValue = v;
+      }
+    });
+    if (m.type === 'characterData' && /[\u4e00-\u9fff]/.test(m.target.nodeValue)){
+      const v = trText(m.target.nodeValue); if (v !== m.target.nodeValue) m.target.nodeValue = v;
+    }
+  }
+}).observe(document.documentElement, { childList: true, subtree: true, characterData: true });
+
 function toast(text){
   const d = document.createElement('div');
-  d.className = 'toast'; d.textContent = text;
+  d.className = 'toast'; d.textContent = trMsg(text);
   $('#toast').appendChild(d);
   setTimeout(() => d.remove(), 2800);
 }
 function fmtGB(mb){ return mb >= 1024 ? (mb/1024).toFixed(2) + ' GB' : mb + ' MB'; }
 function fmtTime(sec){ sec = Math.max(0, Math.round(sec)); return String(Math.floor(sec/60)).padStart(2,'0') + ':' + String(sec%60).padStart(2,'0'); }
-function msg(text, cls){ $('#msg').innerHTML = text ? '<div class="msg '+cls+'">'+esc(text)+'</div>' : ''; }
+function msg(text, cls){ $('#msg').innerHTML = text ? '<div class="msg '+cls+'">'+esc(trMsg(text))+'</div>' : ''; }
 function svcColor(key){ const m = CATALOG.services[key]; return (m && m.color) || FALLBACK_COLORS[key] || '#64748b'; }
 function avatarHtml(key, cls){
   const m = CATALOG.services[key];
@@ -648,6 +828,14 @@ async function init(){
   $$('#previewCard .tabs button[data-t]').forEach(b => b.onclick = () => switchTab(b.dataset.t));
   $('#mCancel').onclick = async () => { try{ await api('/api/cancel', {}); }catch(e){} toast('已请求取消'); };
   $('#mClose').onclick = () => { $('#modal').classList.add('hidden'); loadBundles(); };
+  // 中英切换: 记忆选择后整页重载(状态已在 localStorage 持久化)
+  const bl = $('#btnLang');
+  if (LANG === 'en'){ bl.textContent = '中文'; document.documentElement.lang = 'en'; }
+  else { bl.textContent = 'EN'; }
+  bl.onclick = () => {
+    try { localStorage.setItem(LANG_KEY, LANG === 'en' ? 'zh' : 'en'); } catch(e){}
+    location.reload();
+  };
   document.addEventListener('input', saveLocal);
   gotoView('1');
   requestAnimationFrame(() => movePill('1'));
@@ -660,7 +848,7 @@ function svcCardHtml(key, meta){
   const size = (CATALOG.sizes.images[key] || {})[$('#arch').value] || 0;
   return '<span class="tick"></span>'+
     '<div class="head">'+avatarHtml(key)+
-    '<div><b>'+esc(meta.label)+'</b><span class="ver">'+esc(meta.tag)+'</span></div></div>'+
+    '<div><b>'+esc(trLabel(meta.label))+'</b><span class="ver">'+esc(meta.tag)+'</span></div></div>'+
     '<div class="foot"><span class="size">'+($('#arch').value==='amd64'?'x86':'ARM')+' '+fmtGB(size)+'</span>'+
     '<span>'+((meta.supported_arch||[]).length>1?'双架构':'仅 x86')+(meta.is_plugin?' · 插件':'')+'</span></div>'+
     '<div class="warnline">'+esc(meta.warn || '')+'</div>';
@@ -715,11 +903,11 @@ function renderSuites(){
     const names = (s.members || []).map(m => (CATALOG.services[m] || {}).label || m);
     const on = suiteAllOn(s);
     html += '<div class="suite'+(on?' on':'')+'" data-suite="'+esc(s.key)+'" title="包含: '+esc(names.join('、'))+'">'+
-      '<div class="s-head"><span class="tick"></span><b>'+esc(s.label)+'</b></div>'+
-      '<div class="s-desc">'+esc(s.desc || '')+'</div>'+
+      '<div class="s-head"><span class="tick"></span><b>'+esc(trLabel(s.label))+'</b></div>'+
+      '<div class="s-desc">'+esc(trLabel(s.desc || ''))+'</div>'+
       '<div class="s-members">'+(s.members || []).map(m => {
         const mm = CATALOG.services[m] || {};
-        return '<span class="chip">'+(typeof LOGOS !== 'undefined' && LOGOS[m] ? '<img src="'+LOGOS[m]+'" alt="">' : '')+esc(mm.label || m)+'</span>';
+        return '<span class="chip">'+(typeof LOGOS !== 'undefined' && LOGOS[m] ? '<img src="'+LOGOS[m]+'" alt="">' : '')+esc(trLabel(mm.label) || m)+'</span>';
       }).join('')+'</div></div>';
   }
   html += '</div>';
@@ -769,14 +957,27 @@ function renderTopology(){
       '<label><input type="radio" name="topo_redis" value="sentinel" '+(r==='sentinel'?'checked':'')+'><span>哨兵高可用 (主 + 从 + 3 哨兵)</span></label>'+
       '</div><div class="hint" style="margin-top:7px">哨兵: 从库端口 16380 只读; 应用侧使用 sentinel 协议 (redis-sentinel:26379, master 名称 mymaster) 实现故障自动切换</div></div>';
   }
+  if (selected.has('kafka')){
+    const k = state.topology.kafka || 'single';
+    html += '<div class="grp"><h3>Kafka 部署形态</h3><div class="segs">'+
+      '<label><input type="radio" name="topo_kafka" value="single" '+(k==='single'?'checked':'')+'><span>单节点 (KRaft)</span></label>'+
+      '<label><input type="radio" name="topo_kafka" value="cluster" '+(k==='cluster'?'checked':'')+'><span>3 节点集群 (KRaft + SASL)</span></label>'+
+      '</div><div class="hint" style="margin-top:7px">集群: 3 broker 互为副本与仲裁 (KRaft 组合模式, 无 ZooKeeper), SASL_PLAINTEXT 多用户鉴权, 部署时自动把广播地址改写为服务器 IP; 镜像改用 bitnami/kafka 3.7.0 (双架构, 体积约为单节点的 3 倍)</div></div>';
+  }
   box.innerHTML = html;
   box.querySelectorAll('input[name^="topo_"]').forEach(r => r.onchange = () => {
     const k = r.name.replace('topo_', '');
     state.topology[k] = r.value;
     saveLocal();
-    const name = k === 'mysql8' ? 'MySQL' : k === 'mysql57' ? 'MySQL 5.7' : 'Redis';
-    if (k === 'redis') toast(r.value === 'single' ? 'Redis 单机模式' : 'Redis 哨兵高可用');
-    else toast(name + (r.value === 'single' ? ' 单机模式' : ' 主从模式 (一主一从)'));
+    const names = { mysql8: 'MySQL 8.0', mysql57: 'MySQL 5.7', redis: 'Redis', kafka: 'Kafka' };
+    const modes = {
+      mysql8: r.value === 'single' ? 'MySQL 8.0 单机模式' : 'MySQL 8.0 主从模式 (一主一从)',
+      mysql57: r.value === 'single' ? 'MySQL 5.7 单机模式' : 'MySQL 5.7 主从模式 (一主一从)',
+      redis: r.value === 'single' ? 'Redis 单机模式' : 'Redis 哨兵高可用',
+      kafka: r.value === 'single' ? 'Kafka 单节点模式' : 'Kafka 3 节点集群模式 (KRaft + SASL)'
+    };
+    toast(modes[k] || (names[k] + ' ' + r.value));
+    renderDynamic();
   });
 }
 function updateSvcWarn(){}
@@ -851,16 +1052,23 @@ function renderDynamic(){
   renderTopology();
 
   // ---- 端口映射: host → container ----
+  const KAFKA_CLUSTER_PORTS = [
+    {key:'kafka_c1', label:'Kafka Broker 1 (SASL)', default:19092, container:9094},
+    {key:'kafka_c2', label:'Kafka Broker 2 (SASL)', default:29092, container:9094},
+    {key:'kafka_c3', label:'Kafka Broker 3 (SASL)', default:39092, container:9094}
+  ];
   const pb = $('#portBox'); pb.innerHTML = '';
   for (const s of svcs){
     const meta = CATALOG.services[s];
-    if (!meta.ports.length && !(state.extra[s]||[]).length) continue;
-    let html = '<div class="grp"><h3>'+logoSm(s)+esc(meta.label)+'</h3><div class="map">'+
+    const kCluster = s === 'kafka' && state.topology.kafka === 'cluster';
+    const portDefs = kCluster ? KAFKA_CLUSTER_PORTS : meta.ports;
+    if (!portDefs.length && !(state.extra[s]||[]).length) continue;
+    let html = '<div class="grp"><h3>'+logoSm(s)+esc(trLabel(meta.label))+(kCluster?' <span class="hint">3 节点集群 · SASL 端口</span>':'')+'</h3><div class="map">'+
       '<div class="map-cols"><span></span><span>外部访问端口(宿主机)</span><span></span><span>容器端口</span></div>';
-    for (const p of meta.ports){
+    for (const p of portDefs){
       if (!(p.key in state.ports)) state.ports[p.key] = p.default;
       html += '<div class="map-row">'+
-        '<span class="mlabel" title="'+esc(p.label)+'">'+esc(p.label)+'</span>'+
+        '<span class="mlabel" title="'+esc(trLabel(p.label))+'">'+esc(trLabel(p.label))+'</span>'+
         '<input type="text" data-port="'+p.key+'" value="'+state.ports[p.key]+'">'+
         '<span class="arrow">→</span>'+
         '<span class="ctn" title="容器内端口">'+(p.container != null ? p.container : '?')+'</span></div>';
@@ -1120,7 +1328,7 @@ function renderPwds(){
     const showBtn = isPwd ? '<button type="button" class="mini" data-show="'+item.key+'">显示</button>' : '';
     const genBtn  = isUser ? '' : '<button type="button" class="mini" data-gen="'+item.key+'" data-token="'+(isToken?1:0)+'">随机</button>';
     const st = isPwd ? '<span class="strength s'+pwStrength(state.secrets[item.key])+'" data-str="'+item.key+'"><i></i><i></i><i></i><i></i><em>'+strLabel(pwStrength(state.secrets[item.key]))+'</em></span>' : '<span></span>';
-    let html = '<div class="grp"><h3>'+esc(item.label)+'</h3><div class="pwline">'+
+    let html = '<div class="grp"><h3>'+esc(trLabel(item.label))+'</h3><div class="pwline">'+
       '<div class="pwrow">'+
       '<input type="'+type+'" data-sec="'+item.key+'" value="'+esc(state.secrets[item.key])+'"'+(isUser?' autocomplete="off" spellcheck="false"':'')+'>'+
       showBtn + genBtn +
@@ -1175,7 +1383,7 @@ function renderDb(){
     conf.mode = conf.mode || (localMysqls.length ? 'local' : 'external');
     if (conf.mode === 'local' && !localMysqls.length){
       conf.mode = 'external';
-      toast(CATALOG.services[app].label + ': 本次未部署 MySQL, 已改为使用外部数据库');
+      toast(trLabel(CATALOG.services[app].label) + (LANG === 'en' ? ': MySQL not selected, switched to external database' : ': 本次未部署 MySQL, 已改为使用外部数据库'));
     }
     conf.local_svc = conf.local_svc || (localMysqls.includes('mysql8') ? 'mysql8' : (localMysqls[0] || ''));
     conf.schema = conf.schema || schemaDefault;
@@ -1263,6 +1471,7 @@ function buildConfig(){
   return {
     project: $('#project').value.trim(),
     arch: $('#arch').value,
+    lang: LANG,
     services: [...selected],
     ports: {...state.ports},
     secrets: {...state.secrets},
@@ -1294,7 +1503,7 @@ function applyConfig(cfg){
   Object.keys(state.extra).forEach(k => delete state.extra[k]);
   const xp = cfg.extra_ports || {};
   for (const k of Object.keys(xp)) state.extra[k] = xp[k];
-  state.topology = Object.assign({ mysql8: 'single', mysql57: 'single', redis: 'single' }, cfg.topology || {});
+  state.topology = Object.assign({ mysql8: 'single', mysql57: 'single', redis: 'single', kafka: 'single' }, cfg.topology || {});
   const bd = cfg.backup || {};
   state.backup = { enabled: bd.enabled !== false,
     days: (bd.days && bd.days.length ? bd.days : [1,2,3,4,5,6,7]).map(Number),
@@ -1436,7 +1645,7 @@ function renderWarehouse(){
   for (const [s, meta] of Object.entries(CATALOG.services)){
     for (const arch of (meta.supported_arch || ['amd64'])){
       const ok = p['img_'+s+'_'+arch];
-      row(meta.label + ' 镜像', arch, ok, (sz.images[s]||{})[arch] || 0,
+      row(trLabel(meta.label) + (LANG === 'en' ? ' image' : ' 镜像'), arch, ok, (sz.images[s]||{})[arch] || 0,
           (meta.is_plugin ? '插件' : ''), 'img');
     }
   }
@@ -1474,7 +1683,7 @@ async function loadBundles(){
   } catch(e){}
 }
 
-init();
+init().then(() => { applyI18n(document); });
 </script>
 </body>
 </html>

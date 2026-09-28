@@ -21,12 +21,12 @@ META = {
         "arm64": "warehouse/images/kafka-ui/v0.7.2/arm64.tar",
     },
     "ports": [
-        {"key": "ui", "label": "Kafka UI 端口", "default": 18092, "container": 8080},
+        {"key": "ui", "label": "Kafka UI 端口|Kafka UI port", "default": 18092, "container": 8080},
     ],
     "secrets": [
-        {"key": "KAFKA_UI_USER", "label": "Kafka UI 登录账号",
+        {"key": "KAFKA_UI_USER", "label": "Kafka UI 登录账号|Kafka UI login username",
          "default": "admin", "services": ["kafka-ui"], "secret": False},
-        {"key": "KAFKA_UI_PASSWORD", "label": "Kafka UI 登录密码",
+        {"key": "KAFKA_UI_PASSWORD", "label": "Kafka UI 登录密码|Kafka UI login password",
          "default": "Ku9#pL3nBv@Wt6yY", "services": ["kafka-ui"], "secret": True},
     ],
     "note": "需与 Kafka 同选; 自动连接 kafka:9092, 控制台带登录鉴权, 浏览器打开 http://ip:18092",
@@ -34,6 +34,9 @@ META = {
 
 
 def compose_block(cfg, ports, ctx):
+    # 集群形态下连接第一个 broker(kafka1); 单节点连接 kafka
+    bootstrap = "kafka1:9092" if (cfg.get("topology") or {}).get("kafka") == "cluster" else "kafka:9092"
+    depends = "kafka1" if bootstrap == "kafka1:9092" else "kafka"
     return """
   %(svc)s:
     image: %(image)s
@@ -43,13 +46,13 @@ def compose_block(cfg, ports, ctx):
       TZ: ${TZ}
       DYNAMIC_CONFIG_ENABLED: "true"
       KAFKA_CLUSTERS_0_NAME: local
-      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: %(bootstrap)s
       # 控制台登录鉴权(LOGIN_FORM)
       AUTH_TYPE: "LOGIN_FORM"
       SPRING_SECURITY_USER_NAME: ${KAFKA_UI_USER}
       SPRING_SECURITY_USER_PASSWORD: ${KAFKA_UI_PASSWORD}
     depends_on:
-      - kafka
+      - %(depends)s
     ports:
       - "%(port)d:8080"
     networks:
@@ -57,6 +60,8 @@ def compose_block(cfg, ports, ctx):
         "svc": SERVICE_KEY,
         "image": "%s:%s" % (META["image"], META["tag"]),
         "port": ports["ui"],
+        "bootstrap": bootstrap,
+        "depends": depends,
     }
 
 
@@ -73,4 +78,4 @@ def manifest_lines(cfg, ports, ctx):
 
 
 def summary_lines(cfg, ports, ctx):
-    return ["Kafka UI       http://__IP__:%d  (登录账号 admin 或 .env 中 KAFKA_UI_USER)" % ports["ui"]]
+    return ["Kafka UI       http://__IP__:%d  (登录账号 admin 或 .env 中 KAFKA_UI_USER)|Kafka UI       http://__IP__:%d  (login admin or KAFKA_UI_USER in .env)" % (ports["ui"], ports["ui"])]

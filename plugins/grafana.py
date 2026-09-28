@@ -21,11 +21,11 @@ META = {
         "arm64": "warehouse/images/grafana/13.2.1/arm64.tar",
     },
     "ports": [
-        {"key": "web", "label": "Grafana 控制台端口", "default": 3000, "container": 3000},
+        {"key": "web", "label": "Grafana 控制台端口|Grafana console port", "default": 3000, "container": 3000},
     ],
     "secrets": [
-        {"key": "GRAFANA_ADMIN_USER",     "label": "Grafana 管理员账号", "default": "admin",            "services": ["grafana"], "secret": False},
-        {"key": "GRAFANA_ADMIN_PASSWORD", "label": "Grafana 管理员密码", "default": "Xy625#608iVR@HZs", "services": ["grafana"], "secret": True},
+        {"key": "GRAFANA_ADMIN_USER",     "label": "Grafana 管理员账号|Grafana admin username", "default": "admin",            "services": ["grafana"], "secret": False},
+        {"key": "GRAFANA_ADMIN_PASSWORD", "label": "Grafana 管理员密码|Grafana admin password", "default": "Xy625#608iVR@HZs", "services": ["grafana"], "secret": True},
     ],
     "note": "管理员账号密码见 .env; 同选 Prometheus/Loki 时数据源自动预配, 同选 Node Exporter 时预配主机监控仪表盘",
 }
@@ -174,4 +174,4 @@ def manifest_lines(cfg, ports, ctx):
 
 
 def summary_lines(cfg, ports, ctx):
-    return ["Grafana        http://__IP__:%d  (账号见 .env)" % ports["web"]]
+    return ["Grafana        http://__IP__:%d  (账号见 .env)|Grafana        http://__IP__:%d  (credentials in .env)" % (ports["web"], ports["web"])]

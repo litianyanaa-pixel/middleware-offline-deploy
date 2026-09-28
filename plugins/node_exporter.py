@@ -21,7 +21,7 @@ META = {
         "arm64": "warehouse/images/node-exporter/v1.12.1/arm64.tar",
     },
     "ports": [
-        {"key": "metrics", "label": "指标端口", "default": 9100, "container": 9100},
+        {"key": "metrics", "label": "指标端口|Metrics port", "default": 9100, "container": 9100},
     ],
     "secrets": [],
     "note": "采集宿主机 CPU/内存/磁盘/网络指标; Grafana 预配主机监控仪表盘(需同选 Grafana)",
@@ -56,4 +56,4 @@ def compose_block(cfg, ports, ctx):
 
 
 def summary_lines(cfg, ports, ctx):
-    return ["Node Exporter http://__IP__:%d/metrics  (主机指标)" % ports["metrics"]]
+    return ["Node Exporter http://__IP__:%d/metrics  (主机指标)|Node Exporter http://__IP__:%d/metrics  (node metrics)" % (ports["metrics"], ports["metrics"])]

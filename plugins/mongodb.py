@@ -21,11 +21,11 @@ META = {
         "arm64": "warehouse/images/mongodb/8.0.30/arm64.tar",
     },
     "ports": [
-        {"key": "mongo", "label": "MongoDB 端口", "default": 27017, "container": 27017},
+        {"key": "mongo", "label": "MongoDB 端口|MongoDB port", "default": 27017, "container": 27017},
     ],
     "secrets": [
-        {"key": "MONGO_INITDB_ROOT_USERNAME", "label": "MongoDB root 账号", "default": "root",             "services": ["mongodb"], "secret": False},
-        {"key": "MONGO_INITDB_ROOT_PASSWORD", "label": "MongoDB root 密码", "default": "zB6Dm#1NGqez.QX6", "services": ["mongodb"], "secret": True},
+        {"key": "MONGO_INITDB_ROOT_USERNAME", "label": "MongoDB root 账号|MongoDB root username", "default": "root",             "services": ["mongodb"], "secret": False},
+        {"key": "MONGO_INITDB_ROOT_PASSWORD", "label": "MongoDB root 密码|MongoDB root password", "default": "zB6Dm#1NGqez.QX6", "services": ["mongodb"], "secret": True},
     ],
     "note": "root 账号仅在数据目录首次初始化时生效; 连接串 mongodb://<user>:<pwd>@ip:27017",
 }
@@ -72,4 +72,4 @@ def env_lines(cfg, ports, ctx):
 
 
 def summary_lines(cfg, ports, ctx):
-    return ["MongoDB       __IP__:%d  mongosh -h<ip> -u<root账号> -p" % ports["mongo"]]
+    return ["MongoDB       __IP__:%d  mongosh -h<ip> -u<root账号> -p|MongoDB       __IP__:%d  mongosh -h<ip> -u<root user> -p" % (ports["mongo"], ports["mongo"])]

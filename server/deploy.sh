@@ -446,6 +446,15 @@ prepare_deploy_dir() {
   cp -f "$BASE_DIR/.env"               "$DEPLOY_DIR/.env"
   chmod 600 "$DEPLOY_DIR/.env"
 
+  # Kafka 集群形态: 宿主机监听的广播地址默认 localhost, 部署时自动改写为服务器真实 IP,
+  # 跨宿主机客户端(如 Canal)用真实 IP 连接; 本机客户端仍可用 localhost
+  if grep -qE '^KAFKA_HOST_IP=' "$DEPLOY_DIR/.env" 2>/dev/null; then
+    local kip
+    kip="$(detect_ip)"
+    sed -i "s|^KAFKA_HOST_IP=.*|KAFKA_HOST_IP=${kip}|" "$DEPLOY_DIR/.env"
+    log "Kafka 宿主机监听广播地址已设为本机 IP: $kip (跨宿主机客户端请用该地址 + 各 broker SASL 端口连接)"
+  fi
+
   local d
   for d in "${DATA_DIRS[@]+"${DATA_DIRS[@]}"}"; do
     [ -z "$d" ] && continue
@@ -737,9 +746,63 @@ setup_mysql_replication() {
   done
 }
 
+#------------------------------- 增量升级 -------------------------------
+# 对比新旧 docker-compose.yml 的每个服务块, 把变更显式列出来:
+#   docker compose up -d 本身就只重建配置变化的服务, 这里负责"说清楚改了什么",
+#   并在服务被移除时自动清理孤儿容器。提示: .env 里变量值的变化(如密码)由
+#   compose 解析后自动检测, 相关容器同样会被重建, 无需人工干预。
+compose_svc_names() { # <compose文件> -> 服务名列表
+  awk '/^services:/{insvc=1; next} /^[^ #]/{insvc=0} insvc && /^  [A-Za-z0-9_-]+:$/ {print $1}' "$1" 2>/dev/null | tr -d ':'
+}
+
+svc_block_hash() { # <compose文件> <服务名> -> 该服务块内容的 md5
+  awk -v t="$2" '
+    /^  [A-Za-z0-9_-]+:$/ { cur=$1; sub(/:$/,"",cur); insvc=(cur==t) }
+    insvc && /^[[:space:]]+[^[:space:]]/ { print }
+  ' "$1" 2>/dev/null | md5sum | awk '{print $1}'
+}
+
+plan_upgrade() { # $1=旧 compose 路径(首次部署为空)
+  UP_CHANGED=""; UP_ADDED=""; UP_REMOVED=""; UP_KEPT=0
+  local old="$1" s
+  if [ -z "$old" ] || [ ! -f "$old" ]; then
+    log "增量升级 - 首次部署, 将创建全部服务"
+    return 0
+  fi
+  local tmp_new="$TMP/svc.new" tmp_old="$TMP/svc.old"
+  compose_svc_names "$BASE_DIR/docker-compose.yml" > "$tmp_new"
+  compose_svc_names "$old" > "$tmp_old"
+  while read -r s; do
+    [ -z "$s" ] && continue
+    if ! grep -qx "$s" "$tmp_old"; then
+      UP_ADDED="$UP_ADDED $s"; continue
+    fi
+    if [ "$(svc_block_hash "$BASE_DIR/docker-compose.yml" "$s")" = "$(svc_block_hash "$old" "$s")" ]; then
+      UP_KEPT=$((UP_KEPT+1))
+    else
+      UP_CHANGED="$UP_CHANGED $s"
+    fi
+  done < "$tmp_new"
+  while read -r s; do
+    [ -z "$s" ] && continue
+    grep -qx "$s" "$tmp_new" || UP_REMOVED="$UP_REMOVED $s"
+  done < "$tmp_old"
+  if [ -n "$UP_CHANGED" ]; then log "增量升级 - 将重建:${UP_CHANGED}"; fi
+  if [ -n "$UP_ADDED" ];    then log "增量升级 - 新增服务:${UP_ADDED}"; fi
+  if [ -n "$UP_REMOVED" ];  then log "增量升级 - 移除服务:${UP_REMOVED} (自动清理对应容器)"; fi
+  if [ "$UP_KEPT" -gt 0 ] && [ -z "$UP_CHANGED$UP_ADDED$UP_REMOVED" ]; then
+    log "增量升级 - 配置与上次一致, ${UP_KEPT} 个服务保持运行(不重建)"
+  fi
+}
+
 #------------------------------- 7. 启动 -------------------------------
 startup() {
   hr; log "【8/9】启动服务 (docker compose up -d)"
+  local old_compose=""
+  [ -n "${OLD_ENV_FILE:-}" ] && old_compose="$(dirname "$OLD_ENV_FILE")/docker-compose.yml"
+  plan_upgrade "$old_compose"
+  local up_flags=""
+  [ -n "${UP_REMOVED:-}" ] && up_flags="--remove-orphans"
   if [ "${REDIS_TOPOLOGY:-single}" = "sentinel" ] \
      && ! (cd "$DEPLOY_DIR" && docker compose ps -q redis-sentinel 2>/dev/null | grep -q .); then
     # 哨兵形态首启分两段: 先起主/从, 把主库真实 IP 写进哨兵配置后再起哨兵。
@@ -758,7 +821,7 @@ startup() {
     chown 999:999 "$DEPLOY_DIR/redis/sentinel.conf" 2>/dev/null || true
     log "哨兵监控地址已指向主库 $ip (故障转移后由哨兵自行维护)"
   fi
-  (cd "$DEPLOY_DIR" && docker compose up -d)
+  (cd "$DEPLOY_DIR" && docker compose up -d $up_flags)
   if [ "${REDIS_TOPOLOGY:-single}" = "sentinel" ]; then
     local j
     for j in $(seq 1 30); do
@@ -909,28 +972,31 @@ detect_ip() {
 }
 
 # 日常运维命令清单: 终端直接打印 + 原文写进部署报告(两处保证一致)
+# T: 按打包时选择的语言(DEPLOY_LANG=zh/en)输出双语文案
+T() { if [ "${DEPLOY_LANG:-zh}" = "en" ]; then printf '%s' "$2"; else printf '%s' "$1"; fi; }
+
 print_commands() {
   local s
   echo "  cd $DEPLOY_DIR"
-  echo "  docker compose ps                      # 容器状态一览"
-  echo "  docker compose logs -f                 # 跟看全部日志"
+  echo "  docker compose ps                      # $(T '容器状态一览' 'container status overview')"
+  echo "  docker compose logs -f                 # $(T '跟看全部日志' 'follow all logs')"
   for s in "${CONTAINER_NAMES[@]+"${CONTAINER_NAMES[@]}"}"; do
     [ -z "$s" ] && continue
-    printf '  docker compose logs -f %-14s # %s 日志\n' "$s" "$s"
+    printf '  docker compose logs -f %-14s # %s %s\n' "$s" "$s" "$(T '日志' 'logs')"
   done
-  echo "  docker compose restart                 # 重启全部(单个: docker compose restart <服务名>)"
-  echo "  docker compose down                    # 停止(数据目录保留, 不删除)"
+  echo "  docker compose restart                 # $(T '重启全部(单个: docker compose restart <服务名>)' 'restart all (single: docker compose restart <svc>)')"
+  echo "  docker compose down                    # $(T '停止(数据目录保留, 不删除)' 'stop (data dirs kept, nothing removed)')"
   if [ -f "$DEPLOY_DIR/backup.sh" ]; then
-    echo "  ./backup.sh                            # 手工全量备份(按库分文件)"
+    echo "  ./backup.sh                            # $(T '手工全量备份(按库分文件)' 'manual full backup (one file per database)')"
   fi
   if [ -f "$DEPLOY_DIR/restore.sh" ]; then
-    echo "  ./restore.sh list                      # 列出数据库备份"
+    echo "  ./restore.sh list                      # $(T '列出数据库备份' 'list database backups')"
   fi
 }
 
 rpt() { printf '%s\n' "$*" >> "$REPORT_FILE"; }
 
-# 生成部署报告(纯文本, 每次执行 deploy.sh 自动覆盖重写)
+# 生成部署报告(纯文本, 每次执行 deploy.sh 自动覆盖重写; 语言随打包选择 DEPLOY_LANG)
 write_report() { # $1=本机IP
   local ip="$1" hl st txt s
   REPORT_FILE="$DEPLOY_DIR/部署报告.txt"
@@ -943,22 +1009,22 @@ write_report() { # $1=本机IP
   : > "$REPORT_FILE"
 
   rpt "================================================================"
-  rpt "  中间件离线部署报告    项目: ${PROJECT:-middleware}"
+  rpt "  $(T '中间件离线部署报告' 'Middleware Offline Deployment Report')    $(T '项目' 'project'): ${PROJECT:-middleware}"
   rpt "================================================================"
   rpt ""
-  rpt "部署时间  : $now"
-  rpt "服务器    : $(hostname 2>/dev/null || uname -n)  ($(uname -m))"
-  rpt "系统      : $os_pretty"
-  rpt "内核      : $(uname -r)"
-  rpt "本机IP    : $ip"
-  rpt "部署包    : ${BUNDLE_NAME:-unknown(已解包)}"
+  rpt "$(T '部署时间' 'deployed at')  : $now"
+  rpt "$(T '服务器' 'server')    : $(hostname 2>/dev/null || uname -n)  ($(uname -m))"
+  rpt "$(T '系统' 'OS')      : $os_pretty"
+  rpt "$(T '内核' 'kernel')    : $(uname -r)"
+  rpt "$(T '本机IP' 'host IP')    : $ip"
+  rpt "$(T '部署包' 'bundle')    : ${BUNDLE_NAME:-$(T 'unknown(已解包)' 'unknown (unpacked)')}"
   rpt "Docker    : $docker_ver"
   rpt "Compose   : $compose_ver"
-  rpt "部署目录  : $DEPLOY_DIR"
-  rpt "Docker数据: $DOCKER_DATA_ROOT"
+  rpt "$(T '部署目录' 'deploy dir')  : $DEPLOY_DIR"
+  rpt "$(T 'Docker数据' 'Docker data'): $DOCKER_DATA_ROOT"
   rpt ""
   rpt "----------------------------------------------------------------"
-  rpt "一、服务清单与访问入口"
+  rpt "$(T '一、服务清单与访问入口' '1. Services & access endpoints')"
   rpt "----------------------------------------------------------------"
   for s in "${SUMMARY_LINES[@]+"${SUMMARY_LINES[@]}"}"; do
     [ -z "$s" ] && continue
@@ -966,7 +1032,7 @@ write_report() { # $1=本机IP
   done
   rpt ""
   rpt "----------------------------------------------------------------"
-  rpt "二、健康实测结果"
+  rpt "$(T '二、健康实测结果' '2. Health check results')"
   rpt "----------------------------------------------------------------"
   if [ -n "${HEALTH_LINES+x}" ]; then
     for hl in "${HEALTH_LINES[@]+"${HEALTH_LINES[@]}"}"; do
@@ -974,42 +1040,42 @@ write_report() { # $1=本机IP
       if [ "$st" = "OK" ]; then rpt "  ✓ $txt"; else rpt "  ✗ $txt"; fi
     done
   else
-    rpt "  未执行"
+    rpt "  $(T '未执行' 'not executed')"
   fi
   rpt ""
   rpt "----------------------------------------------------------------"
-  rpt "三、日常运维命令(在 $DEPLOY_DIR 下执行)"
+  rpt "$(T '三、日常运维命令(在' '3. Daily operations (run inside') $DEPLOY_DIR$(T ' 下执行)' ')')"
   rpt "----------------------------------------------------------------"
   print_commands >> "$REPORT_FILE"
   rpt ""
   rpt "----------------------------------------------------------------"
-  rpt "四、账号与安全"
+  rpt "$(T '四、账号与安全' '4. Accounts & security')"
   rpt "----------------------------------------------------------------"
-  rpt "  账号密码文件: $DEPLOY_DIR/.env (权限600, 含全部明文密码, 请妥善管控)"
+  rpt "  $(T '账号密码文件' 'credentials file'): $DEPLOY_DIR/.env ($(T '权限600, 含全部明文密码, 请妥善管控' 'mode 600, contains all plaintext passwords, keep it safe'))"
   if grep -qE '^  nacos:' "$DEPLOY_DIR/docker-compose.yml" 2>/dev/null; then
-    rpt "  Nacos 控制台 : 入口见「一」; 初始账号在 .env (NACOS_AUTH_USER/NACOS_AUTH_PASSWORD), 登录后请改密"
+    rpt "  Nacos $(T '控制台' 'console'): $(T '入口见「一」; 初始账号在 .env (NACOS_AUTH_USER/NACOS_AUTH_PASSWORD), 登录后请改密' 'endpoint in section 1; initial credentials in .env (NACOS_AUTH_USER/NACOS_AUTH_PASSWORD), change after login')"
   fi
   if grep -qE '^  xxljob:' "$DEPLOY_DIR/docker-compose.yml" 2>/dev/null; then
-    rpt "  XXL-Job 控制台: 入口见「一」; 初始账号 admin, 初始密码为 .env 中 XXL_JOB_ADMIN_PASSWORD(打包时按该值初始化), 登录后请改密"
+    rpt "  XXL-Job $(T '控制台' 'console'): $(T '入口见「一」; 初始账号 admin, 初始密码为 .env 中 XXL_JOB_ADMIN_PASSWORD(打包时按该值初始化), 登录后请改密' 'endpoint in section 1; initial user admin with password .env XXL_JOB_ADMIN_PASSWORD (SQL initialized with it), change after login')"
   fi
   if grep -qE '^  minio:' "$DEPLOY_DIR/docker-compose.yml" 2>/dev/null; then
-    rpt "  MinIO        : root 账号在 .env (MINIO_ROOT_USER/MINIO_ROOT_PASSWORD)"
+    rpt "  MinIO        : root $(T '账号在' 'credentials in') .env (MINIO_ROOT_USER/MINIO_ROOT_PASSWORD)"
   fi
-  rpt "  端口/密码等变更请用本地打包器重新打包, 勿直接改服务器文件"
+  rpt "  $(T '端口/密码等变更请用本地打包器重新打包, 勿直接改服务器文件' 'change ports/passwords in the local packer and re-pack; do not edit server files directly')"
   rpt ""
   rpt "----------------------------------------------------------------"
-  rpt "五、数据库备份"
+  rpt "$(T '五、数据库备份' '5. Database backup')"
   rpt "----------------------------------------------------------------"
   if [ "${BACKUP_ENABLED:-0}" = "1" ]; then
-    rpt "  定时备份: 已启用, crontab '$BACKUP_CRON'"
-    rpt "  备份目录: $BACKUP_DIR (按库分文件 gzip, 轮转策略见 backup.conf)"
-    [ -f "$DEPLOY_DIR/backup.sh" ]  && rpt "  手工备份: $DEPLOY_DIR/backup.sh"
-    [ -f "$DEPLOY_DIR/restore.sh" ] && rpt "  备份恢复: $DEPLOY_DIR/restore.sh list (恢复指定库: ./restore.sh <服务> <库名>)"
+    rpt "  $(T '定时备份' 'scheduled'): $(T '已启用' 'enabled'), crontab '$BACKUP_CRON'"
+    rpt "  $(T '备份目录' 'backup dir'): $BACKUP_DIR ($(T '按库分文件 gzip, 轮转策略见 backup.conf' 'one gzip per database, rotation in backup.conf'))"
+    [ -f "$DEPLOY_DIR/backup.sh" ]  && rpt "  $(T '手工备份' 'manual backup'): $DEPLOY_DIR/backup.sh"
+    [ -f "$DEPLOY_DIR/restore.sh" ] && rpt "  $(T '备份恢复' 'restore'): $DEPLOY_DIR/restore.sh list ($(T '恢复指定库' 'restore one DB'): ./restore.sh <svc> <db>)"
   else
-    rpt "  未启用 (如需, 在本地打包器配置后重新打包部署)"
+    rpt "  $(T '未启用 (如需, 在本地打包器配置后重新打包部署)' 'not enabled (configure in the local packer and re-pack to enable)')"
   fi
   rpt ""
-  rpt "本报告由 deploy.sh 在部署完成时自动生成, 每次执行会覆盖重写"
+  rpt "$(T '本报告由 deploy.sh 在部署完成时自动生成, 每次执行会覆盖重写' 'Generated automatically by deploy.sh on each deployment run')"
   chmod 644 "$REPORT_FILE" 2>/dev/null || true
 }
 
@@ -1025,9 +1091,9 @@ summary() {
   if [ -n "${HEALTH_LINES+x}" ]; then
     echo
     if [ "${HEALTH_BAD:-0}" -eq 0 ]; then
-      echo -e "  ${GREEN}健康实测${NC}"
+      echo -e "  ${GREEN}$(T '健康实测' 'Health checks')${NC}"
     else
-      echo -e "  ${RED}健康实测(部分未通过)${NC}"
+      echo -e "  ${RED}$(T '健康实测(部分未通过)' 'Health checks (some failed)')${NC}"
     fi
     local hl st txt
     for hl in "${HEALTH_LINES[@]+"${HEALTH_LINES[@]}"}"; do

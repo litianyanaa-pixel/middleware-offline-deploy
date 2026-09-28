@@ -21,7 +21,7 @@ META = {
         "arm64": "warehouse/images/kibana/9.3.0/arm64.tar",
     },
     "ports": [
-        {"key": "kibana_web", "label": "Kibana 端口", "default": 5601, "container": 5601},
+        {"key": "kibana_web", "label": "Kibana 端口|Kibana port", "default": 5601, "container": 5601},
     ],
     "secrets": [],
     "note": "版本必须与 Elasticsearch 完全一致; 服务账号 kibana_system 由部署脚本自动启用, 浏览器登录账号 elastic / ELASTIC_PASSWORD",
@@ -60,4 +60,4 @@ def manifest_lines(cfg, ports, ctx):
 
 
 def summary_lines(cfg, ports, ctx):
-    return ["Kibana         http://__IP__:%d  (登录账号同 ES: elastic)" % ports["kibana_web"]]
+    return ["Kibana         http://__IP__:%d  (登录账号同 ES: elastic)|Kibana         http://__IP__:%d  (login same as ES: elastic)" % (ports["kibana_web"], ports["kibana_web"])]

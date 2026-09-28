@@ -21,7 +21,7 @@ META = {
         "arm64": "warehouse/images/loki/3.7.7/arm64.tar",
     },
     "ports": [
-        {"key": "loki", "label": "Loki 端口", "default": 3100, "container": 3100},
+        {"key": "loki", "label": "Loki 端口|Loki port", "default": 3100, "container": 3100},
     ],
     "secrets": [],
     "note": "日志入库: 需同选 Promtail 采集容器日志; 查询: Grafana Explore 或 http://ip:3100",
@@ -96,4 +96,4 @@ def manifest_lines(cfg, ports, ctx):
 
 
 def summary_lines(cfg, ports, ctx):
-    return ["Loki          http://__IP__:%d  (日志查询走 Grafana Explore)" % ports["loki"]]
+    return ["Loki          http://__IP__:%d  (日志查询走 Grafana Explore)|Loki          http://__IP__:%d  (query logs via Grafana Explore)" % (ports["loki"], ports["loki"])]

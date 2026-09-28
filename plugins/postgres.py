@@ -21,10 +21,10 @@ META = {
         "arm64": "warehouse/images/postgres/15.19/arm64.tar",
     },
     "ports": [
-        {"key": "pgsql", "label": "PostgreSQL 端口", "default": 15432, "container": 5432},
+        {"key": "pgsql", "label": "PostgreSQL 端口|PostgreSQL port", "default": 15432, "container": 5432},
     ],
     "secrets": [
-        {"key": "POSTGRES_PASSWORD", "label": "Postgres postgres 密码",
+        {"key": "POSTGRES_PASSWORD", "label": "Postgres postgres 密码|Postgres postgres password",
          "default": "B7x2IpT5Z+M~I#Mg", "services": ["postgres"], "secret": True},
     ],
     "note": "",

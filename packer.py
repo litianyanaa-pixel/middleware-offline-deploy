@@ -106,6 +106,15 @@ def bash_quote(v):
     return "'" + str(v).replace("'", "'\\''") + "'"
 
 
+def tr(text, lang="zh"):
+    """双语约定: 文案写作 "中文|English", 按 lang 取半边; 无竖线时原样返回"""
+    s = str(text)
+    if "|" in s:
+        zh, _, en = s.partition("|")
+        return (en if lang == "en" else zh).strip()
+    return s
+
+
 def env_quote(v):
     """生成 .env 值: 含 # 时加双引号(值字符集已禁止双引号/反斜杠/$)"""
     v = str(v)
@@ -140,21 +149,27 @@ def validate_config(cfg, catalog):
 
     project = str(cfg.get("project", "")).strip().lower()
     if not PROJECT_RE.match(project):
-        raise PackError("项目名不合法: 只能小写字母开头, 小写字母/数字/中划线, 2-41 位")
+        raise PackError("项目名不合法: 只能小写字母开头, 小写字母/数字/中划线, 2-41 位|Invalid project name: must start with a lowercase letter, 2-41 chars of lowercase letters/digits/hyphens")
     arch = cfg.get("arch")
     if arch not in ("amd64", "arm64"):
-        raise PackError("必须选择目标架构 (amd64 / arm64)")
+        raise PackError("必须选择目标架构 (amd64 / arm64)|Target architecture must be selected (amd64 / arm64)")
+    lang = cfg.get("lang") or "zh"
+    if lang not in ("zh", "en"):
+        lang = "zh"
+    cfg["lang"] = lang
 
     services = cfg.get("services") or []
     if not services:
-        raise PackError("至少选择一个中间件")
+        raise PackError("至少选择一个中间件|Select at least one middleware")
     known = list(catalog["services"].keys())
     for s in services:
         if s not in known:
-            raise PackError("未知中间件: %s" % s)
+            raise PackError("未知中间件: %s|Unknown middleware: %s" % (s, s))
         meta = catalog["services"][s]
         if arch not in meta["supported_arch"]:
-            raise PackError("%s 不支持 %s 架构 (%s)" % (meta["label"], arch, meta.get("note", "")))
+            raise PackError("%s 不支持 %s 架构 (%s)|%s does not support %s architecture (%s)"
+                            % (tr(meta["label"], "zh"), arch, meta.get("note", "").partition("|")[0],
+                               tr(meta["label"], "en"), arch, meta.get("note", "").partition("|")[2]))
 
     # ---- 端口 ----
     ports = cfg.get("ports") or {}
@@ -167,11 +182,12 @@ def validate_config(cfg, catalog):
             try:
                 v = int(raw)
             except (TypeError, ValueError):
-                raise PackError("端口 %s 不合法: %s" % (p["label"], raw))
+                raise PackError("端口 %s 不合法: %s|Invalid port for %s: %s" % (tr(p["label"], "zh"), raw, tr(p["label"], "en"), raw))
             if not (1 <= v <= 65535):
-                raise PackError("端口 %s 超出范围 1-65535: %s" % (p["label"], v))
+                raise PackError("端口 %s 超出范围 1-65535: %s|Port %s out of range 1-65535: %s" % (tr(p["label"], "zh"), v, tr(p["label"], "en"), v))
             if v in seen:
-                raise PackError("端口冲突: %s 和 %s 都用了 %d" % (seen[v], p["label"], v))
+                raise PackError("端口冲突: %s 和 %s 都用了 %d|Port conflict: %s and %s both use %d"
+                                % (tr(seen[v], "zh"), tr(p["label"], "zh"), v, tr(seen[v], "en"), tr(p["label"], "en"), v))
             seen[v] = p["label"]
             norm_ports[key] = v
     cfg["ports"] = norm_ports
@@ -182,39 +198,48 @@ def validate_config(cfg, catalog):
     if "mysql8" in services:
         m = str(topo_raw.get("mysql8", "single"))
         if m not in ("single", "master-slave"):
-            raise PackError("MySQL 部署形态不合法: %s (single / master-slave)" % m)
+            raise PackError("MySQL 部署形态不合法: %s (single / master-slave)|Invalid MySQL topology: %s (single / master-slave)" % (m, m))
         topology["mysql8"] = m
     if "mysql57" in services:
         m = str(topo_raw.get("mysql57", "single"))
         if m not in ("single", "master-slave"):
-            raise PackError("MySQL 5.7 部署形态不合法: %s (single / master-slave)" % m)
+            raise PackError("MySQL 5.7 部署形态不合法: %s (single / master-slave)|Invalid MySQL 5.7 topology: %s (single / master-slave)" % (m, m))
         topology["mysql57"] = m
     if "redis" in services:
         r = str(topo_raw.get("redis", "single"))
         if r not in ("single", "sentinel"):
-            raise PackError("Redis 部署形态不合法: %s (single / sentinel)" % r)
+            raise PackError("Redis 部署形态不合法: %s (single / sentinel)|Invalid Redis topology: %s (single / sentinel)" % (r, r))
         topology["redis"] = r
+    if "kafka" in services:
+        k = str(topo_raw.get("kafka", "single"))
+        if k not in ("single", "cluster"):
+            raise PackError("Kafka 部署形态不合法: %s (single / cluster)|Invalid Kafka topology: %s (single / cluster)" % (k, k))
+        topology["kafka"] = k
     cfg["topology"] = topology
 
     # 集群形态附加端口键(并入全局查重)
     topo_port_defs = []
     if topology.get("mysql8") == "master-slave":
-        topo_port_defs.append(("mysql8_replica", "MySQL 从库端口", 13308))
+        topo_port_defs.append(("mysql8_replica", "MySQL 从库端口|MySQL replica port", 13308))
     if topology.get("mysql57") == "master-slave":
-        topo_port_defs.append(("mysql57_replica", "MySQL 5.7 从库端口", 13309))
+        topo_port_defs.append(("mysql57_replica", "MySQL 5.7 从库端口|MySQL 5.7 replica port", 13309))
     if topology.get("redis") == "sentinel":
-        topo_port_defs.append(("redis_replica", "Redis 从库端口", 16380))
+        topo_port_defs.append(("redis_replica", "Redis 从库端口|Redis replica port", 16380))
+    if topology.get("kafka") == "cluster":
+        topo_port_defs.append(("kafka_c1", "Kafka broker1 端口(SASL)|Kafka broker1 port (SASL)", 19092))
+        topo_port_defs.append(("kafka_c2", "Kafka broker2 端口(SASL)|Kafka broker2 port (SASL)", 29092))
+        topo_port_defs.append(("kafka_c3", "Kafka broker3 端口(SASL)|Kafka broker3 port (SASL)", 39092))
     seen_topo = set(norm_ports.values())
     for key, label, default in topo_port_defs:
         raw = (cfg.get("ports") or {}).get(key, default)
         try:
             v = int(raw)
         except (TypeError, ValueError):
-            raise PackError("端口 %s 不合法: %s" % (label, raw))
+            raise PackError("端口 %s 不合法: %s|Invalid port for %s: %s" % (tr(label, "zh"), raw, tr(label, "en"), raw))
         if not (1 <= v <= 65535):
-            raise PackError("端口 %s 超出范围 1-65535: %d" % (label, v))
+            raise PackError("端口 %s 超出范围 1-65535: %d|Port %s out of range 1-65535: %d" % (tr(label, "zh"), v, tr(label, "en"), v))
         if v in seen_topo:
-            raise PackError("端口冲突: %s 与其他端口都用了 %d" % (label, v))
+            raise PackError("端口冲突: %s 与其他端口都用了 %d|Port conflict: %s conflicts on %d" % (tr(label, "zh"), v, tr(label, "en"), v))
         seen_topo.add(v)
         norm_ports[key] = v
 
@@ -230,22 +255,25 @@ def validate_config(cfg, catalog):
         typ = item.get("type")
         if typ == "nacos_token":
             if not val.startswith("SecretKey"):
-                raise PackError("Nacos Auth Token 必须以 SecretKey 开头")
+                raise PackError("Nacos Auth Token 必须以 SecretKey 开头|Nacos Auth Token must start with SecretKey")
             b64part = val[len("SecretKey"):]
             try:
                 raw = base64.b64decode(b64part, validate=True)
             except Exception:
-                raise PackError("Nacos Auth Token 的 SecretKey 后面必须是合法 Base64")
+                raise PackError("Nacos Auth Token 的 SecretKey 后面必须是合法 Base64|Nacos Auth Token must be valid Base64 after SecretKey")
             if len(raw) < 32:
-                raise PackError("Nacos Auth Token 解码后长度必须 >= 32 字节")
+                raise PackError("Nacos Auth Token 解码后长度必须 >= 32 字节|Decoded Nacos Auth Token must be >= 32 bytes")
         elif item.get("secret", True):
             if not PASSWORD_RE.match(val):
-                raise PackError("%s 含不合法字符(禁止 空格 和 $ ` \" ' \\ ; | 字符): %s" % (item["label"], key))
+                raise PackError("%s 含不合法字符(禁止 空格 和 $ ` \" ' \\ ; | 字符): %s|%s contains illegal characters (space and $ ` \" ' \\ ; | are forbidden): %s"
+                                % (tr(item["label"], "zh"), key, tr(item["label"], "en"), key))
             if len(val) < item.get("min_len", 6):
-                raise PackError("%s 长度至少 %d 位" % (item["label"], item.get("min_len", 6)))
+                raise PackError("%s 长度至少 %d 位|%s must be at least %d characters"
+                                % (tr(item["label"], "zh"), item.get("min_len", 6), tr(item["label"], "en"), item.get("min_len", 6)))
         else:
             if not USERNAME_RE.match(val):
-                raise PackError("%s 含不合法字符: %s" % (item["label"], key))
+                raise PackError("%s 含不合法字符: %s|%s contains illegal characters: %s"
+                                % (tr(item["label"], "zh"), key, tr(item["label"], "en"), key))
         secrets_cfg[key] = val
     # 只保留本次所选服务的密钥: 未选组件的账号密码不写入 .env / manifest.sh
     cfg["secrets"] = {k: secrets_cfg[k] for k in need_keys}
@@ -254,9 +282,9 @@ def validate_config(cfg, catalog):
     deploy_dir = str(cfg.get("deploy_dir") or catalog["defaults"]["deploy_dir"]).strip()
     data_root = str(cfg.get("docker_data_root") or catalog["defaults"]["docker_data_root"]).strip()
     if not LINUX_PATH_RE.match(deploy_dir) or deploy_dir == "/":
-        raise PackError("部署目录必须是 Linux 绝对路径, 如 /data/middleware")
+        raise PackError("部署目录必须是 Linux 绝对路径, 如 /data/middleware|Deploy dir must be a Linux absolute path, e.g. /data/middleware")
     if not LINUX_PATH_RE.match(data_root) or data_root == "/":
-        raise PackError("Docker 数据目录必须是 Linux 绝对路径, 如 /data/docker")
+        raise PackError("Docker 数据目录必须是 Linux 绝对路径, 如 /data/docker|Docker data-root must be a Linux absolute path, e.g. /data/docker")
     cfg["deploy_dir"] = deploy_dir.rstrip("/")
     cfg["docker_data_root"] = data_root.rstrip("/")
 
@@ -267,7 +295,7 @@ def validate_config(cfg, catalog):
         if not m:
             continue
         if not MIRROR_RE.match(m):
-            raise PackError("镜像加速器地址不合法: %s" % m)
+            raise PackError("镜像加速器地址不合法: %s|Invalid registry mirror URL: %s" % (m, m))
         norm_mirrors.append(m)
     cfg["registry_mirrors"] = norm_mirrors
 
@@ -284,14 +312,14 @@ def validate_config(cfg, catalog):
             try:
                 h, c = int(r.get("host")), int(r.get("container"))
             except (TypeError, ValueError):
-                raise PackError("%s 自定义端口必须是数字: %s" % (svc, r))
+                raise PackError("%s 自定义端口必须是数字: %s|%s custom ports must be numbers: %s" % (svc, r, svc, r))
             if not (1 <= h <= 65535 and 1 <= c <= 65535):
-                raise PackError("%s 自定义端口超出范围 1-65535: %d:%d" % (svc, h, c))
+                raise PackError("%s 自定义端口超出范围 1-65535: %d:%d|%s custom ports out of range 1-65535: %d:%d" % (svc, h, c, svc, h, c))
             if h in used_hosts:
-                raise PackError("%s 自定义宿主机端口 %d 与其他端口冲突" % (svc, h))
+                raise PackError("%s 自定义宿主机端口 %d 与其他端口冲突|%s custom host port %d conflicts with another port" % (svc, h, svc, h))
             used_hosts.add(h)
             if c in seen_ctn:
-                raise PackError("%s 同一容器端口重复映射: %d" % (svc, c))
+                raise PackError("%s 同一容器端口重复映射: %d|%s duplicate container port mapping: %d" % (svc, c, svc, c))
             seen_ctn.add(c)
             norm_rows.append({"host": h, "container": c})
         norm_extra[svc] = norm_rows
@@ -302,25 +330,25 @@ def validate_config(cfg, catalog):
     enabled = bool(b.get("enabled"))
     if enabled and not ({"mysql57", "mysql8"} & set(services)):
         enabled = False
-        warns.append("本次未部署 MySQL, 备份策略配置已忽略")
+        warns.append("本次未部署 MySQL, 备份策略配置已忽略|No MySQL selected, backup policy ignored")
     if enabled:
         try:
             days = sorted({int(d) for d in (b.get("days") or [])})
         except (TypeError, ValueError):
-            raise PackError("备份星期配置不合法")
+            raise PackError("备份星期配置不合法|Invalid backup weekdays")
         if not days or [d for d in days if not (1 <= d <= 7)]:
-            raise PackError("请至少选择一个有效备份日 (1=周一 ... 7=周日)")
+            raise PackError("请至少选择一个有效备份日 (1=周一 ... 7=周日)|Select at least one valid backup day (1=Mon ... 7=Sun)")
         try:
             hour, keep = int(b.get("hour", 3)), int(b.get("keep", 7))
         except (TypeError, ValueError):
-            raise PackError("备份时间/保留份数不合法")
+            raise PackError("备份时间/保留份数不合法|Invalid backup hour/retention")
         if not 0 <= hour <= 23:
-            raise PackError("备份小时必须 0-23")
+            raise PackError("备份小时必须 0-23|Backup hour must be 0-23")
         if not 1 <= keep <= 999:
-            raise PackError("备份保留份数必须 1-999")
+            raise PackError("备份保留份数必须 1-999|Backup retention must be 1-999")
         bdir = str(b.get("dir") or "/data/backup/mysql").strip()
         if not LINUX_PATH_RE.match(bdir) or bdir == "/":
-            raise PackError("备份目录必须是 Linux 绝对路径, 如 /data/backup/mysql")
+            raise PackError("备份目录必须是 Linux 绝对路径, 如 /data/backup/mysql|Backup dir must be a Linux absolute path, e.g. /data/backup/mysql")
         b = {"enabled": True, "days": days, "hour": hour, "keep": keep, "dir": bdir.rstrip("/")}
     else:
         b = {"enabled": False, "days": [], "hour": 3, "keep": 7, "dir": "/data/backup/mysql"}
@@ -329,7 +357,7 @@ def validate_config(cfg, catalog):
     # ---- Nginx 反向代理向导(勾选 NGINX 才生效) ----
     proxies = cfg.get("proxies") or []
     if proxies and "nginx" not in services:
-        raise PackError("配置了反向代理站点, 但中间件未勾选 NGINX")
+        raise PackError("配置了反向代理站点, 但中间件未勾选 NGINX|Reverse-proxy sites configured but NGINX is not selected")
     norm_px = []
     if proxies:
         # 站点监听端口必须是 nginx 容器内实际映射到的端口(80/443/9000 + 自定义映射的容器端口)
@@ -337,17 +365,17 @@ def validate_config(cfg, catalog):
         for r in (cfg.get("extra_ports") or {}).get("nginx", []):
             ctn_ports.add(int(r["container"]))
         if len(proxies) > 20:
-            raise PackError("反代站点数量过多(最多 20 个)")
+            raise PackError("反代站点数量过多(最多 20 个)|Too many proxy sites (max 20)")
         seen_lsn = set()
         for i, p in enumerate(proxies):
             p = dict(p or {})
             no = i + 1
             mode = p.get("mode") or "static"
             if mode not in ("static", "proxy"):
-                raise PackError("反代站点 %d 模式不合法: %s" % (no, mode))
+                raise PackError("反代站点 %d 模式不合法: %s|Proxy site %d invalid mode: %s" % (no, mode, no, mode))
             sn = str(p.get("server_name") or "").strip()
             if not sn or not re.match(r"^[A-Za-z0-9._\-*]+( +[A-Za-z0-9._\-*]+)*$", sn):
-                raise PackError("反代站点 %d 域名不合法(多个用空格分隔, 通配用 *): %r" % (no, sn))
+                raise PackError("反代站点 %d 域名不合法(多个用空格分隔, 通配用 *): %r|Proxy site %d invalid server_name (space-separated, wildcard *): %r" % (no, sn, no, sn))
             key = (int(p.get("listen") or 80), sn.lower())
             try:
                 listen = int(p.get("listen") or 80)
@@ -361,18 +389,18 @@ def validate_config(cfg, catalog):
             seen_lsn.add(key)
             body = str(p.get("body_size") or "500m").strip()
             if not re.match(r"^[0-9]+[kKmMgG]?$", body):
-                raise PackError("反代站点 %d 上传大小限制不合法(如 100m): %s" % (no, body))
+                raise PackError("反代站点 %d 上传大小限制不合法(如 100m): %s|Proxy site %d invalid body size (e.g. 100m): %s" % (no, body, no, body))
             ws = bool(p.get("ws"))
             ws_path = str(p.get("ws_path") or "/ws/").strip() or "/ws/"
             if ws and not re.match(r"^/[A-Za-z0-9_./-]*$", ws_path):
-                raise PackError("反代站点 %d WebSocket 路径不合法: %s" % (no, ws_path))
+                raise PackError("反代站点 %d WebSocket 路径不合法: %s|Proxy site %d invalid WebSocket path: %s" % (no, ws_path, no, ws_path))
             trusted = []
             for cidr in (p.get("trusted_proxies") or []):
                 cidr = str(cidr).strip()
                 if not cidr:
                     continue
                 if not re.match(r"^(\d{1,3}\.){3}\d{1,3}/\d{1,2}$|^[A-Fa-f0-9:]+/\d{1,3}$", cidr):
-                    raise PackError("反代站点 %d 可信代理网段不合法(应为 CIDR 如 10.0.0.0/8): %s" % (no, cidr))
+                    raise PackError("反代站点 %d 可信代理网段不合法(应为 CIDR 如 10.0.0.0/8): %s|Proxy site %d invalid trusted proxy CIDR (e.g. 10.0.0.0/8): %s" % (no, cidr, no, cidr))
                 trusted.append(cidr)
 
             # HTTPS 证书(随包分发, 部署即配好 SSL)
@@ -382,13 +410,13 @@ def validate_config(cfg, catalog):
             redirect = bool(p.get("redirect", True))
             if ssl_on:
                 if "-----BEGIN CERTIFICATE-----" not in cert_pem:
-                    raise PackError("反代站点 %d 启用了 HTTPS 但证书文件无效, 请重新选择 fullchain.pem/.crt" % no)
+                    raise PackError("反代站点 %d 启用了 HTTPS 但证书文件无效, 请重新选择 fullchain.pem/.crt|Proxy site %d HTTPS enabled but certificate invalid, re-select fullchain.pem/.crt" % (no, no))
                 if "ENCRYPTED" in key_pem:
-                    raise PackError("反代站点 %d 私钥带密码保护, 暂不支持; 请先导出无密码私钥再上传" % no)
+                    raise PackError("反代站点 %d 私钥带密码保护, 暂不支持; 请先导出无密码私钥再上传|Proxy site %d private key is passphrase-protected (unsupported); export an unencrypted key first" % (no, no))
                 if not re.search(r"-----BEGIN (RSA |EC |DSA )?PRIVATE KEY-----", key_pem):
-                    raise PackError("反代站点 %d 启用了 HTTPS 但私钥文件无效, 请重新选择 .key 私钥" % no)
+                    raise PackError("反代站点 %d 启用了 HTTPS 但私钥文件无效, 请重新选择 .key 私钥|Proxy site %d HTTPS enabled but private key invalid, re-select the .key file" % (no, no))
                 if len(cert_pem) > 200_000 or len(key_pem) > 200_000:
-                    raise PackError("反代站点 %d 证书/私钥文件过大(>200KB), 请核对是否选错文件" % no)
+                    raise PackError("反代站点 %d 证书/私钥文件过大(>200KB), 请核对是否选错文件|Proxy site %d cert/key file too large (>200KB), check the file" % (no, no))
             else:
                 cert_pem = key_pem = ""
                 redirect = False
@@ -397,11 +425,11 @@ def validate_config(cfg, catalog):
             if mode == "static":
                 root = str(p.get("root") or "").strip()
                 if root and not LINUX_PATH_RE.match(root):
-                    raise PackError("反代站点 %d 前端目录必须是容器内绝对路径: %s" % (no, root))
+                    raise PackError("反代站点 %d 前端目录必须是容器内绝对路径: %s|Proxy site %d web root must be an absolute path inside the container: %s" % (no, root, no, root))
                 spa = bool(p.get("spa"))
                 api_prefix = str(p.get("api_prefix") or "").strip()
                 if api_prefix and not re.match(r"^/[A-Za-z0-9_./-]*$", api_prefix):
-                    raise PackError("反代站点 %d 接口前缀不合法: %s" % (no, api_prefix))
+                    raise PackError("反代站点 %d 接口前缀不合法: %s|Proxy site %d invalid API prefix: %s" % (no, api_prefix, no, api_prefix))
                 if api_prefix and not api_prefix.endswith("/"):
                     api_prefix += "/"
             else:
@@ -412,15 +440,16 @@ def validate_config(cfg, catalog):
                 target = str(p.get("api_target") or "").strip().rstrip("/")
                 m = re.match(r"^http://([A-Za-z0-9_.-]+)(?::([0-9]{1,5}))?$", target)
                 if not m:
-                    raise PackError("反代站点 %d 后端地址不合法(仅支持 http://主机[:端口], 主机可为 compose 服务名): %s" % (no, target))
+                    raise PackError("反代站点 %d 后端地址不合法(仅支持 http://主机[:端口], 主机可为 compose 服务名): %s|Proxy site %d invalid backend (only http://host[:port], host may be a compose service): %s" % (no, target, no, target))
                 target_host = m.group(1)
                 target_port = int(m.group(2) or 80)
                 if not (1 <= target_port <= 65535):
-                    raise PackError("反代站点 %d 后端端口超出范围: %d" % (no, target_port))
+                    raise PackError("反代站点 %d 后端端口超出范围: %d|Proxy site %d backend port out of range: %d" % (no, target_port, no, target_port))
                 if target_host in ("127.0.0.1", "localhost", "::1"):
                     target_host = "host.docker.internal"
                     p["_gw"] = True
-                    warns.append("反代站点 %d 后端填的是宿主机地址, 容器内已自动改用 host.docker.internal(host-gateway)" % no)
+                    warns.append("反代站点 %d 后端填的是宿主机地址, 容器内已自动改用 host.docker.internal(host-gateway)|"
+                                 "Proxy site %d backend points to the host; rewritten to host.docker.internal (host-gateway)" % (no, no))
                 if target_host == "host.docker.internal":
                     p["_gw"] = True
                 strip = bool(p.get("strip_prefix", api_prefix != "/"))
@@ -446,14 +475,14 @@ def validate_config(cfg, catalog):
             continue
         mode = conf.get("mode")
         if mode not in ("local", "external"):
-            raise PackError("%s 必须选择数据库来源(local/external)" % app)
+            raise PackError("%s 必须选择数据库来源(local/external)|%s must choose a database source (local/external)" % (app, app))
         schema = str(conf.get("schema") or schema_default).strip()
         if not re.match(r"^[A-Za-z0-9_]+$", schema):
-            raise PackError("%s 数据库名不合法: %s" % (app, schema))
+            raise PackError("%s 数据库名不合法: %s|%s invalid schema name: %s" % (app, schema, app, schema))
         conf["schema"] = schema
         if mode == "local":
             if not local_mysqls:
-                raise PackError("%s 选择使用本次部署的 MySQL, 但本次未部署 MySQL" % app)
+                raise PackError("%s 选择使用本次部署的 MySQL, 但本次未部署 MySQL|%s uses the bundled MySQL but MySQL is not selected" % (app, app))
             svc = conf.get("local_svc")
             if svc not in local_mysqls:
                 svc = "mysql8" if "mysql8" in local_mysqls else local_mysqls[0]
@@ -466,21 +495,21 @@ def validate_config(cfg, catalog):
         else:
             host = str(conf.get("host", "")).strip()
             if not host:
-                raise PackError("%s 外部数据库地址不能为空" % app)
+                raise PackError("%s 外部数据库地址不能为空|%s external database host is required" % (app, app))
             try:
                 port = int(conf.get("port", 3306))
             except (TypeError, ValueError):
-                raise PackError("%s 外部数据库端口不合法" % app)
+                raise PackError("%s 外部数据库端口不合法|%s external database port invalid" % (app, app))
             if not (1 <= port <= 65535):
-                raise PackError("%s 外部数据库端口超出范围" % app)
+                raise PackError("%s 外部数据库端口超出范围|%s external database port out of range" % (app, app))
             user = str(conf.get("user", "")).strip()
             password = str(conf.get("password", ""))
             if not USERNAME_RE.match(user):
-                raise PackError("%s 外部数据库账号不合法" % app)
+                raise PackError("%s 外部数据库账号不合法|%s external database user invalid" % (app, app))
             if not password:
-                raise PackError("%s 外部数据库密码不能为空" % app)
+                raise PackError("%s 外部数据库密码不能为空|%s external database password is required" % (app, app))
             if not PASSWORD_RE.match(password):
-                raise PackError("%s 外部数据库密码含不合法字符(禁止 空格 和 $ ` \" ' \\ ; |)" % app)
+                raise PackError("%s 外部数据库密码含不合法字符(禁止 空格 和 $ ` \" ' \\ ; |)|%s external database password contains illegal characters (space and $ ` \" ' \\ ; | forbidden)" % (app, app))
             conf["port"] = port
             conf["user"] = user
             conf["password"] = password
@@ -490,7 +519,9 @@ def validate_config(cfg, catalog):
                 conf["host_import"] = "127.0.0.1"
                 conf["extra_hosts"] = True
                 warns.append("%s 外部数据库填的是本机地址, 容器内已自动改用 host.docker.internal(host-gateway); "
-                             "请确认该数据库监听的是 0.0.0.0 而非仅 127.0.0.1" % app)
+                             "请确认该数据库监听的是 0.0.0.0 而非仅 127.0.0.1|"
+                             "%s external database uses a loopback address; rewritten to host.docker.internal (host-gateway). "
+                             "Make sure it listens on 0.0.0.0, not just 127.0.0.1" % (app, app))
             else:
                 conf["host"] = host
                 conf["host_import"] = host
@@ -501,7 +532,8 @@ def validate_config(cfg, catalog):
     # ---- 仓库文件存在性 ----
     missing = check_warehouse(cfg, catalog)
     if missing:
-        raise PackError("离线包物料缺失, 请补齐后再打包:\n  - " + "\n  - ".join(missing))
+        raise PackError("离线包物料缺失, 请补齐后再打包:\n  - %s|Offline bundle files missing, add them to the warehouse first:\n  - %s"
+                        % ("\n  - ".join(missing), "\n  - ".join(missing)))
     return cfg, warns
 
 
@@ -517,9 +549,16 @@ def check_warehouse(cfg, catalog):
         missing.append(str(catalog["compose"]["packages"][arch]))
 
     need_imgs = {}
+    kafka_cluster = "kafka" in cfg["services"] and (cfg.get("topology") or {}).get("kafka") == "cluster"
     for s in cfg["services"]:
+        if s == "kafka" and kafka_cluster:
+            continue   # 集群形态用 bitnami 镜像, 单节点镜像 tar 不需要
         meta = catalog["services"][s]
         need_imgs[meta["images"][arch]] = True
+    if kafka_cluster:
+        kc = getattr(PLUGINS.get("kafka"), "CLUSTER", None)
+        if kc and kc["images"][arch]:
+            need_imgs[kc["images"][arch]] = True
     # 外部库导表需要 mysql 客户端镜像
     needs_client = False
     for a in ("nacos", "xxljob"):
@@ -664,6 +703,7 @@ def plugin_ctx(cfg):
 
     return {
         "cfg": cfg, "ports": ports, "secrets": cfg["secrets"], "db": cfg.get("db") or {},
+        "lang": cfg.get("lang", "zh"), "tr": tr,
         "extra_ports_lines": extra_ports_lines,
         "depends_on": depends_on,
         "extra_hosts": extra_hosts,
@@ -1025,6 +1065,7 @@ def gen_manifest_sh(cfg, catalog, client_img, summary_lines, bundle_name=None):
     ports = cfg["ports"]
     db = cfg["db"]
     services = cfg["services"]
+    topology = cfg.get("topology") or {}
 
     data_dirs = []
     chown_dirs = []
@@ -1032,6 +1073,13 @@ def gen_manifest_sh(cfg, catalog, client_img, summary_lines, bundle_name=None):
     port_keys = []
     for s in services:
         meta = catalog["services"][s]
+        if s == "kafka" and topology.get("kafka") == "cluster":
+            # 集群形态: 3 个 broker 容器; 宿主机端口为 kafka_c1..3, 单节点端口键不参与
+            for n in (1, 2, 3):
+                container_names.append("kafka%d" % n)
+                data_dirs.append("kafka%d/data" % n)
+                port_keys.append(ports["kafka_c%d" % n])
+            continue
         if s in PLUGINS:
             container_names.append(PLUGINS[s].META.get("container_name", s))
         else:
@@ -1061,6 +1109,9 @@ def gen_manifest_sh(cfg, catalog, client_img, summary_lines, bundle_name=None):
     health_wait, health_http = [], []
     for s in services:
         cn = PLUGINS[s].META.get("container_name", s) if s in PLUGINS else (s if s != "xxljob" else "xxl-job")
+        if s == "kafka" and topology.get("kafka") == "cluster":
+            health_wait += ["kafka1", "kafka2", "kafka3"]
+            continue
         if s in ("mysql57", "mysql8", "redis", "minio") or s in PLUGINS:
             health_wait.append(cn)
         elif s == "nginx":
@@ -1073,7 +1124,6 @@ def gen_manifest_sh(cfg, catalog, client_img, summary_lines, bundle_name=None):
         health_http.append("minio|http://127.0.0.1:%d/minio/health/live" % ports["minio_api"])
 
     # 集群形态附加的容器/目录/端口/健康清单
-    topology = cfg.get("topology") or {}
     if topology.get("mysql8") == "master-slave":
         container_names.append("mysql8-replica")
         data_dirs += ["mysql8-replica/data", "mysql8-replica/log"]
@@ -1117,6 +1167,7 @@ def gen_manifest_sh(cfg, catalog, client_img, summary_lines, bundle_name=None):
         "# 由 packer.py 自动生成 — deploy.sh 的全部决策来源, 服务器上请勿手改",
         "PROJECT=%s" % bash_quote(cfg["project"]),
         "PKG_ARCH=%s" % bash_quote(cfg["arch"]),
+        "DEPLOY_LANG=%s" % bash_quote(cfg.get("lang", "zh")),
         "BUNDLE_NAME=%s" % bash_quote((bundle_name or "") + ".tar.gz"),
         "DEPLOY_DIR=%s" % bash_quote(cfg["deploy_dir"]),
         "DOCKER_DATA_ROOT=%s" % bash_quote(cfg["docker_data_root"]),
@@ -1130,6 +1181,7 @@ def gen_manifest_sh(cfg, catalog, client_img, summary_lines, bundle_name=None):
         "MYSQL8_TOPOLOGY=%s" % bash_quote(topology.get("mysql8", "single")),
         "MYSQL57_TOPOLOGY=%s" % bash_quote(topology.get("mysql57", "single")),
         "REDIS_TOPOLOGY=%s" % bash_quote(topology.get("redis", "single")),
+        "KAFKA_TOPOLOGY=%s" % bash_quote(topology.get("kafka", "single")),
         "MYSQL_ROOT_PASSWORD=%s" % bash_quote(cfg["secrets"].get("MYSQL_ROOT_PASSWORD", "")),
         "MYSQL_CLIENT_IMG=%s" % bash_quote(client_img),
         "HEALTH_WAIT=(%s)" % " ".join(bash_quote(n) for n in health_wait),
@@ -1154,25 +1206,31 @@ def build_summary_lines(cfg, catalog):
     ports = cfg["ports"]
     lines = []
     if "nginx" in services_of(cfg):
-        lines.append("NGINX        http://__IP__:%d   (配置目录 %s/nginx)" % (ports["nginx_http"], cfg["deploy_dir"]))
+        lines.append("NGINX        http://__IP__:%d   (配置目录 %s/nginx)|NGINX        http://__IP__:%d   (config dir %s/nginx)"
+                     % (ports["nginx_http"], cfg["deploy_dir"], ports["nginx_http"], cfg["deploy_dir"]))
     if "mysql57" in services_of(cfg):
         lines.append("MySQL 5.7    __IP__:%d  mysql -h<ip> -P%d -uroot" % (ports["mysql57"], ports["mysql57"]))
         if (cfg.get("topology") or {}).get("mysql57") == "master-slave":
-            lines.append("MySQL 5.7 从库 __IP__:%d  (只读, GTID 自动同步主库)" % ports["mysql57_replica"])
+            lines.append("MySQL 5.7 从库 __IP__:%d  (只读, GTID 自动同步主库|replica, read-only, GTID sync from master)"
+                         % ports["mysql57_replica"])
     if "mysql8" in services_of(cfg):
         lines.append("MySQL 8.0    __IP__:%d  mysql -h<ip> -P%d -uroot" % (ports["mysql8"], ports["mysql8"]))
         if (cfg.get("topology") or {}).get("mysql8") == "master-slave":
-            lines.append("MySQL 8.0 从库 __IP__:%d  (只读, GTID 自动同步主库)" % ports["mysql8_replica"])
+            lines.append("MySQL 8.0 从库 __IP__:%d  (只读, GTID 自动同步主库|replica, read-only, GTID sync from master)"
+                         % ports["mysql8_replica"])
     if "redis" in services_of(cfg):
         lines.append("Redis        __IP__:%d" % ports["redis"])
         if (cfg.get("topology") or {}).get("redis") == "sentinel":
-            lines.append("Redis 哨兵    主+从+3哨兵 (从库 __IP__:%d, 应用走 sentinel 协议 redis-sentinel:26379)" % ports["redis_replica"])
+            lines.append("Redis 哨兵    主+从+3哨兵 (从库 __IP__:%d, 应用走 sentinel 协议 redis-sentinel:26379)|"
+                         "Redis Sentinel master+replica+3 sentinels (replica __IP__:%d, clients use sentinel protocol redis-sentinel:26379)"
+                         % (ports["redis_replica"], ports["redis_replica"]))
     if "nacos" in services_of(cfg):
-        lines.append("Nacos 控制台  http://__IP__:%d/nacos  (账号见 .env)" % ports["nacos_console"])
+        lines.append("Nacos 控制台  http://__IP__:%d/nacos  (账号见 .env)|Nacos console http://__IP__:%d/nacos  (credentials in .env)" % (ports["nacos_console"], ports["nacos_console"]))
     if "xxljob" in services_of(cfg):
-        lines.append("XXL-Job      http://__IP__:%d/xxl-job-admin  (admin/见 .env)" % ports["xxljob"])
+        lines.append("XXL-Job      http://__IP__:%d/xxl-job-admin  (admin/见 .env)|XXL-Job      http://__IP__:%d/xxl-job-admin  (admin/see .env)" % (ports["xxljob"], ports["xxljob"]))
     if "minio" in services_of(cfg):
-        lines.append("MinIO        API http://__IP__:%d  控制台 http://__IP__:%d" % (ports["minio_api"], ports["minio_console"]))
+        lines.append("MinIO        API http://__IP__:%d  控制台 http://__IP__:%d|MinIO        API http://__IP__:%d  console http://__IP__:%d"
+                     % (ports["minio_api"], ports["minio_console"], ports["minio_api"], ports["minio_console"]))
     ctx = plugin_ctx(cfg)
     for s in services_of(cfg):
         if s not in PLUGINS:
@@ -1185,7 +1243,8 @@ def build_summary_lines(cfg, catalog):
             first = (meta.get("ports") or [{}])[0]
             port0 = ports.get(first.get("key", ""), first.get("default", 0))
             lines.append("%s  http://__IP__:%d" % (meta.get("label", s), port0))
-    return lines
+    # 双语约定: 全部摘要行 "zh|en" 形式, 按 cfg.lang 取半边
+    return [tr(l, cfg.get("lang", "zh")) for l in lines]
 
 
 def services_of(cfg):
@@ -1195,8 +1254,15 @@ def services_of(cfg):
 def gen_images_txt(cfg, catalog):
     """返回 [(bundle内文件名, 仓库相对路径, 短名)]"""
     arch = cfg["arch"]
+    kafka_cluster = "kafka" in cfg["services"] and (cfg.get("topology") or {}).get("kafka") == "cluster"
     items = []
     for s in cfg["services"]:
+        if s == "kafka" and kafka_cluster:
+            # 集群形态: 打包 bitnami 镜像(短名归一后为 bitnami/kafka:3.7.0, 归一化规则兼容)
+            kc = getattr(PLUGINS.get("kafka"), "CLUSTER", None)
+            if kc:
+                items.append(("kafka-%s.tar" % arch, kc["images"][arch], "%s:%s" % (kc["image"], kc["tag"])))
+            continue
         meta = catalog["services"][s]
         rel = meta["images"][arch]
         items.append(("%s-%s.tar" % (s, arch), rel, "%s:%s" % (meta["image"], meta["tag"])))
@@ -1909,13 +1975,14 @@ EXAMPLE_CONFIG = {
 
 
 def main():
-    parser = argparse.ArgumentParser(description="中间件离线包本地打包器")
-    parser.add_argument("--config", help="按配置文件打包(JSON), 不启动 Web 界面")
-    parser.add_argument("--out", default=None, help="打包输出目录, 默认 dist/")
-    parser.add_argument("--example", action="store_true", help="生成配置文件样例 example-config.json")
-    parser.add_argument("--port", type=int, default=8765, help="Web 界面端口, 默认 8765")
-    parser.add_argument("--no-browser", action="store_true", help="启动 Web 时不自动打开浏览器")
-    parser.add_argument("--log-file", default=None, help="日志文件路径")
+    parser = argparse.ArgumentParser(description="中间件离线包本地打包器|Local offline bundle packer")
+    parser.add_argument("--config", help="按配置文件打包(JSON), 不启动 Web 界面|Pack from a JSON config file (no Web UI)")
+    parser.add_argument("--out", default=None, help="打包输出目录, 默认 dist/|Output directory, default dist/")
+    parser.add_argument("--example", action="store_true", help="生成配置文件样例 example-config.json|Write sample config example-config.json")
+    parser.add_argument("--port", type=int, default=8765, help="Web 界面端口, 默认 8765|Web UI port, default 8765")
+    parser.add_argument("--no-browser", action="store_true", help="启动 Web 时不自动打开浏览器|Do not open the browser automatically")
+    parser.add_argument("--lang", default="zh", choices=("zh", "en"), help="CLI 消息语言|CLI message language")
+    parser.add_argument("--log-file", default=None, help="日志文件路径|Log file path")
     args = parser.parse_args()
 
     handlers = [logging.StreamHandler()]
@@ -1928,20 +1995,21 @@ def main():
         if args.example:
             Path("example-config.json").write_text(
                 json.dumps(EXAMPLE_CONFIG, ensure_ascii=False, indent=2), encoding="utf-8")
-            log.info("已生成 example-config.json, 编辑后执行: python packer.py --config example-config.json")
+            log.info("已生成 example-config.json, 编辑后执行: python packer.py --config example-config.json|"
+                     "example-config.json written; edit it then run: python packer.py --config example-config.json")
             return 0
         if args.config:
             cfg = json.loads(Path(args.config).read_text(encoding="utf-8"))
             catalog = load_catalog()
             result = pack(cfg, catalog, out_dir=args.out, progress=LogProgress())
             for w in result["warnings"]:
-                log.warning("%s", w)
-            log.info("产物: %s (%s MB)", result["path"], result["size_mb"])
+                log.warning("%s", tr(w, args.lang))
+            log.info("产物: %s (%s MB)|Output: %s (%s MB)", result["path"], result["size_mb"], result["path"], result["size_mb"])
             return 0
         run_web(args.port, no_browser=args.no_browser)
         return 0
     except PackError as e:
-        log.error("%s", e)
+        log.error("%s", tr(str(e), args.lang))
         return 1
     except Exception:
         log.exception("失败")

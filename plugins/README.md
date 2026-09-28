@@ -23,6 +23,7 @@ plugins/
 | `env_lines(cfg, ports, ctx)` | 追加到 `.env` 的行 |
 | `manifest_lines(cfg, ports, ctx)` | 追加到 `manifest.sh` 的 bash 行 |
 | `summary_lines(cfg, ports, ctx)` | 部署完成摘要行（`__IP__` 会被替换成服务器 IP） |
+| `CLUSTER` | 集群形态元数据 dict(image/tag/images)。配合 `cfg["topology"][SERVICE_KEY]` 在 `compose_block` 等函数里按形态分支（参考 kafka.py 的 3 节点集群实现；packer 会自动按形态切换物料检查与镜像打包） |
 
 `ctx` 里能拿到全部配置、密码、数据库选项，以及常用 YAML 片段生成器
 （`extra_ports_lines` / `depends_on` / `extra_hosts` / `networks_tail`），详见 `_template.py` 注释。

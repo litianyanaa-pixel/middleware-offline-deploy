@@ -31,19 +31,19 @@
       "ports": [
         {
           "key": "nginx_http",
-          "label": "HTTP 端口",
+          "label": "HTTP 端口|HTTP port",
           "default": 80,
           "container": 80
         },
         {
           "key": "nginx_https",
-          "label": "HTTPS 端口",
+          "label": "HTTPS 端口|HTTPS port",
           "default": 443,
           "container": 443
         },
         {
           "key": "nginx_extra",
-          "label": "额外端口",
+          "label": "额外端口|Extra port",
           "default": 9000,
           "container": 9000
         }
@@ -59,14 +59,14 @@
       "supported_arch": [
         "amd64"
       ],
-      "note": "官方未提供 5.7 的 arm64 镜像, 仅支持 x86 服务器",
+      "note": "官方未提供 5.7 的 arm64 镜像, 仅支持 x86 服务器|No official arm64 image for 5.7, x86 servers only",
       "images": {
         "amd64": "warehouse/images/mysql/5.7.44/amd64.tar"
       },
       "ports": [
         {
           "key": "mysql57",
-          "label": "MySQL 5.7 端口",
+          "label": "MySQL 5.7 端口|MySQL 5.7 port",
           "default": 13306,
           "container": 3306
         }
@@ -90,7 +90,7 @@
       "ports": [
         {
           "key": "mysql8",
-          "label": "MySQL 8.0 端口",
+          "label": "MySQL 8.0 端口|MySQL 8.0 port",
           "default": 13307,
           "container": 3306
         }
@@ -114,7 +114,7 @@
       "ports": [
         {
           "key": "redis",
-          "label": "Redis 端口",
+          "label": "Redis 端口|Redis port",
           "default": 16379,
           "container": 6379
         }
@@ -139,19 +139,19 @@
       "ports": [
         {
           "key": "nacos_main",
-          "label": "Nacos 主端口",
+          "label": "Nacos 主端口|Nacos main port",
           "default": 8848,
           "container": 8848
         },
         {
           "key": "nacos_grpc",
-          "label": "Nacos gRPC端口",
+          "label": "Nacos gRPC端口|Nacos gRPC port",
           "default": 9848,
           "container": 9848
         },
         {
           "key": "nacos_console",
-          "label": "Nacos 控制台端口",
+          "label": "Nacos 控制台端口|Nacos console port",
           "default": 18080,
           "container": 8080
         }
@@ -176,7 +176,7 @@
       "ports": [
         {
           "key": "xxljob",
-          "label": "XXL-Job 端口",
+          "label": "XXL-Job 端口|XXL-Job port",
           "default": 18081,
           "container": 8080
         }
@@ -200,13 +200,13 @@
       "ports": [
         {
           "key": "minio_api",
-          "label": "MinIO API 端口",
+          "label": "MinIO API 端口|MinIO API port",
           "default": 18082,
           "container": 9000
         },
         {
           "key": "minio_console",
-          "label": "MinIO 控制台端口",
+          "label": "MinIO 控制台端口|MinIO console port",
           "default": 18083,
           "container": 9001
         }
@@ -217,7 +217,7 @@
   "secrets": [
     {
       "key": "MYSQL_ROOT_PASSWORD",
-      "label": "MySQL root 密码",
+      "label": "MySQL root 密码|MySQL root password",
       "default": "MJ2R3DZ/VG9=KbX@",
       "services": [
         "mysql57",
@@ -227,7 +227,7 @@
     },
     {
       "key": "NACOS_AUTH_USER",
-      "label": "Nacos 控制台账号",
+      "label": "Nacos 控制台账号|Nacos console username",
       "default": "nacos",
       "services": [
         "nacos"
@@ -236,7 +236,7 @@
     },
     {
       "key": "NACOS_AUTH_PASSWORD",
-      "label": "Nacos 控制台密码",
+      "label": "Nacos 控制台密码|Nacos console password",
       "default": "T=S:2lJR@V%0D#HT",
       "services": [
         "nacos"
@@ -255,7 +255,7 @@
     },
     {
       "key": "XXL_JOB_ADMIN_PASSWORD",
-      "label": "XXL-Job admin 密码(登录用)",
+      "label": "XXL-Job admin 密码(登录用)|XXL-Job admin password (login)",
       "default": "TCPG241hPPZP",
       "services": [
         "xxljob"
@@ -273,7 +273,7 @@
     },
     {
       "key": "REDIS_PASSWORD",
-      "label": "Redis 密码",
+      "label": "Redis 密码|Redis password",
       "default": "PY34%@MiDp~2#lhg",
       "services": [
         "redis"
@@ -282,7 +282,7 @@
     },
     {
       "key": "MINIO_ROOT_USER",
-      "label": "MinIO 用户名",
+      "label": "MinIO 用户名|MinIO username",
       "default": "admin",
       "services": [
         "minio"
@@ -291,7 +291,7 @@
     },
     {
       "key": "MINIO_ROOT_PASSWORD",
-      "label": "MinIO 密码(至少8位)",
+      "label": "MinIO 密码(至少8位)|MinIO password (min 8 chars)",
       "default": "g7orzms97%CpCd2/",
       "services": [
         "minio"
@@ -317,45 +317,45 @@
   "suites": [
     {
       "key": "metrics",
-      "label": "指标监控套件",
+      "label": "指标监控套件|Metrics suite",
       "members": [
         "node-exporter",
         "prometheus",
         "grafana"
       ],
-      "desc": "采集主机指标 → Prometheus 存储 → Grafana 仪表盘"
+      "desc": "采集主机指标 → Prometheus 存储 → Grafana 仪表盘|Node metrics → Prometheus → Grafana dashboards"
     },
     {
       "key": "logs",
-      "label": "日志套件",
+      "label": "日志套件|Logs suite",
       "members": [
         "loki",
         "promtail",
         "grafana"
       ],
-      "desc": "采集容器日志 → Loki 聚合 → Grafana 查询"
+      "desc": "采集容器日志 → Loki 聚合 → Grafana 查询|Container logs → Loki → Grafana queries"
     },
     {
       "key": "search",
-      "label": "搜索套件",
+      "label": "搜索套件|Search suite",
       "members": [
         "elasticsearch",
         "kibana"
       ],
-      "desc": "Elasticsearch 搜索/日志存储 + Kibana 控制台"
+      "desc": "Elasticsearch 搜索/日志存储 + Kibana 控制台|Elasticsearch search/log storage + Kibana console"
     },
     {
       "key": "mq",
-      "label": "消息队列套件",
+      "label": "消息队列套件|MQ suite",
       "members": [
         "kafka",
         "kafka-ui"
       ],
-      "desc": "Kafka (KRaft) + Kafka-UI 管理界面"
+      "desc": "Kafka (KRaft) + Kafka-UI 管理界面|Kafka (KRaft) + Kafka-UI console"
     },
     {
       "key": "obs",
-      "label": "可观测全家桶",
+      "label": "可观测全家桶|Full observability",
       "members": [
         "node-exporter",
         "prometheus",
@@ -363,7 +363,7 @@
         "loki",
         "promtail"
       ],
-      "desc": "指标 + 日志一站式 (推荐)"
+      "desc": "指标 + 日志一站式 (推荐)|Metrics + logs in one go (recommended)"
     }
   ]
 }

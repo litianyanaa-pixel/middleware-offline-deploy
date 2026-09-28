@@ -29,6 +29,10 @@
 - **零交互部署**：端口、密码、数据库来源、备份策略全部在打包时决定，服务器上不问任何问题
 - **按需打包**：只打包勾选的中间件和对应架构，典型项目（nginx+mysql8+redis+xxljob）约 0.7GB，不搬全量仓库
 - **幂等可重跑**：deploy.sh 重复执行安全——已装 Docker 跳过、已有表跳过导库、自己的端口占用放行、旧配置自动备份
+- **增量升级**：重跑 deploy.sh 自动对比新旧编排，明确列出"将重建/新增/移除/保持"的服务清单，
+  未变更的服务不重建，被移除的服务自动清理孤儿容器
+- **中英双语**：打包器顶栏一键切换 中/EN（选择记忆在浏览器）；物料目录、部署摘要、
+  校验提示全链路双语；服务器端《部署报告》按打包时选择的语言输出（中文/English）
 - **不挑服务器**：磁盘/端口预检只用 `df/du` 和内核 `/proc/net/tcp(6)`，HTTP 健康实测 `curl→wget→bash /dev/tcp` 三级降级——精简/离线系统没装任何网络工具也能跑
 - **健康实测**：容器健康检查 + 宿主机 HTTP 实测双保险，每项结果 ✓/✗ 打进部署摘要和部署报告
 - **部署报告**：部署完成自动在部署目录生成 `部署报告.txt`（环境/清单/健康/账号/备份/运维命令），每次重跑自动覆盖
@@ -42,7 +46,8 @@
 - **MySQL 参数可定制**：自动挂载 `conf/<svc>/my.cnf`（内置 sql_mode 严格模式声明），改参数不用进容器
 - **观测三件套闭环**：Node Exporter(主机指标) + Prometheus + Loki/Promtail(容器日志) +
   Grafana 数据源/仪表盘**自动预配**——部署完打开 Grafana 即有现成主机监控面板
-- **消息队列**：Apache Kafka(KRaft 单节点, 免 ZooKeeper) + Kafka UI 可视化控制台
+- **消息队列**：Apache Kafka(KRaft 单节点, 免 ZooKeeper) + Kafka UI 可视化控制台；
+  也可一键切换 **3 节点集群**(KRaft 组合模式, SASL_PLAINTEXT 多用户鉴权, 广播地址部署时自动改写为服务器 IP)
 
 ## 🖼 界面导览
 
@@ -141,7 +146,7 @@ cd <项目名>-offline
 7. **启动**：`docker compose up -d` 并打印访问摘要
 8. **数据库定时备份**（打包时配置了才会装）：自动写入 crontab，mysqldump 在 mysql 容器内执行，
    按库分文件 gzip 导出（排除系统库），超出保留份数自动轮转；手工备份：部署目录下 `./backup.sh`
-9. **健康实测**：有健康检查的容器（mysql/redis/minio/postgres）等转 healthy；
+9. **健康实测**：所有带 compose 健康检查的容器(mysql/redis/minio/postgres/kafka/elasticsearch 等插件中间件)等转 healthy；
    nginx/nacos/xxl-job/minio 再从宿主机实测 HTTP 可用性（重试至 60s），客户端三级降级
    `curl → wget → bash 内建 /dev/tcp`（全缺也能跑，https 仅验证端口连通性），
    每项结果（✓/✗ + 排查提示）打进部署摘要，不通过不影响部署完成状态
@@ -234,7 +239,7 @@ cd /data/middleware
 | Node Exporter | v1.12.1 | 9100 | 主机指标采集（CPU/内存/磁盘/网络） |
 | Loki | 3.7.7 | 3100 | 日志聚合（单节点文件存储），配合 Promtail |
 | Promtail | 3.6.11 | - | 采集 `/var/lib/docker/containers` 容器日志推送 Loki |
-| Kafka | 4.3.1 | 9092 / 9094 | KRaft 单节点；容器内 `kafka:9092`，宿主机 `localhost:9094` |
+| Kafka | 4.3.1 | 9092 / 9094 | KRaft 单节点；容器内 `kafka:9092`，宿主机 `localhost:9094`；支持一键切换 3 节点集群(bitnami/kafka 3.7.0, SASL) |
 | Kafka UI | v0.7.2 | 18090 | Kafka 可视化管理，自动连接 `kafka:9092` |
 
 ### 集群形态（MySQL 主从 / Redis 哨兵）
@@ -247,7 +252,12 @@ cd /data/middleware
 - **Redis 哨兵**：主库 `redis` + 从库 `redis-replica`（端口 16380，`replicaof` 指向主库）+
   3 个哨兵实例（`deploy.replicas: 3`，quorum 2）。应用侧应使用 **sentinel 协议**
   （地址 `redis-sentinel:26379`，master 名称 `mymaster`）实现故障自动切换。
-- 注意：从库与主库**同批首次部署**时才自动全量同步；给已有数据的主库"补挂"从库需手工迁移数据。
+- **Kafka 3 节点集群**：KRaft 组合模式（每节点同时是 broker + controller，免 ZooKeeper），
+  镜像切换为 `bitnami/kafka:3.7.0`（双架构）。容器网络内走 `kafka1/2/3:9092` 免鉴权 PLAINTEXT；
+  宿主机走 SASL_PLAINTEXT（默认端口 19092/29092/39092，用户 admin，密码见 `.env`），
+  广播地址部署时自动改写为服务器真实 IP——跨宿主机客户端（如 Canal）直接可用。
+  部署后可在 `.env` 中扩展多用户（`KAFKA_CLIENT_USERS/KAFKA_CLIENT_PASSWORDS` 逗号分隔，数量一致）。
+- 注意：MySQL/Redis 的从库与主库**同批首次部署**时才自动全量同步；给已有数据的主库"补挂"从库需手工迁移数据。
 
 示例（PostgreSQL）：
 

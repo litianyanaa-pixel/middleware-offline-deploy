@@ -21,7 +21,7 @@ META = {
         "arm64": "warehouse/images/prometheus/v3.14.0/arm64.tar",
     },
     "ports": [
-        {"key": "prom", "label": "Prometheus 端口", "default": 9090, "container": 9090},
+        {"key": "prom", "label": "Prometheus 端口|Prometheus port", "default": 9090, "container": 9090},
     ],
     "secrets": [],
     "note": "使用镜像内置默认配置(抓取自身); 自定义抓取目标请改部署目录 prometheus/config/prometheus.yml",
