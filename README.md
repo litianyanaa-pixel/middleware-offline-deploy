@@ -1,5 +1,7 @@
 # 中间件离线部署包 (Local Bundle Studio)
 
+简体中文 | [English](README_EN.md) | [更新说明](CHANGELOG.md)
+
 在本地 Web 界面上选好中间件、端口、密码、数据库、备份策略，一键打出**只含本次所需物料**的离线包；
 服务器上解压后执行 `./deploy.sh` 一条命令，全程零交互完成 Docker/Compose 离线安装和全部中间件部署，
 部署完自动生成《部署报告》并贴出日常运维命令。
@@ -35,8 +37,9 @@
 - **定时备份 + 一键恢复**：crontab + 容器内 mysqldump 按库分文件 gzip，超出保留份数自动轮转；`restore.sh` 一条命令恢复指定库
 - **镜像统一 tag**：tar 内镜像无论带什么仓库前缀/tag 后缀，自动归一为短名，并校验架构一致，不符拦截
 - **插件化扩展**：新增中间件只需一个插件文件 + 镜像 tar，页面勾选/端口/密码表单/编排生成全自动纳入
-- **集群形态**：MySQL 8.0 单机 / **主从复制**(一主一从 · GTID 自动同步 · 部署时自动配置复制)；
+- **集群形态**：MySQL 单机 / **主从复制**(一主一从 · GTID 自动同步 · 部署时自动配置复制，8.0 与 5.7 均支持)；
   Redis 单机 / **哨兵高可用**(主 + 从 + 3 哨兵，故障自动切换)
+- **MySQL 参数可定制**：自动挂载 `conf/<svc>/my.cnf`（内置 sql_mode 严格模式声明），改参数不用进容器
 - **观测三件套闭环**：Node Exporter(主机指标) + Prometheus + Loki/Promtail(容器日志) +
   Grafana 数据源/仪表盘**自动预配**——部署完打开 Grafana 即有现成主机监控面板
 - **消息队列**：Apache Kafka(KRaft 单节点, 免 ZooKeeper) + Kafka UI 可视化控制台
@@ -236,7 +239,7 @@ cd /data/middleware
 
 ### 集群形态（MySQL 主从 / Redis 哨兵）
 
-勾选 MySQL 8.0 或 Redis 后，"选择中间件"卡片下方出现**部署形态**选择：
+勾选 MySQL（8.0 / 5.7）或 Redis 后，"选择中间件"卡片下方出现**部署形态**选择：
 
 - **MySQL 主从复制**：主库服务名仍为 `mysql8`（Nacos/XXL-Job 照常连它），从库 `mysql8-replica`
   只读（端口 13308），GTID 自动同步。部署脚本自动完成：创建 repl 复制账号 → 从库
