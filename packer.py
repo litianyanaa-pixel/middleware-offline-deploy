@@ -1827,9 +1827,9 @@ def _fsize_mb(rel):
 
 
 def catalog_response(catalog):
-    """目录信息 + 缺料检查 + 物料体积"""
+    """目录信息 + 缺料检查 + 物料体积 (含插件集群形态物料)"""
     present = {}
-    sizes = {"docker": {}, "compose": {}, "images": {}}
+    sizes = {"docker": {}, "compose": {}, "images": {}, "cluster": {}}
     for arch in ("amd64", "arm64"):
         present["docker_" + arch] = (BASE_DIR / catalog["docker"]["packages"][arch]).is_file()
         present["compose_" + arch] = (BASE_DIR / catalog["compose"]["packages"][arch]).is_file()
@@ -1839,7 +1839,20 @@ def catalog_response(catalog):
             for a, rel in meta["images"].items():
                 present["img_%s_%s" % (s, a)] = (BASE_DIR / rel).is_file()
                 sizes["images"].setdefault(s, {})[a] = _fsize_mb(rel)
-    return {"services": catalog["services"], "secrets": catalog["secrets"],
+    services = {}
+    for s, meta in catalog["services"].items():
+        mod = PLUGINS.get(s)
+        cl = getattr(mod, "CLUSTER", None) if mod else None
+        if cl and cl.get("images"):
+            meta = dict(meta)
+            meta["cluster"] = cl
+            services[s] = meta
+            for a, rel in cl["images"].items():
+                present["img_%s_cluster_%s" % (s, a)] = (BASE_DIR / rel).is_file()
+                sizes["cluster"].setdefault(s, {})[a] = _fsize_mb(rel)
+        else:
+            services[s] = meta
+    return {"services": services, "secrets": catalog["secrets"],
             "defaults": catalog["defaults"], "files_present": present, "sizes": sizes,
             "suites": catalog.get("suites", [])}
 

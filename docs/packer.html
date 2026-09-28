@@ -277,8 +277,9 @@
   .msg.ok{background:rgba(16,185,129,.1);color:#047857;border:1px solid rgba(16,185,129,.32)}
   .msg.warn{background:rgba(217,119,6,.09);color:#b45309;border:1px solid rgba(217,119,6,.32)}
   #toast{position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:300;display:flex;flex-direction:column;align-items:center;gap:8px;pointer-events:none;max-width:min(520px,90vw)}
-  .toast{background:rgba(15,23,42,.82);backdrop-filter:blur(20px) saturate(160%);-webkit-backdrop-filter:blur(20px) saturate(160%);color:#fff;border:1px solid rgba(255,255,255,.16);border-radius:14px;padding:11px 17px;font-size:12.5px;box-shadow:var(--sh-3);animation:fadein .28s var(--spring);max-width:360px}
-  @keyframes fadein{from{opacity:0;transform:translateY(-10px) scale(.96)}to{opacity:1;transform:none}}
+  .toast{background:rgba(15,23,42,.82);backdrop-filter:blur(20px) saturate(160%);-webkit-backdrop-filter:blur(20px) saturate(160%);color:#fff;border:1px solid rgba(255,255,255,.16);border-radius:14px;padding:11px 17px;font-size:12.5px;box-shadow:var(--sh-3);animation:toastin .28s var(--spring);max-width:360px;transition:opacity .3s ease,transform .3s ease}
+  @keyframes toastin{from{opacity:0;transform:translateY(-10px) scale(.96)}to{opacity:1;transform:none}}
+  .toast.out{opacity:0;transform:translateY(-8px) scale(.96);pointer-events:none}
   .spin{width:15px;height:15px;border:2px solid rgba(10,132,255,.25);border-top-color:var(--acc);border-radius:50%;display:inline-block;animation:sp .8s linear infinite;vertical-align:-3px;margin-right:7px}
   @keyframes sp{to{transform:rotate(360deg)}}
 
@@ -314,7 +315,7 @@
   /* ---- 侧滑抽屉(物料仓库/历史产物): 不占用主页面 ---- */
   .dw-wrap{position:fixed;inset:0;z-index:80}
   .dw-wrap.hidden{display:none}
-  .dw-mask{position:absolute;inset:0;background:rgba(15,23,42,.32);backdrop-filter:blur(10px) saturate(140%);-webkit-backdrop-filter:blur(10px) saturate(140%);animation:fadein .25s}
+  .dw-mask{position:absolute;inset:0;background:rgba(15,23,42,.32);backdrop-filter:blur(10px) saturate(140%);-webkit-backdrop-filter:blur(10px) saturate(140%);animation:toastin .25s}
   .dw{position:absolute;top:0;right:0;bottom:0;width:min(680px,94vw);display:flex;flex-direction:column;
     background:rgba(255,255,255,.82);backdrop-filter:blur(36px) saturate(180%);-webkit-backdrop-filter:blur(36px) saturate(180%);
     border-left:1px solid rgba(255,255,255,.75);box-shadow:-24px 0 60px rgba(15,23,42,.18);
@@ -726,7 +727,10 @@ function toast(text){
   const d = document.createElement('div');
   d.className = 'toast'; d.textContent = trMsg(text);
   $('#toast').appendChild(d);
-  setTimeout(() => d.remove(), 2800);
+  setTimeout(() => {
+    d.classList.add('out');
+    setTimeout(() => d.remove(), 320);
+  }, 2600);
 }
 function fmtGB(mb){ return mb >= 1024 ? (mb/1024).toFixed(2) + ' GB' : mb + ' MB'; }
 function fmtTime(sec){ sec = Math.max(0, Math.round(sec)); return String(Math.floor(sec/60)).padStart(2,'0') + ':' + String(sec%60).padStart(2,'0'); }
@@ -844,11 +848,25 @@ async function init(){
 
 const CAT_ORDER = [['web','网关入口'],['db','数据库'],['cache','缓存与消息'],['svc','微服务支撑'],['storage','对象存储'],['obs','可观测性'],['other','其他']];
 
+// 按部署形态取版本号/镜像体积 (kafka: 单节点 apache/kafka 4.3.1 / 集群 bitnami 3.7.0)
+function isClusterForm(k){ return k === 'kafka' && (state.topology.kafka || 'single') === 'cluster'; }
+function svcTag(k){
+  const m = CATALOG.services[k]; if (!m) return '';
+  if (isClusterForm(k) && m.cluster) return m.cluster.tag;
+  return m.tag;
+}
+function svcSize(k){
+  const arch = $('#arch').value;
+  if (isClusterForm(k) && CATALOG.sizes.cluster && CATALOG.sizes.cluster[k])
+    return CATALOG.sizes.cluster[k][arch] || 0;
+  return (CATALOG.sizes.images[k] || {})[arch] || 0;
+}
+
 function svcCardHtml(key, meta){
-  const size = (CATALOG.sizes.images[key] || {})[$('#arch').value] || 0;
+  const size = svcSize(key);
   return '<span class="tick"></span>'+
     '<div class="head">'+avatarHtml(key)+
-    '<div><b>'+esc(trLabel(meta.label))+'</b><span class="ver">'+esc(meta.tag)+'</span></div></div>'+
+    '<div><b>'+esc(trLabel(meta.label))+'</b><span class="ver">'+esc(svcTag(key))+'</span></div></div>'+
     '<div class="foot"><span class="size">'+($('#arch').value==='amd64'?'x86':'ARM')+' '+fmtGB(size)+'</span>'+
     '<span>'+((meta.supported_arch||[]).length>1?'双架构':'仅 x86')+(meta.is_plugin?' · 插件':'')+'</span></div>'+
     '<div class="warnline">'+esc(meta.warn || '')+'</div>';
@@ -925,8 +943,10 @@ function renderSvcGridSync(){
     const k = d.dataset.key;
     d.classList.toggle('on', selected.has(k));
     d.classList.toggle('dis', k==='mysql57' && $('#arch').value==='arm64');
-    const size = (CATALOG.sizes.images[k] || {})[$('#arch').value] || 0;
+    const size = svcSize(k);
     d.querySelector('.size').textContent = ($('#arch').value==='amd64'?'x86':'ARM') + ' ' + fmtGB(size);
+    const verEl = d.querySelector('.ver');
+    if (verEl) verEl.textContent = svcTag(k);
   });
   renderSvcChips();
   renderSuites();
@@ -977,7 +997,7 @@ function renderTopology(){
       kafka: r.value === 'single' ? 'Kafka 单节点模式' : 'Kafka 3 节点集群模式 (KRaft + SASL)'
     };
     toast(modes[k] || (names[k] + ' ' + r.value));
-    renderDynamic();
+    renderSvcGridSync();
   });
 }
 function updateSvcWarn(){}
@@ -1647,6 +1667,13 @@ function renderWarehouse(){
       const ok = p['img_'+s+'_'+arch];
       row(trLabel(meta.label) + (LANG === 'en' ? ' image' : ' 镜像'), arch, ok, (sz.images[s]||{})[arch] || 0,
           (meta.is_plugin ? '插件' : ''), 'img');
+    }
+    if (meta.cluster && meta.cluster.images){
+      for (const arch of (meta.supported_arch || ['amd64'])){
+        const ok = p['img_'+s+'_cluster_'+arch];
+        row(trLabel(meta.label) + (LANG === 'en' ? ' cluster image ('+meta.cluster.tag+')' : ' 集群镜像 ('+meta.cluster.tag+')'), arch, ok,
+            ((sz.cluster||{})[s]||{})[arch] || 0, LANG === 'en' ? 'for cluster topology' : '集群形态专用', 'img');
+      }
     }
   }
   $('#whBody').innerHTML = rows;
