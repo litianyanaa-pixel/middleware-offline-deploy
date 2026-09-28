@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install pytest
+        run: pip install pytest
+
+      - name: Run unit tests
+        run: python -m pytest tests/test_packer.py -v
+
+      - name: Shell syntax check
+        run: |
+          bash -n server/deploy.sh
+          bash -n templates/backup.sh
+          bash -n templates/restore.sh
+          bash -n templates/uninstall.sh
+
+      - name: ShellCheck (best effort)
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
+          # 部署脚本按零交互幂等部署编写, 告警不阻断 CI; 仅报错级问题
+          shellcheck -S error server/deploy.sh templates/*.sh
+
+  # 仓库中含 warehouse/ 物料时(本地仓库未提交物料, CI 通常跳过)执行完整打包冒烟
+  pack-smoke:
+    runs-on: ubuntu-latest
+    if: hashFiles('warehouse/images/**') != ''
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Docker Compose
+        run: docker compose version
+      - name: Pack smoke bundle
+        run: |
+          python -c "
+          import json, packer
+          cat = packer.load_catalog()
+          cfg = json.load(open('tests/pack_smoke_config.json', encoding='utf-8'))
+          packer.pack(cfg, cat, out_dir='dist')
+          print('SMOKE PACK OK')
+          "

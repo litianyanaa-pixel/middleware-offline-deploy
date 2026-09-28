@@ -321,9 +321,10 @@
       "members": [
         "node-exporter",
         "prometheus",
+        "alertmanager",
         "grafana"
       ],
-      "desc": "采集主机指标 → Prometheus 存储 → Grafana 仪表盘|Node metrics → Prometheus → Grafana dashboards"
+      "desc": "采集主机指标 → Prometheus 存储 → Alertmanager 告警 → Grafana 仪表盘|Node metrics → Prometheus → Alertmanager alerts → Grafana dashboards"
     },
     {
       "key": "logs",
@@ -359,11 +360,12 @@
       "members": [
         "node-exporter",
         "prometheus",
+        "alertmanager",
         "grafana",
         "loki",
         "promtail"
       ],
-      "desc": "指标 + 日志一站式 (推荐)|Metrics + logs in one go (recommended)"
+      "desc": "指标 + 告警 + 日志一站式 (推荐)|Metrics + alerts + logs in one go (recommended)"
     }
   ]
 }

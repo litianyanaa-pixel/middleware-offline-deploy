@@ -369,6 +369,7 @@
       <div class="dw-mask" data-dwclose></div>
       <aside class="dw">
         <div class="dw-head"><b>物料仓库</b><span class="hint">缺失项放入 wares/ 后重新检查</span>
+          <button class="mini" id="btnPullScript" title="生成缺失物料的镜像拉取脚本|Generate a pull script for missing materials">补料脚本</button>
           <button class="mini" id="btnRecheck">重新检查</button>
           <button class="dw-x" data-dwclose title="关闭 (Esc)">×</button></div>
         <div class="dw-body">
@@ -558,6 +559,10 @@ const EN_DICT = {
   "重新检查": "Re-check", "类型": "Type", "架构": "Arch", "全部": "All", "安装包": "Packages", "镜像": "Images",
   "物料": "Item", "状态": "Status", "体积": "Size", "说明": "Notes", "文件": "File", "大小": "Size", "生成时间": "Generated at",
   "缺失项放入 wares/ 后重新检查": "Put missing items into wares/ then re-check",
+  "补料脚本": "Pull script",
+  "物料仓库无缺失, 无需补料": "No missing materials, nothing to pull",
+  "补料脚本已下载: 放到仓库根目录执行 bash pull_missing_images.sh": "Pull script downloaded: run 'bash pull_missing_images.sh' at the repo root",
+  "演示模式: 补料脚本需本地运行 packer.py 生成": "Demo: run packer.py locally to generate the pull script",
   "dist/ 目录 · 传输后可用 .sha256 校验完整性": "dist/ directory · verify with .sha256 after transfer",
   "暂无产物": "No artifacts yet",
   "compose 项目名与包名": "Compose project & bundle name", "项目名": "Project", "目标服务器架构": "Target server arch",
@@ -810,6 +815,26 @@ async function init(){
   $('#btnPreview').onclick = doPreview;
   $('#btnPack').onclick = doPack;
   $('#btnRecheck').onclick = async () => { if (STATIC_MODE){ toast('演示模式: 物料检查需本地运行 packer.py'); return; } CATALOG = await api('/api/catalog'); renderSvcGridSync(); renderWarehouse(); toast('物料状态已刷新'); };
+  $('#btnPullScript').onclick = async () => {
+    if (STATIC_MODE){ toast('演示模式: 补料脚本需本地运行 packer.py 生成'); return; }
+    const miss = Object.entries(CATALOG.files_present || {}).filter(([,v]) => !v).length;
+    if (!miss){ toast('物料仓库无缺失, 无需补料'); return; }
+    // 后端盘点缺失物料并返回补齐脚本(覆盖双架构), 保存到仓库根目录执行即可
+    const resp = await fetch('/api/pull_script');
+    const ct = resp.headers.get('Content-Type') || '';
+    if (ct.includes('application/json')){
+      const d = await resp.json();
+      toast(d.message || '物料仓库无缺失, 无需补料');
+      return;
+    }
+    const blob = await resp.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'pull_missing_images.sh';
+    a.click();
+    URL.revokeObjectURL(a.href);
+    toast('补料脚本已下载: 放到仓库根目录执行 bash pull_missing_images.sh');
+  };
   $('#btnFillMirrors').onclick = () => {
     $('#mirrors').value = (CATALOG.defaults.registry_mirrors || []).join('\n');
     toast('已填入实测可用的镜像加速器'); saveLocal();

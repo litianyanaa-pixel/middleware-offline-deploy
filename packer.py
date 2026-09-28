@@ -125,6 +125,8 @@ def env_quote(v):
 
 PASSWORD_RE = re.compile(r"^[A-Za-z0-9@#%*+=_.:/~-]+$")
 USERNAME_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
+# Webhook 地址: 允许常规 URL 字符(含 & ? = : /), 禁止空格与 shell 危险字符
+WEBHOOK_RE = re.compile(r"^[A-Za-z0-9@#%*+=_./:?!&(),;~\[\]-]+$")
 PROJECT_RE = re.compile(r"^[a-z][a-z0-9-]{1,40}$")
 LINUX_PATH_RE = re.compile(r"^/[A-Za-z0-9_./-]*$")
 MIRROR_RE = re.compile(r"^https?://[A-Za-z0-9_.:/-]+$")
@@ -263,6 +265,11 @@ def validate_config(cfg, catalog):
                 raise PackError("Nacos Auth Token 的 SecretKey 后面必须是合法 Base64|Nacos Auth Token must be valid Base64 after SecretKey")
             if len(raw) < 32:
                 raise PackError("Nacos Auth Token 解码后长度必须 >= 32 字节|Decoded Nacos Auth Token must be >= 32 bytes")
+        elif item.get("type") == "webhook":
+            # 告警 Webhook 地址: 可留空(仅界面展示), 非空时须是合法 URL 字符
+            if val and not WEBHOOK_RE.match(val):
+                raise PackError("%s 格式不合法(应为 http/https 开头的 URL): %s|%s is invalid (must be a http/https URL): %s"
+                                % (tr(item["label"], "zh"), key, tr(item["label"], "en"), key))
         elif item.get("secret", True):
             if not PASSWORD_RE.match(val):
                 raise PackError("%s 含不合法字符(禁止 空格 和 $ ` \" ' \\ ; | 字符): %s|%s contains illegal characters (space and $ ` \" ' \\ ; | are forbidden): %s"
@@ -325,12 +332,12 @@ def validate_config(cfg, catalog):
         norm_extra[svc] = norm_rows
     cfg["extra_ports"] = norm_extra
 
-    # ---- 数据库备份策略(部署了 MySQL 才生效) ----
+    # ---- 数据库备份策略(部署了任一数据库类服务才生效) ----
     b = cfg.get("backup") or {}
     enabled = bool(b.get("enabled"))
-    if enabled and not ({"mysql57", "mysql8"} & set(services)):
+    if enabled and not backupable_services({"services": services}):
         enabled = False
-        warns.append("本次未部署 MySQL, 备份策略配置已忽略|No MySQL selected, backup policy ignored")
+        warns.append("本次未部署任何数据库(MySQL/PostgreSQL/MongoDB), 备份策略配置已忽略|No database selected, backup policy ignored")
     if enabled:
         try:
             days = sorted({int(d) for d in (b.get("days") or [])})
@@ -669,17 +676,43 @@ def backup_cron(backup):
     return "0 %d * * %s" % (int(backup["hour"]), dow)
 
 
+# 参与定时备份的数据库类服务 -> (备份.conf 中的服务数组变量名)
+DB_BACKUP_SERVICES = {
+    "mysql57": "MYSQL_SERVICES",
+    "mysql8": "MYSQL_SERVICES",
+    "postgres": "PG_SERVICES",
+    "mongodb": "MONGO_SERVICES",
+}
+
+
+def backupable_services(cfg):
+    """当前所选服务中可参与定时备份的数据库服务列表"""
+    return [s for s in cfg["services"] if s in DB_BACKUP_SERVICES]
+
+
 def gen_backup_conf(cfg):
     """生成 backup.conf(由 backup.sh source), 部署在部署目录"""
     b = cfg["backup"]
-    svcs = [s for s in ("mysql57", "mysql8") if s in cfg["services"]]
-    return "\n".join([
+    picked = backupable_services(cfg)
+    lines = [
         "# 由 packer.py 自动生成 — backup.sh 的配置",
-        "MYSQL_SERVICES=(%s)" % " ".join(svcs),
-        "MYSQL_ROOT_PASSWORD=%s" % bash_quote(cfg["secrets"].get("MYSQL_ROOT_PASSWORD", "")),
         "BACKUP_DIR=%s" % bash_quote(b["dir"]),
         "BACKUP_KEEP=%d" % int(b["keep"]),
-    ]) + "\n"
+        "",
+        "# MySQL (mysqldump 按库导出)",
+        "MYSQL_SERVICES=(%s)" % " ".join(s for s in picked if s.startswith("mysql")),
+        "MYSQL_ROOT_PASSWORD=%s" % bash_quote(cfg["secrets"].get("MYSQL_ROOT_PASSWORD", "")),
+        "",
+        "# PostgreSQL (pg_dump 按库导出, 容器内自带客户端)",
+        "PG_SERVICES=(%s)" % " ".join(s for s in picked if s == "postgres"),
+        "POSTGRES_PASSWORD=%s" % bash_quote(cfg["secrets"].get("POSTGRES_PASSWORD", "")),
+        "",
+        "# MongoDB (mongodump 按库导出, 容器内自带客户端)",
+        "MONGO_SERVICES=(%s)" % " ".join(s for s in picked if s == "mongodb"),
+        "MONGO_USER=%s" % bash_quote(cfg["secrets"].get("MONGO_INITDB_ROOT_USERNAME", "root")),
+        "MONGO_PASSWORD=%s" % bash_quote(cfg["secrets"].get("MONGO_INITDB_ROOT_PASSWORD", "")),
+    ]
+    return "\n".join(lines) + "\n"
 
 
 def plugin_ctx(cfg):
@@ -1692,7 +1725,7 @@ def pack(cfg, catalog, out_dir=None, progress=None):
     for rel, src in conf_files.items():
         data = src.read_text(encoding="utf-8") if isinstance(src, Path) else src
         small_files.append(("%s/%s" % (bundle_name, rel), data.encode("utf-8"), 0o644))
-    if any(s in ("mysql57", "mysql8") for s in cfg["services"]):
+    if any(s in ("mysql57", "mysql8", "postgres", "mongodb") for s in cfg["services"]):
         small_files.append(("%s/restore.sh" % bundle_name,
                             (TPL_DIR / "restore.sh").read_text(encoding="utf-8").encode("utf-8"), 0o755))
     if cfg["backup"]["enabled"]:
@@ -1700,6 +1733,9 @@ def pack(cfg, catalog, out_dir=None, progress=None):
                             (TPL_DIR / "backup.sh").read_text(encoding="utf-8").encode("utf-8"), 0o755))
         small_files.append(("%s/backup.conf" % bundle_name,
                             gen_backup_conf(cfg).encode("utf-8"), 0o600))
+    # 一键卸载脚本: 始终随包提供 (停容器→可选删数据卷→清 crontab→保留物料)
+    small_files.append(("%s/uninstall.sh" % bundle_name,
+                        (TPL_DIR / "uninstall.sh").read_text(encoding="utf-8").encode("utf-8"), 0o755))
     total_bytes += sum(len(d) for _, d, _ in small_files)
     prog.set_total(total_bytes)
 
@@ -1857,6 +1893,87 @@ def catalog_response(catalog):
             "suites": catalog.get("suites", [])}
 
 
+def missing_materials(catalog, archs=("amd64", "arm64")):
+    """盘点仓库缺失的镜像物料: [(镜像引用, 输出相对路径, 平台)]"""
+    items = []
+    for arch in archs:
+        for s, meta in catalog["services"].items():
+            rel = meta["images"].get(arch)
+            if rel and not (BASE_DIR / rel).is_file():
+                ref = "%s:%s" % (meta["image"], meta["tag"])
+                items.append((ref, rel, "linux/%s" % arch))
+        mod = PLUGINS.get("kafka")
+        cl = getattr(mod, "CLUSTER", None) if mod else None
+        if cl and arch in cl.get("images", {}) and not (BASE_DIR / cl["images"][arch]).is_file():
+            items.append(("%s:%s" % (cl["image"], cl["tag"]), cl["images"][arch], "linux/%s" % arch))
+    return items
+
+
+def gen_pull_script(catalog, archs=("amd64", "arm64")):
+    """生成缺失物料一键补齐脚本 (docker pull 多源回退 -> crane 兜底)"""
+    from datetime import datetime as _dt
+    items = missing_materials(catalog, archs)
+    lines = [
+        "#!/usr/bin/env bash",
+        "# 缺失物料一键补齐脚本 (由 Local Bundle Studio 生成于 %s)" % _dt.now().strftime("%Y-%m-%d %H:%M"),
+        "# 用法: 在仓库根目录(含 warehouse/)执行:  bash pull_missing_images.sh",
+        "# 逻辑: 依次尝试国内镜像源 docker pull -> docker tag -> docker save 落盘到规范路径;",
+        "#       全部失败且有 tools/bin/crane 时回退 crane 拉取(load 后重存, 保证 tar 仓库名规范)。",
+        "set -uo pipefail",
+        'cd "$(dirname "$0")"',
+        "",
+        'MIRRORS=(docker.1ms.run docker.1panel.live docker.xuanyuan.me)',
+        'CRANE="tools/bin/crane"; [ -x "$CRANE.exe" ] && CRANE="$CRANE.exe"',
+        "",
+        "pull_tar() { # $1=image:tag $2=platform $3=out.tar",
+        '  local img="$1" plat="$2" out="$3" m full',
+        '  if [ -s "$out" ]; then echo "SKIP $out (已存在)"; return 0; fi',
+        '  mkdir -p "$(dirname "$out")"',
+        '  case "$img" in */*) ;; *) img="library/$img" ;; esac   # 官方库镜像走 library/ 前缀',
+        '  for m in "${MIRRORS[@]}"; do',
+        '    full="$m/$img"',
+        '    if command -v docker >/dev/null 2>&1 && docker pull --platform "$plat" "$full"; then',
+        '      local short="${img#library/}"',
+        '      docker tag "$full" "$short"',
+        '      docker save "$short" -o "$out"',
+        '      docker rmi "$full" "$short" >/dev/null 2>&1 || true',
+        '      echo "[ok] $out"',
+        '      return 0',
+        "    fi",
+        "  done",
+        '  if [ -x "$CRANE" ]; then',
+        '    for m in "${MIRRORS[@]}"; do',
+        '      if "$CRANE" pull --platform="$plat" "$m/$img" "$out.tmp"; then',
+        '        if command -v docker >/dev/null 2>&1 && docker load -i "$out.tmp" 2>/dev/null; then',
+        '          local short="${img#library/}"',
+        '          docker tag "$m/$img" "$short" 2>/dev/null || true',
+        '          docker save "$short" -o "$out"',
+        '          docker rmi "$m/$img" "$short" >/dev/null 2>&1 || true',
+        "        else",
+        '          mv "$out.tmp" "$out"   # 无 docker: crane 产物直接落位(仓库名含镜像源前缀, docker load 后可正常使用)',
+        "        fi",
+        '        rm -f "$out.tmp"',
+        '        echo "[ok] $out"',
+        '        return 0',
+        "      fi",
+        "    done",
+        "  fi",
+        '  echo "[FAIL] $img ($plat) 全部镜像源失败, 请检查网络或手工放置到: $out"',
+        "  return 1",
+        "}",
+        "",
+        "FAIL=0",
+    ]
+    for ref, rel, plat in items:
+        lines.append('pull_tar %s %s %s || FAIL=1' % (bash_quote(ref), bash_quote(plat), bash_quote(rel)))
+    lines += [
+        "",
+        'if [ "$FAIL" -eq 0 ]; then echo "==== 全部缺失物料已补齐 ===="; else echo "==== 部分物料失败, 见上方 [FAIL] ===="; exit 1; fi',
+        "",
+    ]
+    return "\n".join(lines), items
+
+
 def make_handler(catalog):
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -1901,6 +2018,23 @@ def make_handler(catalog):
                 self._send_json(prog.snapshot() if prog else {"running": False})
             elif self.path == "/api/bundles":
                 self._send_json({"bundles": list_bundles()})
+            elif self.path.startswith("/api/pull_script"):
+                from urllib.parse import urlparse, parse_qs
+                q = parse_qs(urlparse(self.path).query)
+                a = (q.get("arch") or ["both"])[0]
+                archs = (a,) if a in ("amd64", "arm64") else ("amd64", "arm64")
+                script, items = gen_pull_script(catalog, archs)
+                if not items:
+                    self._send_json({"ok": True, "missing": 0,
+                                     "message": "物料仓库无缺失, 无需补料|No missing materials"})
+                else:
+                    data = script.encode("utf-8")
+                    self.send_response(200)
+                    self.send_header("Content-Type", "text/x-shellscript; charset=utf-8")
+                    self.send_header("Content-Disposition", 'attachment; filename="pull_missing_images.sh"')
+                    self.send_header("Content-Length", str(len(data)))
+                    self.end_headers()
+                    self.wfile.write(data)
             else:
                 self._send_json({"error": "not found"}, 404)
 

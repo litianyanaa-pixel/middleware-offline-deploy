@@ -503,11 +503,18 @@ prepare_deploy_dir() {
     done
   fi
 
-  # 备份恢复脚本(部署了本地 MySQL 才有恢复对象)
-  if [ -n "$LOCAL_MYSQL_SVC" ] && [ -f "$BASE_DIR/restore.sh" ]; then
+  # 备份恢复脚本(部署了本地 MySQL/PostgreSQL/MongoDB 才有恢复对象)
+  if grep -qE '^  (mysql57|mysql8|postgres|mongodb):' "$BASE_DIR/docker-compose.yml" && [ -f "$BASE_DIR/restore.sh" ]; then
     cp -f "$BASE_DIR/restore.sh" "$DEPLOY_DIR/restore.sh"
     chmod 700 "$DEPLOY_DIR/restore.sh"
     log "已安装备份恢复脚本: $DEPLOY_DIR/restore.sh (./restore.sh list 查看用法)"
+  fi
+
+  # 一键卸载脚本 (停容器→可选删数据→清 crontab→保留物料)
+  if [ -f "$BASE_DIR/uninstall.sh" ]; then
+    cp -f "$BASE_DIR/uninstall.sh" "$DEPLOY_DIR/uninstall.sh"
+    chmod 700 "$DEPLOY_DIR/uninstall.sh"
+    log "已安装一键卸载脚本: $DEPLOY_DIR/uninstall.sh (默认保留数据, --purge-data 删除)"
   fi
 
   # 本地 MySQL 首启自动导表的 init 目录
