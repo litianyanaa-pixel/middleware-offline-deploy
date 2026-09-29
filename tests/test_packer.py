@@ -3,7 +3,7 @@
 packer.py 核心纯函数单元测试 (pytest)
 
 运行: python -m pytest tests/ -v
-无需 Docker / 仓库物料 (涉及物料的用例在缺料时自动跳过)
+无需 Docker / 仓库物料 (物料存在性检查通过 autouse fixture 跳过)
 """
 import json
 import os
@@ -18,6 +18,13 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 import packer  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _no_warehouse_check(monkeypatch):
+    """CI 中 warehouse/ 被 gitignore 不入库, 跳过物料存在性检查。
+    物料补齐脚本逻辑由 test_pull_script_missing_branch 直接覆盖。"""
+    monkeypatch.setattr(packer, "check_warehouse", lambda cfg, catalog: [])
 
 
 def _find_bash():
@@ -145,8 +152,6 @@ def test_backup_rejects_bad_days(catalog):
 # ---------------------------------------------------------------- 密钥校验
 
 def test_webhook_url_optional(catalog):
-    if not (ROOT / "warehouse/images/alertmanager/v0.28.1/amd64.tar").is_file():
-        pytest.skip("alertmanager 镜像物料未就位, validate_config 物料检查会拦截")
     cfg = make_cfg(None, services=("alertmanager",))
     cfg2, _ = packer.validate_config(cfg, catalog)
     assert cfg2["secrets"]["AM_WEBHOOK_URL"] == ""
@@ -160,8 +165,6 @@ def test_webhook_url_rejects_shell_chars(catalog):
 
 
 def test_webhook_url_accepts_query(catalog):
-    if not (ROOT / "warehouse/images/alertmanager/v0.28.1/amd64.tar").is_file():
-        pytest.skip("alertmanager 镜像物料未就位, validate_config 物料检查会拦截")
     cfg = make_cfg(None, services=("alertmanager",))
     cfg["secrets"]["AM_WEBHOOK_URL"] = "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=abc-123"
     cfg2, _ = packer.validate_config(cfg, catalog)
