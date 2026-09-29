@@ -1,0 +1,19 @@
+#!/bin/bash
+# 伪 docker: 记录调用参数, inspect 返回 healthy 让健康等待通过
+echo "$(date +%s) $*" >> /var/log/fake-docker.log
+if [ "$1" = "inspect" ]; then
+  echo "healthy"
+  exit 0
+fi
+if [ "$1" = "compose" ] && [ "$2" = "ps" ]; then
+  printf "NAME            IMAGE                 STATUS\n"
+  printf "fake-redis      redis:6.2.14          Up 1 minute\n"
+  printf "fake-sentinel   redis:6.2.14          Up 1 minute\n"
+  exit 0
+fi
+if [ "$1" = "ps" ]; then
+  printf "NAME            IMAGE                 STATUS\n"
+  printf "fake-redis      redis:6.2.14          Up 1 minute\n"
+  exit 0
+fi
+exit 0

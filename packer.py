@@ -278,8 +278,11 @@ def validate_config(cfg, catalog):
         if not (1 <= ssh <= 65535):
             raise PackError("SSH 端口超出范围: %d (服务器 %s)|SSH port out of range: %d (server %s)" % (ssh, ip, ssh, ip))
         name = re.sub(r"[^A-Za-z0-9_-]", "", str(sv.get("name") or ("node%d" % (i + 1)))) or ("node%d" % (i + 1))
+        password = str(sv.get("password") or sv.get("pass") or "")
+        if "|" in password or "\n" in password:
+            raise PackError("SSH 密码不能包含 | 或换行符 (服务器 %s)|SSH password must not contain | or newline (server %s)" % (ip, ip))
         servers.append({"name": name, "user": str(sv.get("user") or "root").strip() or "root",
-                        "ip": ip, "ssh": ssh})
+                        "ip": ip, "ssh": ssh, "password": password})
     cfg["servers"] = servers
 
     mh_raw = cfg.get("multihost") or {}
@@ -1977,7 +1980,8 @@ def gen_nodes(cfg, catalog):
         if "KAFKA_PASSWORD" in p["env_keys"]:
             env.append("KAFKA_PASSWORD=%s" % env_quote(cfg["secrets"]["KAFKA_PASSWORD"]))
         p["env"] = "\n".join(env) + "\n"
-        p["summary"] = ["%s  %s@%s (SSH %d)" % (p["name"], p["server"]["user"], p["server"]["ip"], p["server"]["ssh"])
+        p["summary"] = ["%s  %s@%s (SSH %d, %s)" % (p["name"], p["server"]["user"], p["server"]["ip"], p["server"]["ssh"],
+                        "密码登录" if p["server"].get("password") else "免密登录")
                         + "  角色: " + ", ".join(p["roles"])]
         nodes.append(p)
     return nodes
@@ -2088,12 +2092,15 @@ def gen_distribute_sh(cfg, nodes, catalog):
     """生成主部署机分发脚本: 预检 -> (可选装 compose) -> tar 管道传输 -> 远程安装"""
     arch = cfg["arch"]
     pkg_sub = "x86_64" if arch == "amd64" else "aarch64"
-    nodes_str = " ".join(bash_quote("%s|%s|%s|%d" % (n["name"], n["server"]["user"], n["server"]["ip"], n["server"]["ssh"]))
+    nodes_str = " ".join(bash_quote("%s|%s|%s|%d|%s" % (n["name"], n["server"]["user"], n["server"]["ip"],
+                                                        n["server"]["ssh"], n["server"].get("password") or ""))
                          for n in nodes)
     return """#!/usr/bin/env bash
 # 由 packer.py 自动生成 — 多机节点分发安装 (在主部署机上执行)
 # 用法: ./distribute.sh            分发全部节点 (按主节点优先顺序)
 #       ./distribute.sh node2 ...  只分发指定节点 (重装/补发)
+# 认证: 服务器池填写了密码 -> sshpass 密码登录 (需本机安装 sshpass);
+#       留空 -> SSH 免密 (BatchMode, 需先 ssh-copy-id)
 set -uo pipefail
 cd "$(dirname "$0")"
 NODES=(%(nodes)s)
@@ -2108,34 +2115,44 @@ warn(){ printf '\\033[33m[distribute]\\033[0m %%s\\n' "$*"; }
 
 ONLY=("$@")
 for NODE in "${NODES[@]}"; do
-  IFS='|' read -r NAME RUSER RIP RSSH <<< "$NODE"
+  IFS='|' read -r NAME RUSER RIP RSSH RPASS <<< "$NODE"
   if [ ${#ONLY[@]} -gt 0 ]; then
     keep=0; for o in "${ONLY[@]}"; do [ "$o" = "$NAME" ] && keep=1; done
     [ $keep -eq 0 ] && continue
   fi
+  if [ -n "$RPASS" ] && command -v sshpass >/dev/null 2>&1; then
+    export SSHPASS="$RPASS"
+    SSHC=(sshpass -e ssh -p "$RSSH" -o StrictHostKeyChecking=no)
+    SCPC=(sshpass -e scp -P "$RSSH" -o StrictHostKeyChecking=no -q)
+    log "[$NAME] 使用密码登录 (sshpass)"
+  else
+    [ -n "$RPASS" ] && warn "[$NAME] 已填写密码但本机未安装 sshpass, 回退免密模式 (可 apt/yum install sshpass)"
+    SSHC=(ssh -p "$RSSH" -o BatchMode=yes)
+    SCPC=(scp -P "$RSSH" -q)
+  fi
   log "[$NAME] 预检 $RUSER@$RIP:$RSSH ..."
-  if ! ssh -p "$RSSH" -o BatchMode=yes -o ConnectTimeout=8 "$RUSER@$RIP" \\
+  if ! "${SSHC[@]}" -o ConnectTimeout=8 "$RUSER@$RIP" \\
       "command -v docker >/dev/null 2>&1" 2>/dev/null; then
-    warn "[$NAME] SSH 免密不通或未安装 Docker, 已跳过 (请检查 ssh-copy-id 与 Docker 安装)"
+    warn "[$NAME] SSH 连接失败或未安装 Docker, 已跳过 (密码模式请确认 sshpass 已安装; 免密模式请先 ssh-copy-id)"
     FAILED+=("$NAME"); continue
   fi
-  if ! ssh -p "$RSSH" -o BatchMode=yes "$RUSER@$RIP" \\
+  if ! "${SSHC[@]}" "$RUSER@$RIP" \\
       "docker compose version >/dev/null 2>&1 || docker-compose version >/dev/null 2>&1" 2>/dev/null; then
     log "[$NAME] 节点缺少 compose, 从包内安装二进制..."
-    if scp -P "$RSSH" -q "$COMPOSE_BIN" "$RUSER@$RIP:/tmp/mw-compose" \\
-        && ssh -p "$RSSH" "$RUSER@$RIP" "mkdir -p ~/.local/bin && mv /tmp/mw-compose ~/.local/bin/docker-compose && chmod +x ~/.local/bin/docker-compose"; then
-      ssh -p "$RSSH" "$RUSER@$RIP" "export PATH=\\$HOME/.local/bin:\\$PATH; docker-compose version >/dev/null 2>&1" \\
+    if "${SCPC[@]}" "$COMPOSE_BIN" "$RUSER@$RIP:/tmp/mw-compose" \\
+        && "${SSHC[@]}" "$RUSER@$RIP" "mkdir -p ~/.local/bin && mv /tmp/mw-compose ~/.local/bin/docker-compose && chmod +x ~/.local/bin/docker-compose"; then
+      "${SSHC[@]}" "$RUSER@$RIP" "export PATH=\\$HOME/.local/bin:\\$PATH; docker-compose version >/dev/null 2>&1" \\
         || warn "[$NAME] compose 二进制已放置于 ~/.local/bin, 若 PATH 未包含请手动处理"
     else
       warn "[$NAME] compose 传输失败, 继续尝试安装"
     fi
   fi
   log "[$NAME] 传输节点包 -> $DEPLOY_DIR ..."
-  ssh -p "$RSSH" "$RUSER@$RIP" "mkdir -p '$DEPLOY_DIR'" || { FAILED+=("$NAME"); continue; }
-  tar czf - -C "nodes/$NAME" . | ssh -p "$RSSH" "$RUSER@$RIP" "tar xzf - -C '$DEPLOY_DIR'" \\
+  "${SSHC[@]}" "$RUSER@$RIP" "mkdir -p '$DEPLOY_DIR'" || { FAILED+=("$NAME"); continue; }
+  tar czf - -C "nodes/$NAME" . | "${SSHC[@]}" "$RUSER@$RIP" "tar xzf - -C '$DEPLOY_DIR'" \\
     || { warn "[$NAME] 传输失败"; FAILED+=("$NAME"); continue; }
   log "[$NAME] 执行节点安装..."
-  if ssh -p "$RSSH" "$RUSER@$RIP" "cd '$DEPLOY_DIR' && PATH=\\$HOME/.local/bin:\\$PATH bash install-node.sh"; then
+  if "${SSHC[@]}" "$RUSER@$RIP" "cd '$DEPLOY_DIR' && PATH=\\$HOME/.local/bin:\\$PATH bash install-node.sh"; then
     log "[$NAME] 完成"
   else
     warn "[$NAME] 安装脚本执行失败, 请登录节点查看日志"
@@ -2569,7 +2586,9 @@ def pack(cfg, catalog, out_dir=None, progress=None):
         "proxies": cfg.get("proxies") or [],
         "backup": cfg.get("backup") or {},
         "mysql_client_image": client_img,
-        "servers": cfg.get("servers") or [],
+        "servers": [{"name": s.get("name"), "user": s.get("user"), "ip": s.get("ip"),
+                     "ssh": s.get("ssh"), "auth": "password" if s.get("password") else "key"}
+                    for s in (cfg.get("servers") or [])],
         "multihost": cfg.get("multihost") or {},
         "replicas": cfg.get("replicas") or {},
         "features": cfg.get("features") or {},
@@ -2962,6 +2981,7 @@ def make_handler(catalog):
                         "images": [i[0] for i in gen_images_txt(cfg2, catalog)],
                         "nodes": [{"name": n["name"], "ip": n["server"]["ip"],
                                    "user": n["server"]["user"], "ssh": n["server"]["ssh"],
+                                   "auth": "password" if n["server"].get("password") else "key",
                                    "roles": n["roles"],
                                    "images": [i[0] for i in n["images"]]} for n in _nodes],
                         "proxysql_conf": gen_proxysql_conf(cfg2) if (cfg2.get("features") or {}).get("proxysql") else "",

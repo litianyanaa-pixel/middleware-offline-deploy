@@ -170,6 +170,8 @@
   .map-cols span:nth-child(4){text-align:center}
   .map-row{display:grid;grid-template-columns:160px 230px 28px 96px;gap:10px;align-items:center}
   .map-row.extra{grid-template-columns:160px 140px 28px 140px 36px}
+  .svcols,.map-row.svrow{grid-template-columns:100px 84px minmax(120px,1fr) minmax(150px,1.3fr) 56px 34px}
+  .map-row.svrow input[type=password]{font-family:var(--f-mono);letter-spacing:1px}
   .map-row .mlabel{font-size:12.5px;color:var(--txt2);text-align:right;padding-right:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .arrow{color:#86868b;text-align:center;font-size:13px}
   .ctn{background:rgba(120,120,128,.14);border:1px solid rgba(255,255,255,.9);color:var(--txt2);border-radius:9px;height:34px;display:flex;align-items:center;justify-content:center;font-size:12.5px;font-family:var(--f-mono);font-variant-numeric:tabular-nums}
@@ -1009,16 +1011,17 @@ function renderTopology(){
   // ---- 部署服务器池 ----
   if (clusterish){
     html += '<div class="grp"><h3>部署服务器池 <span class="hint">(多机部署的节点来源; 纯单机部署可留空)</span></h3><div class="map">'+
-      '<div class="map-cols"><span>别名</span><span>SSH 用户</span><span>服务器 IP (IPv4)</span><span>SSH 端口</span></div>';
+      '<div class="map-cols svcols"><span>别名</span><span>SSH 用户</span><span>SSH 密码 <em style="font-style:normal;opacity:.75">(留空=免密)</em></span><span>服务器 IP (IPv4)</span><span style="text-align:center">端口</span><span></span></div>';
     state.servers.forEach((sv, i) => {
-      html += '<div class="map-row">'+
+      html += '<div class="map-row svrow">'+
         '<input type="text" data-sv="'+i+':name" value="'+esc(sv.name)+'" placeholder="node'+(i+1)+'">'+
         '<input type="text" data-sv="'+i+':user" value="'+esc(sv.user)+'" placeholder="root">'+
+        '<input type="password" data-sv="'+i+':pass" value="'+esc(sv.pass||'')+'" placeholder="留空则用免密登录" autocomplete="new-password">'+
         '<input type="text" data-sv="'+i+':ip" value="'+esc(sv.ip)+'" placeholder="如 10.0.0.1'+i+'">'+
         '<input type="text" data-sv="'+i+':ssh" value="'+esc(sv.ssh)+'" placeholder="22" style="text-align:center">'+
         '<button type="button" class="delrow" data-svdel="'+i+'" title="移除">×</button></div>';
     });
-    html += '</div><button type="button" class="addport" data-svadd="1">+ 添加服务器</button>'+
+    html += '</div><button type="button" class="addport wide" data-svadd="1">+ 添加服务器</button>'+
       '<div class="hint" style="margin-top:7px">前置条件: 主部署机可 SSH 免密登录所选节点, 节点已安装 Docker (distribute.sh 分发前会自动预检)</div></div>';
   }
 
@@ -1136,7 +1139,7 @@ function renderTopology(){
     saveLocal(); renderTopology(); renderSvcGridSync();
   });
   box.querySelectorAll('[data-svadd]').forEach(b => b.onclick = () => {
-    state.servers.push({ name: 'node'+(state.servers.length+1), user: 'root', ip: '', ssh: 22 });
+    state.servers.push({ name: 'node'+(state.servers.length+1), user: 'root', ip: '', ssh: 22, pass: '' });
     saveLocal(); renderTopology();
   });
 
@@ -1848,7 +1851,7 @@ function applyConfig(cfg){
   for (const k of Object.keys(xp)) state.extra[k] = xp[k];
   state.topology = Object.assign({ mysql8: 'single', mysql57: 'single', redis: 'single', kafka: 'single' }, cfg.topology || {});
   state.servers = (Array.isArray(cfg.servers) ? cfg.servers : []).map(v =>
-    Object.assign({ name: '', user: 'root', ip: '', ssh: 22 }, v || {}));
+    Object.assign({ name: '', user: 'root', ip: '', ssh: 22, pass: '' }, v || {}));
   const mhIn = cfg.multihost || {};
   state.mh = {
     kafka: Object.assign({ enabled:false, count:3, brokers:[null,null,null] }, mhIn.kafka || {}),

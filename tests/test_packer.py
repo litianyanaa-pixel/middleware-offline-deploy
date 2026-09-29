@@ -423,6 +423,12 @@ def test_multihost_validation_errors(catalog):
                   {"redis": {"enabled": True, "master": 0, "replicas": [1]}})
     with pytest.raises(packer.PackError):
         packer.validate_config(cfg, catalog)
+    # SSH 密码不能包含 | 或换行 (破坏 distribute.sh 分隔符)
+    cfg = _mh_cfg(["redis"], {"redis": "sentinel"},
+                  {"redis": {"enabled": True, "master": 0, "replicas": [1, 2]}},
+                  servers=[{"ip": "10.0.0.11", "password": "pa|ss"}, {"ip": "10.0.0.12"}, {"ip": "10.0.0.13"}])
+    with pytest.raises(packer.PackError, match="密码"):
+        packer.validate_config(cfg, catalog)
 
 
 def test_multihost_distribute_and_install_scripts(catalog):
@@ -431,9 +437,20 @@ def test_multihost_distribute_and_install_scripts(catalog):
     cfg, _ = packer.validate_config(cfg, catalog)
     nodes = packer.gen_nodes(cfg, catalog)
     dist = packer.gen_distribute_sh(cfg, nodes, catalog)
-    assert "node1|root|10.0.0.11|22" in dist
-    assert "node2|root|10.0.0.12|22" in dist
+    assert "node1|root|10.0.0.11|22|" in dist
+    assert "node2|root|10.0.0.12|22|" in dist
     assert 'tar czf - -C "nodes/$NAME"' in dist
+    # 免密节点走 BatchMode
+    assert 'SSHC=(ssh -p "$RSSH" -o BatchMode=yes)' in dist
+    # 密码节点走 sshpass
+    cfg2 = _mh_cfg(["redis"], {"redis": "sentinel"},
+                   {"redis": {"enabled": True, "master": 0, "replicas": [1, 2]}},
+                   servers=[{"ip": "10.0.0.11", "password": "S3cret~!"}, {"ip": "10.0.0.12"}, {"ip": "10.0.0.13"}])
+    cfg2, _ = packer.validate_config(cfg2, catalog)
+    nodes2 = packer.gen_nodes(cfg2, catalog)
+    dist2 = packer.gen_distribute_sh(cfg2, nodes2, catalog)
+    assert 'SSHC=(sshpass -e ssh' in dist2 and "S3cret~!" in dist2
+    assert 'SSHC=(ssh -p "$RSSH" -o BatchMode=yes)' in dist2  # node2/3 仍免密
     inst = packer.gen_node_install_sh(cfg, nodes[0])
     assert "docker load" in inst and "docker compose up -d" in inst
     assert "BACKUP_CRON" in inst
