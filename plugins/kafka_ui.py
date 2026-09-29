@@ -34,9 +34,18 @@ META = {
 
 
 def compose_block(cfg, ports, ctx):
-    # 集群形态下连接第一个 broker(kafka1); 单节点连接 kafka
-    bootstrap = "kafka1:9092" if (cfg.get("topology") or {}).get("kafka") == "cluster" else "kafka:9092"
-    depends = "kafka1" if bootstrap == "kafka1:9092" else "kafka"
+    mh = (cfg.get("multihost") or {}).get("kafka") or {}
+    multihost = (cfg.get("topology") or {}).get("kafka") == "cluster" and bool(mh.get("enabled"))
+    if multihost:
+        # 多机: bootstrap 为节点 IP:互联端口 列表, Kafka 不在本机无 depends_on
+        servers = cfg.get("servers") or []
+        inter = ports.get("kafka_mh_inter", 9092)
+        bootstrap = ",".join("%s:%d" % (servers[i]["ip"], inter) for i in mh.get("brokers", []))
+        depends = ""
+    else:
+        cluster = (cfg.get("topology") or {}).get("kafka") == "cluster"
+        bootstrap = "kafka1:9092" if cluster else "kafka:9092"
+        depends = "kafka1" if cluster else "kafka"
     return """
   %(svc)s:
     image: %(image)s
@@ -51,9 +60,7 @@ def compose_block(cfg, ports, ctx):
       AUTH_TYPE: "LOGIN_FORM"
       SPRING_SECURITY_USER_NAME: ${KAFKA_UI_USER}
       SPRING_SECURITY_USER_PASSWORD: ${KAFKA_UI_PASSWORD}
-    depends_on:
-      - %(depends)s
-    ports:
+%(depends)s    ports:
       - "%(port)d:8080"
     networks:
       - app-network""" % {
@@ -61,7 +68,7 @@ def compose_block(cfg, ports, ctx):
         "image": "%s:%s" % (META["image"], META["tag"]),
         "port": ports["ui"],
         "bootstrap": bootstrap,
-        "depends": depends,
+        "depends": ("    depends_on:\n      - %s\n" % depends) if depends else "",
     }
 
 

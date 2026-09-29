@@ -138,7 +138,28 @@ def _is_cluster(cfg):
     return ((cfg.get("topology") or {}).get("kafka") == "cluster")
 
 
+def _is_multihost(cfg):
+    """集群形态 + 多机部署: broker 分布在节点服务器上, 主部署机 compose 不含 Kafka"""
+    mh = (cfg.get("multihost") or {}).get("kafka") or {}
+    return _is_cluster(cfg) and bool(mh.get("enabled"))
+
+
+def kafka_bootstrap(cfg, ports=None):
+    """kafka-ui 等本地组件的连接地址:
+    多机 -> 节点 IP:互联端口 列表; 单机集群 -> kafka1..3:9092; 单节点 -> kafka:9092"""
+    if _is_multihost(cfg):
+        servers = cfg.get("servers") or []
+        inter = (ports or {}).get("kafka_mh_inter", 9092)
+        mh = (cfg.get("multihost") or {}).get("kafka") or {}
+        return ",".join("%s:%d" % (servers[i]["ip"], inter) for i in mh.get("brokers", []))
+    if _is_cluster(cfg):
+        return "kafka1:9092"
+    return "kafka:9092"
+
+
 def compose_block(cfg, ports, ctx):
+    if _is_multihost(cfg):
+        return ""   # 多机: 由 gen_nodes 生成节点版 compose
     if _is_cluster(cfg):
         return "".join(
             _CLUSTER_TMPL % {"n": n, "image": "%s:%s" % (CLUSTER["image"], CLUSTER["tag"]),
@@ -153,6 +174,8 @@ def compose_block(cfg, ports, ctx):
 
 
 def env_lines(cfg, ports, ctx):
+    if _is_multihost(cfg):
+        return []   # 多机: 密码写入各节点 .env, 主部署机 .env 不含 Kafka 项
     v = str(ctx["secrets"].get("KAFKA_PASSWORD", ""))
     q = '"%s"' % v if ("#" in v or " " in v) else v
     lines = ["KAFKA_PASSWORD=%s" % q]
@@ -163,6 +186,8 @@ def env_lines(cfg, ports, ctx):
 
 
 def manifest_lines(cfg, ports, ctx):
+    if _is_multihost(cfg):
+        return ["KAFKA_MULTIHOST=1"]   # 主部署机无 Kafka 容器, 节点安装见 kafka-cluster/
     if _is_cluster(cfg):
         # bitnami 由 KAFKA_CLIENT_USERS/PASSWORDS 自动建 PLAIN 用户, 无需 SCRAM 注册;
         # 容器以 root 运行, 数据目录无需 chown
@@ -174,6 +199,19 @@ def manifest_lines(cfg, ports, ctx):
 
 
 def summary_lines(cfg, ports, ctx):
+    if _is_multihost(cfg):
+        mh = (cfg.get("multihost") or {}).get("kafka") or {}
+        servers = cfg.get("servers") or []
+        inter = ports["kafka_mh_inter"]
+        sasl = ports["kafka_mh_sasl"]
+        peers = ",".join("%s:%d" % (servers[i]["ip"], inter) for i in mh.get("brokers", []))
+        return [
+            "Kafka 多机集群  %d 节点 KRaft+SASL (bootstrap: %s)|"
+            "Kafka multi-host cluster %d-node KRaft+SASL (bootstrap: %s)"
+            % (mh.get("count", 3), peers, mh.get("count", 3), peers),
+            "Kafka(SASL)    各节点 __NODE_IP__:%d  (用户 admin, 密码见节点 .env)|"
+            "Kafka (SASL)   per-node __NODE_IP__:%d  (user admin, password in node .env)" % (sasl, sasl),
+        ]
     if _is_cluster(cfg):
         return [
             "Kafka 集群    3 节点 KRaft (bootstrap: kafka1:9092,kafka2:9092,kafka3:9092 容器网络内免鉴权)|"

@@ -106,6 +106,44 @@ def bash_quote(v):
     return "'" + str(v).replace("'", "'\\''") + "'"
 
 
+# ---------------------------------------------------------------- 多机部署(服务器池 + 角色分配)
+
+IP_RE = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")
+KRAFT_CLUSTER_ID = "iZWRiSqjZAlYwlKEqHFQWI"
+
+# ProxySQL 读写分离代理(可选组件, 不进中间件网格)
+PROXYSQL_META = {
+    "image": "proxysql/proxysql", "tag": "2.6.6",
+    "images": {"amd64": "warehouse/images/proxysql/2.6.6/amd64.tar",
+               "arm64": "warehouse/images/proxysql/2.6.6/arm64.tar"},
+}
+
+
+def valid_ipv4(ip):
+    m = IP_RE.match(str(ip or "").strip())
+    if not m:
+        return False
+    return all(0 <= int(g) <= 255 for g in m.groups())
+
+
+def is_multihost(cfg, svc):
+    """某服务的集群形态是否为多机部署"""
+    mh = (cfg.get("multihost") or {}).get(svc) or {}
+    return bool(mh.get("enabled")) and cfg.get("topology", {}).get(svc) in ("cluster", "master-slave", "sentinel")
+
+
+def has_multihost(cfg):
+    return any(is_multihost(cfg, s) for s in ("kafka", "mysql8", "mysql57", "redis"))
+
+
+def master_server_ip(cfg, svc):
+    """多机 MySQL 主库节点 IP"""
+    mh = (cfg.get("multihost") or {}).get(svc) or {}
+    idx = mh.get("master")
+    servers = cfg.get("servers") or []
+    return servers[idx]["ip"] if isinstance(idx, int) and 0 <= idx < len(servers) else ""
+
+
 def tr(text, lang="zh"):
     """双语约定: 文案写作 "中文|English", 按 lang 取半边; 无竖线时原样返回"""
     s = str(text)
@@ -219,18 +257,130 @@ def validate_config(cfg, catalog):
         topology["kafka"] = k
     cfg["topology"] = topology
 
+    # ---- 多机部署: 服务器池 + 角色分配(可选) ----
+    raw_servers = cfg.get("servers") or []
+    servers = []
+    seen_ips = set()
+    for i, sv in enumerate(raw_servers):
+        ip = str((sv or {}).get("ip", "")).strip()
+        if not ip:
+            continue
+        if not valid_ipv4(ip):
+            raise PackError("服务器 IP 不合法: %s (第 %d 台)|Invalid server IP: %s (#%d)" % (ip, i + 1, ip, i + 1))
+        if ip in seen_ips:
+            raise PackError("服务器 IP 重复: %s|Duplicate server IP: %s" % (ip, ip))
+        seen_ips.add(ip)
+        ssh_raw = sv.get("ssh", 22)
+        try:
+            ssh = int(ssh_raw)
+        except (TypeError, ValueError):
+            raise PackError("SSH 端口不合法: %s (服务器 %s)|Invalid SSH port: %s (server %s)" % (ssh_raw, ip, ssh_raw, ip))
+        if not (1 <= ssh <= 65535):
+            raise PackError("SSH 端口超出范围: %d (服务器 %s)|SSH port out of range: %d (server %s)" % (ssh, ip, ssh, ip))
+        name = re.sub(r"[^A-Za-z0-9_-]", "", str(sv.get("name") or ("node%d" % (i + 1)))) or ("node%d" % (i + 1))
+        servers.append({"name": name, "user": str(sv.get("user") or "root").strip() or "root",
+                        "ip": ip, "ssh": ssh})
+    cfg["servers"] = servers
+
+    mh_raw = cfg.get("multihost") or {}
+    mh = {}
+
+    def _pick_idx(v, what):
+        try:
+            idx = int(v)
+        except (TypeError, ValueError):
+            raise PackError("%s 节点选择不合法|Invalid node assignment for %s" % (what, what))
+        if not (0 <= idx < len(servers)):
+            raise PackError("%s 指向了不存在的服务器(请先完善服务器池)|%s points to a missing server (fill the server pool first)" % (what, what))
+        return idx
+
+    if "kafka" in services and topology.get("kafka") == "cluster" and (mh_raw.get("kafka") or {}).get("enabled"):
+        k = mh_raw.get("kafka") or {}
+        try:
+            count = int(k.get("count", 3))
+        except (TypeError, ValueError):
+            count = 0
+        if count not in (3, 5):
+            raise PackError("Kafka 多机节点数只能是 3 或 5|Kafka multi-host node count must be 3 or 5")
+        brokers = [_pick_idx(x, "Kafka broker%d" % (i + 1)) for i, x in enumerate(k.get("brokers") or [])]
+        if len(brokers) != count or len(set(brokers)) != count:
+            raise PackError("Kafka 多机需为 %d 个 broker 分配 %d 台不同服务器|Kafka multi-host needs %d distinct servers for %d brokers" % (count, count, count, count))
+        mh["kafka"] = {"enabled": True, "count": count, "brokers": brokers}
+
+    for ms in ("mysql8", "mysql57"):
+        if ms in services and topology.get(ms) == "master-slave" and (mh_raw.get(ms) or {}).get("enabled"):
+            m = mh_raw.get(ms) or {}
+            master = _pick_idx(m.get("master"), "%s 主库" % ms)
+            replicas = [_pick_idx(x, "%s 从库" % ms) for x in (m.get("replicas") or [])]
+            if not (1 <= len(replicas) <= 2) or master in replicas or len(set(replicas)) != len(replicas):
+                raise PackError("%s 多机主从需 1-2 台不同的从库服务器且不与主库重复|%s multi-host needs 1-2 distinct replica servers != master" % (ms, ms))
+            mh[ms] = {"enabled": True, "master": master, "replicas": replicas}
+
+    if "redis" in services and topology.get("redis") == "sentinel" and (mh_raw.get("redis") or {}).get("enabled"):
+        r = mh_raw.get("redis") or {}
+        master = _pick_idx(r.get("master"), "Redis 主库")
+        replicas = [_pick_idx(x, "Redis 从库") for x in (r.get("replicas") or [])]
+        if len(replicas) != 2 or master in replicas or len(set(replicas)) != 2:
+            raise PackError("Redis 多机哨兵需 1 主 + 2 从共 3 台不同服务器|Redis multi-host sentinel needs 1 master + 2 replicas on 3 distinct servers")
+        mh["redis"] = {"enabled": True, "master": master, "replicas": replicas}
+    cfg["multihost"] = mh
+
+    # 单机主从从库数量(1-2); 多机时以分配的服务器数为准
+    reps_raw = cfg.get("replicas") or {}
+    reps = {}
+    for ms in ("mysql8", "mysql57"):
+        if ms not in services or topology.get(ms) != "master-slave":
+            continue
+        if ms in mh:
+            reps[ms] = len(mh[ms]["replicas"])
+            continue
+        try:
+            n = int(reps_raw.get(ms, 1))
+        except (TypeError, ValueError):
+            n = 1
+        if n not in (1, 2):
+            raise PackError("%s 从库数量只能是 1 或 2|%s replica count must be 1 or 2" % (ms, ms))
+        reps[ms] = n
+    cfg["replicas"] = reps
+
+    # 读写分离(ProxySQL): 存在 MySQL 主从形态时可选
+    features_raw = cfg.get("features") or {}
+    features = {"proxysql": bool(features_raw.get("proxysql")) and bool(reps)}
+    if features["proxysql"] and "proxysql" in services:
+        raise PackError("读写分离为可选组件, 无需在中间件中单独选择|Read/write splitting is an optional component, not a middleware")
+    cfg["features"] = features
+
     # 集群形态附加端口键(并入全局查重)
     topo_port_defs = []
     if topology.get("mysql8") == "master-slave":
         topo_port_defs.append(("mysql8_replica", "MySQL 从库端口|MySQL replica port", 13308))
+        if reps.get("mysql8", 1) == 2 and "mysql8" not in mh:
+            topo_port_defs.append(("mysql8_replica2", "MySQL 从库2端口|MySQL replica2 port", 13310))
     if topology.get("mysql57") == "master-slave":
         topo_port_defs.append(("mysql57_replica", "MySQL 5.7 从库端口|MySQL 5.7 replica port", 13309))
+        if reps.get("mysql57", 1) == 2 and "mysql57" not in mh:
+            topo_port_defs.append(("mysql57_replica2", "MySQL 5.7 从库2端口|MySQL 5.7 replica2 port", 13311))
     if topology.get("redis") == "sentinel":
         topo_port_defs.append(("redis_replica", "Redis 从库端口|Redis replica port", 16380))
+        if "redis" in mh:
+            topo_port_defs.append(("redis_sentinel", "Redis 哨兵端口(每节点)|Redis sentinel port (per node)", 26379))
     if topology.get("kafka") == "cluster":
-        topo_port_defs.append(("kafka_c1", "Kafka broker1 端口(SASL)|Kafka broker1 port (SASL)", 19092))
-        topo_port_defs.append(("kafka_c2", "Kafka broker2 端口(SASL)|Kafka broker2 port (SASL)", 29092))
-        topo_port_defs.append(("kafka_c3", "Kafka broker3 端口(SASL)|Kafka broker3 port (SASL)", 39092))
+        if "kafka" in mh:
+            # 多机: 每节点同一组宿主端口(内网互联/控制器/SASL 对外), 各台机器独立不冲突
+            topo_port_defs.append(("kafka_mh_inter", "Kafka 节点互联端口|Kafka inter-broker port", 9092))
+            topo_port_defs.append(("kafka_mh_ctrl", "Kafka 控制器端口|Kafka controller port", 9093))
+            topo_port_defs.append(("kafka_mh_sasl", "Kafka SASL 对外端口|Kafka SASL port", 9094))
+        else:
+            topo_port_defs.append(("kafka_c1", "Kafka broker1 端口(SASL)|Kafka broker1 port (SASL)", 19092))
+            topo_port_defs.append(("kafka_c2", "Kafka broker2 端口(SASL)|Kafka broker2 port (SASL)", 29092))
+            topo_port_defs.append(("kafka_c3", "Kafka broker3 端口(SASL)|Kafka broker3 port (SASL)", 39092))
+    if features.get("proxysql"):
+        topo_port_defs.append(("proxysql", "读写分离入口端口|Read/write split entry port", 16033))
+        topo_port_defs.append(("proxysql_admin", "ProxySQL 管理端口|ProxySQL admin port", 16032))
+    if "kafka" in mh:
+        # 多机时主部署机不运行 Kafka 容器, 单机端口键让位给节点端口组
+        norm_ports.pop("kafka", None)
+        norm_ports.pop("kafka_host", None)
     seen_topo = set(norm_ports.values())
     for key, label, default in topo_port_defs:
         raw = (cfg.get("ports") or {}).get(key, default)
@@ -510,6 +660,12 @@ def validate_config(cfg, catalog):
             conf["port"] = 3306
             conf["user"] = "root"
             conf["password"] = secrets_cfg["MYSQL_ROOT_PASSWORD"]
+            if is_multihost(cfg, svc):
+                # 多机 MySQL: 主库在远端节点上, 主部署机的 nacos/xxljob 直连主节点 IP:宿主端口(写操作直达主库)
+                conf["host"] = master_server_ip(cfg, svc)
+                conf["host_import"] = conf["host"]
+                conf["port"] = cfg["ports"][svc]
+                conf["multihost"] = True
         else:
             host = str(conf.get("host", "")).strip()
             if not host:
@@ -577,6 +733,8 @@ def check_warehouse(cfg, catalog):
         kc = getattr(PLUGINS.get("kafka"), "CLUSTER", None)
         if kc and kc["images"][arch]:
             need_imgs[kc["images"][arch]] = True
+    if (cfg.get("features") or {}).get("proxysql"):
+        need_imgs[PROXYSQL_META["images"][arch]] = True
     # 外部库导表需要 mysql 客户端镜像
     needs_client = False
     for a in ("nacos", "xxljob"):
@@ -665,14 +823,16 @@ def resolve_db(cfg):
     db = cfg["db"]
     services = cfg["services"]
     has_local_mysql = any(s in services for s in ("mysql57", "mysql8"))
+    mh_mysql = any(is_multihost(cfg, s) for s in ("mysql57", "mysql8"))
     needs_client = False
     for app in ("nacos", "xxljob"):
         conf = db.get(app)
-        if conf and conf["mode"] == "external":
+        if conf and (conf["mode"] == "external" or (conf["mode"] == "local" and mh_mysql)):
+            # 多机 MySQL: 主库在远端节点, 导表需从主部署机走网络导入(用客户端镜像)
             needs_client = True
     client_img = ""
     if needs_client:
-        if has_local_mysql:
+        if has_local_mysql and not mh_mysql:
             client_img = "mysql:8.0.46" if "mysql8" in services else "mysql:5.7.44"
         else:
             client_img = "mysql:8.0.46"   # 打包时会把该镜像一起带上, 仅作客户端使用
@@ -777,6 +937,9 @@ def gen_compose(cfg, catalog):
     services = cfg["services"]
     ports = cfg["ports"]
     db = cfg["db"]
+    topology = cfg.get("topology") or {}
+    features = cfg.get("features") or {}
+    reps = cfg.get("replicas") or {}
     ctx = plugin_ctx(cfg)
     extra_lines = ctx["extra_ports_lines"]
     out = []
@@ -792,7 +955,7 @@ def gen_compose(cfg, catalog):
         return []
 
     def depends_on(conf):
-        if conf and conf["mode"] == "local":
+        if conf and conf["mode"] == "local" and not conf.get("multihost"):
             return ["    depends_on:", "      %s:" % conf["local_svc"], "        condition: service_healthy"]
         return []
 
@@ -800,6 +963,9 @@ def gen_compose(cfg, catalog):
     topology = cfg.get("topology") or {}
     for s in ("mysql57", "mysql8"):
         if s not in services:
+            continue
+        if is_multihost(cfg, s):
+            # 多机主从: 容器分布到各节点, 主部署机 compose 不含 MySQL (节点版由 gen_nodes 生成)
             continue
         meta = catalog["services"][s]
         repl_flags = []
@@ -841,8 +1007,11 @@ def gen_compose(cfg, catalog):
                           "extra_ports": extra_lines(s),
                           "repl_flags": "".join("      - %s\n" % f for f in repl_flags)})
         if s in ("mysql8", "mysql57") and topology.get(s) == "master-slave":
-            # 从库: 只读, GTID 自动定位, 不挂 init 目录(数据由主库复制而来)
-            out.append("""
+            # 从库: 只读, GTID 自动定位, 不挂 init 目录(数据由主库复制而来); 数量 1-2 可选
+            for _r in range(reps.get(s, 1)):
+                _rsvc = "%s-replica" % s if _r == 0 else "%s-replica%d" % (s, _r + 1)
+                _rport = "%s_replica" % s if _r == 0 else "%s_replica%d" % (s, _r + 1)
+                out.append("""
   %(svc)s:
     image: %(image)s
     container_name: %(svc)s
@@ -861,7 +1030,7 @@ def gen_compose(cfg, catalog):
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_unicode_ci
       - --default-authentication-plugin=mysql_native_password
-      - --server-id=2
+      - --server-id=%(sid)d
       - --log-bin=mysql-bin
       - --gtid-mode=ON
       - --enforce-gtid-consistency=ON
@@ -875,13 +1044,14 @@ def gen_compose(cfg, catalog):
       retries: 12
       start_period: 300s
     networks:
-      - app-network""" % {"svc": "%s-replica" % s,
+      - app-network""" % {"svc": _rsvc,
                           "image": "%s:%s" % (meta["image"], meta["tag"]),
-                          "rport": ports["%s_replica" % s],
-                          "dir": "%s-replica" % s})
+                          "rport": ports[_rport],
+                          "dir": _rsvc,
+                          "sid": 2 + _r})
 
     # ---- Redis ----
-    if "redis" in services:
+    if "redis" in services and not is_multihost(cfg, "redis"):
         meta = catalog["services"]["redis"]
         out.append("""
   redis:
@@ -908,7 +1078,7 @@ def gen_compose(cfg, catalog):
       - app-network""" % {"image": "%s:%s" % (meta["image"], meta["tag"]),
                           "port": ports["redis"],
                           "extra_ports": extra_lines("redis")})
-    if topology.get("redis") == "sentinel":
+    if topology.get("redis") == "sentinel" and not is_multihost(cfg, "redis"):
         # 哨兵形态: 1 主 + 1 从 + 3 哨兵(副本数为 3, 应用侧走 sentinel 协议)
         out.append("""
   redis-replica:
@@ -1080,10 +1250,38 @@ def gen_compose(cfg, catalog):
                           "extra_ports": extra_lines("nginx"),
                           "xhosts": "\n".join(xhosts) + ("\n" if xhosts else "")})
 
+    # ---- ProxySQL 读写分离(可选组件) ----
+    if features.get("proxysql"):
+        out.append("""
+  proxysql:
+    image: %(image)s
+    container_name: proxysql
+    restart: always
+    environment:
+      TZ: ${TZ}
+    ports:
+      - "%(p_main)d:6033"
+      - "%(p_admin)d:6032"
+    volumes:
+      - ./proxysql/proxysql.cnf:/etc/proxysql.cnf:ro
+      - ./proxysql/data:/var/lib/proxysql
+    # 健康检查走数据面入口: 能通过代理查到后端才算就绪
+    healthcheck:
+      test: ["CMD-SHELL", "mysql --protocol=tcp -h127.0.0.1 -P6033 -uroot -p\\"$$MYSQL_ROOT_PASSWORD\\" -e 'SELECT 1' >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    networks:
+      - app-network""" % {"image": "%s:%s" % (PROXYSQL_META["image"], PROXYSQL_META["tag"]),
+                          "p_main": ports["proxysql"], "p_admin": ports["proxysql_admin"]})
+
     # ---- 插件中间件(可插拔) ----
     for s in services:
         if s in PLUGINS:
-            out.append(PLUGINS[s].compose_block(cfg, ports, ctx))
+            block = PLUGINS[s].compose_block(cfg, ports, ctx)
+            if block:
+                out.append(block)
 
     out.append("""
 networks:
@@ -1126,6 +1324,9 @@ def gen_manifest_sh(cfg, catalog, client_img, summary_lines, bundle_name=None):
     db = cfg["db"]
     services = cfg["services"]
     topology = cfg.get("topology") or {}
+    mh_all = set(k for k, v in (cfg.get("multihost") or {}).items() if v.get("enabled"))
+    reps = cfg.get("replicas") or {}
+    features = cfg.get("features") or {}
 
     data_dirs = []
     chown_dirs = []
@@ -1134,17 +1335,23 @@ def gen_manifest_sh(cfg, catalog, client_img, summary_lines, bundle_name=None):
     for s in services:
         meta = catalog["services"][s]
         if s == "kafka" and topology.get("kafka") == "cluster":
+            if is_multihost(cfg, "kafka"):
+                continue   # 多机: Kafka 容器在各节点, 主部署机清单不含
             # 集群形态: 3 个 broker 容器; 宿主机端口为 kafka_c1..3, 单节点端口键不参与
             for n in (1, 2, 3):
                 container_names.append("kafka%d" % n)
                 data_dirs.append("kafka%d/data" % n)
                 port_keys.append(ports["kafka_c%d" % n])
             continue
+        if s in ("mysql8", "mysql57", "redis") and is_multihost(cfg, s):
+            continue   # 多机: 容器在各节点
         if s in PLUGINS:
             container_names.append(PLUGINS[s].META.get("container_name", s))
         else:
             container_names.append(s if s != "xxljob" else "xxl-job")
         for p in meta["ports"]:
+            if s == "kafka" and topology.get("kafka") == "cluster":
+                continue   # 单机集群: 单节点端口键不参与
             port_keys.append(ports[p["key"]])
         for r in (cfg.get("extra_ports") or {}).get(s, []):
             port_keys.append(r["host"])
@@ -1160,17 +1367,20 @@ def gen_manifest_sh(cfg, catalog, client_img, summary_lines, bundle_name=None):
             data_dirs += ["%s/data" % meta["data_dir"], "%s/log" % meta["data_dir"]]
 
     local_mysql = ""
-    if "mysql8" in services:
+    if "mysql8" in services and not is_multihost(cfg, "mysql8"):
         local_mysql = "mysql8"
-    elif "mysql57" in services:
+    elif "mysql57" in services and not is_multihost(cfg, "mysql57"):
         local_mysql = "mysql57"
 
     # 健康实测清单: 有 compose healthcheck 的容器等待 healthy, 其余 HTTP 实测
     health_wait, health_http = [], []
     for s in services:
+        if s in ("mysql8", "mysql57", "redis") and is_multihost(cfg, s):
+            continue   # 多机: 健康检查在节点 install-node.sh 内完成
         cn = PLUGINS[s].META.get("container_name", s) if s in PLUGINS else (s if s != "xxljob" else "xxl-job")
         if s == "kafka" and topology.get("kafka") == "cluster":
-            health_wait += ["kafka1", "kafka2", "kafka3"]
+            if not is_multihost(cfg, "kafka"):
+                health_wait += ["kafka1", "kafka2", "kafka3"]
             continue
         if s in ("mysql57", "mysql8", "redis", "minio") or s in PLUGINS:
             health_wait.append(cn)
@@ -1183,20 +1393,26 @@ def gen_manifest_sh(cfg, catalog, client_img, summary_lines, bundle_name=None):
     if "minio" in services:
         health_http.append("minio|http://127.0.0.1:%d/minio/health/live" % ports["minio_api"])
 
-    # 集群形态附加的容器/目录/端口/健康清单
-    if topology.get("mysql8") == "master-slave":
-        container_names.append("mysql8-replica")
-        data_dirs += ["mysql8-replica/data", "mysql8-replica/log"]
-        chown_dirs.append("mysql8-replica/log")
-        port_keys.append(ports["mysql8_replica"])
-        health_wait.append("mysql8-replica")
-    if topology.get("mysql57") == "master-slave":
-        container_names.append("mysql57-replica")
-        data_dirs += ["mysql57-replica/data", "mysql57-replica/log"]
-        chown_dirs.append("mysql57-replica/log")
-        port_keys.append(ports["mysql57_replica"])
-        health_wait.append("mysql57-replica")
-    if topology.get("redis") == "sentinel":
+    # 集群形态附加的容器/目录/端口/健康清单 (多机时容器在节点上, 主部署机清单跳过)
+    if topology.get("mysql8") == "master-slave" and "mysql8" not in mh_all:
+        for _r in range(reps.get("mysql8", 1)):
+            _rsvc = "mysql8-replica" if _r == 0 else "mysql8-replica%d" % (_r + 1)
+            _rport = "mysql8_replica" if _r == 0 else "mysql8_replica%d" % (_r + 1)
+            container_names.append(_rsvc)
+            data_dirs += ["%s/data" % _rsvc, "%s/log" % _rsvc]
+            chown_dirs.append("%s/log" % _rsvc)
+            port_keys.append(ports[_rport])
+            health_wait.append(_rsvc)
+    if topology.get("mysql57") == "master-slave" and "mysql57" not in mh_all:
+        for _r in range(reps.get("mysql57", 1)):
+            _rsvc = "mysql57-replica" if _r == 0 else "mysql57-replica%d" % (_r + 1)
+            _rport = "mysql57_replica" if _r == 0 else "mysql57_replica%d" % (_r + 1)
+            container_names.append(_rsvc)
+            data_dirs += ["%s/data" % _rsvc, "%s/log" % _rsvc]
+            chown_dirs.append("%s/log" % _rsvc)
+            port_keys.append(ports[_rport])
+            health_wait.append(_rsvc)
+    if topology.get("redis") == "sentinel" and "redis" not in mh_all:
         container_names.append("redis-replica")
         data_dirs += ["redis-replica/data", "redis-replica/log"]
         chown_dirs.append("redis-replica/log")
@@ -1205,6 +1421,11 @@ def gen_manifest_sh(cfg, catalog, client_img, summary_lines, bundle_name=None):
         # 哨兵会把故障转移结果重写回自己的配置文件, 文件属主必须是容器内 redis(999)
         # (部署布局是平铺的: conf/<svc>/* 会被 deploy.sh 放到 <DEPLOY_DIR>/<svc>/ 下)
         chown_dirs.append("redis/sentinel.conf:999")
+    if features.get("proxysql"):
+        container_names.append("proxysql")
+        data_dirs.append("proxysql/data")
+        health_wait.append("proxysql")
+        port_keys += [ports["proxysql"], ports["proxysql_admin"]]
 
     def db_lines(app, prefix):
         conf = db.get(app)
@@ -1242,6 +1463,11 @@ def gen_manifest_sh(cfg, catalog, client_img, summary_lines, bundle_name=None):
         "MYSQL57_TOPOLOGY=%s" % bash_quote(topology.get("mysql57", "single")),
         "REDIS_TOPOLOGY=%s" % bash_quote(topology.get("redis", "single")),
         "KAFKA_TOPOLOGY=%s" % bash_quote(topology.get("kafka", "single")),
+        "MYSQL_MULTIHOST=%d" % (1 if (any(is_multihost(cfg, s) for s in ("mysql8", "mysql57"))) else 0),
+        "MYSQL_MULTIHOST_SVC=%s" % bash_quote(next((s for s in ("mysql8", "mysql57") if is_multihost(cfg, s)), "")),
+        "MYSQL_MULTIHOST_HOST=%s" % bash_quote(next((master_server_ip(cfg, s) for s in ("mysql8", "mysql57") if is_multihost(cfg, s)), "")),
+        "MYSQL_MULTIHOST_PORT=%s" % next((str(ports[s]) for s in ("mysql8", "mysql57") if is_multihost(cfg, s)), "0"),
+        "NODES_COUNT=%d" % len(gen_nodes(cfg, catalog)),
         "MYSQL_ROOT_PASSWORD=%s" % bash_quote(cfg["secrets"].get("MYSQL_ROOT_PASSWORD", "")),
         "MYSQL_CLIENT_IMG=%s" % bash_quote(client_img),
         "HEALTH_WAIT=(%s)" % " ".join(bash_quote(n) for n in health_wait),
@@ -1264,25 +1490,67 @@ def gen_manifest_sh(cfg, catalog, client_img, summary_lines, bundle_name=None):
 def build_summary_lines(cfg, catalog):
     ports = cfg["ports"]
     lines = []
+    servers = cfg.get("servers") or []
+    mh = cfg.get("multihost") or {}
+
+    def mh_ip(svc, kind):
+        """多机角色的节点 IP (kind: master/replica/brokers)"""
+        m = mh.get(svc) or {}
+        if kind == "master":
+            return servers[m["master"]]["ip"] if isinstance(m.get("master"), int) and servers else "__NODE_IP__"
+        if kind == "replicas":
+            return [servers[i]["ip"] for i in m.get("replicas", []) if isinstance(i, int) and i < len(servers)]
+        if kind == "brokers":
+            return [servers[i]["ip"] for i in m.get("brokers", []) if isinstance(i, int) and i < len(servers)]
+        return []
+
     if "nginx" in services_of(cfg):
         lines.append("NGINX        http://__IP__:%d   (配置目录 %s/nginx)|NGINX        http://__IP__:%d   (config dir %s/nginx)"
                      % (ports["nginx_http"], cfg["deploy_dir"], ports["nginx_http"], cfg["deploy_dir"]))
     if "mysql57" in services_of(cfg):
-        lines.append("MySQL 5.7    __IP__:%d  mysql -h<ip> -P%d -uroot" % (ports["mysql57"], ports["mysql57"]))
-        if (cfg.get("topology") or {}).get("mysql57") == "master-slave":
-            lines.append("MySQL 5.7 从库 __IP__:%d  (只读, GTID 自动同步主库|replica, read-only, GTID sync from master)"
-                         % ports["mysql57_replica"])
+        if is_multihost(cfg, "mysql57"):
+            mip = mh_ip("mysql57", "master")
+            rips = mh_ip("mysql57", "replicas")
+            lines.append("MySQL 5.7 多机主从  主库 %s:%d  从库 %s|MySQL 5.7 multi-host  master %s:%d  replicas %s"
+                         % (mip, ports["mysql57"], ",".join("%s:%d" % (r, ports["mysql57_replica"]) for r in rips),
+                            mip, ports["mysql57"], ",".join("%s:%d" % (r, ports["mysql57_replica"]) for r in rips)))
+        else:
+            lines.append("MySQL 5.7    __IP__:%d  mysql -h<ip> -P%d -uroot" % (ports["mysql57"], ports["mysql57"]))
+            if (cfg.get("topology") or {}).get("mysql57") == "master-slave":
+                lines.append("MySQL 5.7 从库 __IP__:%d  (只读, GTID 自动同步主库|replica, read-only, GTID sync from master)"
+                             % ports["mysql57_replica"])
     if "mysql8" in services_of(cfg):
-        lines.append("MySQL 8.0    __IP__:%d  mysql -h<ip> -P%d -uroot" % (ports["mysql8"], ports["mysql8"]))
-        if (cfg.get("topology") or {}).get("mysql8") == "master-slave":
-            lines.append("MySQL 8.0 从库 __IP__:%d  (只读, GTID 自动同步主库|replica, read-only, GTID sync from master)"
-                         % ports["mysql8_replica"])
+        if is_multihost(cfg, "mysql8"):
+            mip = mh_ip("mysql8", "master")
+            rips = mh_ip("mysql8", "replicas")
+            lines.append("MySQL 8.0 多机主从  主库 %s:%d  从库 %s|MySQL 8.0 multi-host  master %s:%d  replicas %s"
+                         % (mip, ports["mysql8"], ",".join("%s:%d" % (r, ports["mysql8_replica"]) for r in rips),
+                            mip, ports["mysql8"], ",".join("%s:%d" % (r, ports["mysql8_replica"]) for r in rips)))
+        else:
+            lines.append("MySQL 8.0    __IP__:%d  mysql -h<ip> -P%d -uroot" % (ports["mysql8"], ports["mysql8"]))
+            if (cfg.get("topology") or {}).get("mysql8") == "master-slave":
+                lines.append("MySQL 8.0 从库 __IP__:%d  (只读, GTID 自动同步主库|replica, read-only, GTID sync from master)"
+                             % ports["mysql8_replica"])
+    if (cfg.get("features") or {}).get("proxysql"):
+        lines.append("读写分离      mysql -h<ip> -P%d -uroot  (写->主库 读->从库, 管理台 <ip>:%d admin)|"
+                     "Read/write split  mysql -h<ip> -P%d -uroot  (writes->master reads->replicas, admin <ip>:%d admin)"
+                     % (ports["proxysql"], ports["proxysql_admin"], ports["proxysql"], ports["proxysql_admin"]))
     if "redis" in services_of(cfg):
-        lines.append("Redis        __IP__:%d" % ports["redis"])
-        if (cfg.get("topology") or {}).get("redis") == "sentinel":
-            lines.append("Redis 哨兵    主+从+3哨兵 (从库 __IP__:%d, 应用走 sentinel 协议 redis-sentinel:26379)|"
-                         "Redis Sentinel master+replica+3 sentinels (replica __IP__:%d, clients use sentinel protocol redis-sentinel:26379)"
-                         % (ports["redis_replica"], ports["redis_replica"]))
+        if is_multihost(cfg, "redis"):
+            mip = mh_ip("redis", "master")
+            rips = mh_ip("redis", "replicas")
+            lines.append("Redis 多机哨兵  主库 %s:%d  从库 %s (每节点哨兵 :%d, 应用走 sentinel 协议)|"
+                         "Redis multi-host sentinel  master %s:%d  replicas %s (sentinel :%d per node, clients use sentinel protocol)"
+                         % (mip, ports["redis"], ",".join("%s:%d" % (r, ports["redis_replica"]) for r in rips),
+                            ports.get("redis_sentinel", 26379), mip, ports["redis"],
+                            ",".join("%s:%d" % (r, ports["redis_replica"]) for r in rips),
+                            ports.get("redis_sentinel", 26379)))
+        else:
+            lines.append("Redis        __IP__:%d" % ports["redis"])
+            if (cfg.get("topology") or {}).get("redis") == "sentinel":
+                lines.append("Redis 哨兵    主+从+3哨兵 (从库 __IP__:%d, 应用走 sentinel 协议 redis-sentinel:26379)|"
+                             "Redis Sentinel master+replica+3 sentinels (replica __IP__:%d, clients use sentinel protocol redis-sentinel:26379)"
+                             % (ports["redis_replica"], ports["redis_replica"]))
     if "nacos" in services_of(cfg):
         lines.append("Nacos 控制台  http://__IP__:%d/nacos  (账号见 .env)|Nacos console http://__IP__:%d/nacos  (credentials in .env)" % (ports["nacos_console"], ports["nacos_console"]))
     if "xxljob" in services_of(cfg):
@@ -1311,27 +1579,582 @@ def services_of(cfg):
 
 
 def gen_images_txt(cfg, catalog):
-    """返回 [(bundle内文件名, 仓库相对路径, 短名)]"""
+    """返回 [(bundle内文件名, 仓库相对路径, 短名)]; 多机部署的服务镜像改入 nodes/<name>/images/"""
     arch = cfg["arch"]
     kafka_cluster = "kafka" in cfg["services"] and (cfg.get("topology") or {}).get("kafka") == "cluster"
+    kafka_mh = is_multihost(cfg, "kafka")
     items = []
     for s in cfg["services"]:
         if s == "kafka" and kafka_cluster:
+            if kafka_mh:
+                continue   # 多机: bitnami 镜像随节点分发, 不进主包 images.txt
             # 集群形态: 打包 bitnami 镜像(短名归一后为 bitnami/kafka:3.7.0, 归一化规则兼容)
             kc = getattr(PLUGINS.get("kafka"), "CLUSTER", None)
             if kc:
                 items.append(("kafka-%s.tar" % arch, kc["images"][arch], "%s:%s" % (kc["image"], kc["tag"])))
             continue
+        if s in ("mysql8", "mysql57", "redis") and is_multihost(cfg, s):
+            continue   # 多机: 镜像随节点分发
         meta = catalog["services"][s]
         rel = meta["images"][arch]
         items.append(("%s-%s.tar" % (s, arch), rel, "%s:%s" % (meta["image"], meta["tag"])))
     needs_client, client_img = resolve_db(cfg)
-    has_local_mysql = any(s in cfg["services"] for s in ("mysql57", "mysql8"))
+    has_local_mysql = any(s in cfg["services"] for s in ("mysql57", "mysql8")) and not any(
+        is_multihost(cfg, s) for s in ("mysql57", "mysql8"))
     if needs_client and not has_local_mysql:
         meta = catalog["services"]["mysql8"]
         rel = meta["images"][arch]
         items.append(("mysql8-%s.tar" % arch, rel, client_img))
+    if (cfg.get("features") or {}).get("proxysql"):
+        items.append(("proxysql-%s.tar" % arch, PROXYSQL_META["images"][arch],
+                      "%s:%s" % (PROXYSQL_META["image"], PROXYSQL_META["tag"])))
     return items
+
+
+# ---------------------------------------------------------------- 多机节点产物生成
+
+def _node_kafka_block(cfg, ports, node_id, broker_ips):
+    """多机 Kafka 节点 compose 块 (bitnami 3.7.0, KRaft 组合模式, 可配置宿主端口)"""
+    server = cfg["servers"][node_id]
+    inter, ctrl, sasl = ports["kafka_mh_inter"], ports["kafka_mh_ctrl"], ports["kafka_mh_sasl"]
+    ip = server["ip"]
+    voters = ",".join("%d@%s:%d" % (i + 1, cfg["servers"][b]["ip"], ctrl)
+                      for i, b in enumerate((cfg["multihost"]["kafka"]["brokers"])))
+    advertised = "INTERNAL://%s:%d,HOST://%s:%d" % (ip, inter, ip, sasl)
+    return """
+  kafka:
+    image: %(image)s
+    container_name: kafka
+    restart: always
+    user: root
+    environment:
+      TZ: ${TZ}
+      KAFKA_ENABLE_KRAFT: "yes"
+      KAFKA_KRAFT_CLUSTER_ID: %(cluster_id)s
+      KAFKA_CFG_PROCESS_ROLES: broker,controller
+      KAFKA_CFG_NODE_ID: %(node_id)d
+      KAFKA_CFG_LISTENERS: INTERNAL://:9092,CONTROLLER://:9093,HOST://:9094
+      KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT,HOST:SASL_PLAINTEXT
+      KAFKA_CFG_ADVERTISED_LISTENERS: %(advertised)s
+      KAFKA_CFG_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: %(voters)s
+      KAFKA_CFG_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_CFG_SASL_ENABLED_MECHANISMS: PLAIN
+      KAFKA_CFG_SASL_MECHANISM_INTER_BROKER_PROTOCOL: PLAIN
+      KAFKA_CLIENT_USERS: admin
+      KAFKA_CLIENT_PASSWORDS: ${KAFKA_PASSWORD}
+      KAFKA_CFG_SUPER_USERS: User:admin;User:ANONYMOUS
+      KAFKA_CFG_AUTHORIZER_CLASS_NAME: org.apache.kafka.metadata.authorizer.StandardAuthorizer
+      KAFKA_CFG_ALLOW_EVERYONE_IF_NO_ACL_FOUND: "false"
+      KAFKA_HEAP_OPTS: -Xmx1g -Xms512m
+    ports:
+      - "%(inter)d:9092"
+      - "%(ctrl)d:9093"
+      - "%(sasl)d:9094"
+    volumes:
+      - ./kafka/data:/bitnami/kafka
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/bitnami/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 > /dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 12
+      start_period: 90s
+    networks:
+      - app-network""" % {
+        "image": "bitnami/kafka:3.7.0", "cluster_id": KRAFT_CLUSTER_ID,
+        "node_id": node_id + 1, "advertised": advertised, "voters": voters,
+        "inter": inter, "ctrl": ctrl, "sasl": sasl,
+    }
+
+
+def _node_mysql_block(cfg, catalog, svc, role, replica_no=1):
+    """多机 MySQL 节点 compose 块; role: master / replica; 容器名统一 mysql"""
+    meta = catalog["services"][svc]
+    ports = cfg["ports"]
+    if role == "master":
+        host_port = ports[svc]
+        sid = 1
+        repl_flags = ["--server-id=1", "--log-bin=mysql-bin", "--gtid-mode=ON",
+                      "--enforce-gtid-consistency=ON",
+                      "--binlog-expire-logs-seconds=604800" if svc == "mysql8" else "--expire-logs-days=7"]
+    else:
+        host_port = ports["%s_replica" % svc]
+        sid = 10 + replica_no
+        repl_flags = ["--server-id=%d" % sid, "--log-bin=mysql-bin", "--gtid-mode=ON",
+                      "--enforce-gtid-consistency=ON", "--read-only=ON"]
+    return """
+  mysql:
+    image: %(image)s
+    container_name: mysql
+    restart: always
+    environment:
+      TZ: ${TZ}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+    ports:
+      - "%(host_port)d:3306"
+    volumes:
+      - ./mysql/data:/var/lib/mysql
+      - ./mysql/log:/var/log/mysql%(init_vol)s
+      - ./mysql/my.cnf:/etc/mysql/conf.d/my.cnf:ro
+    command:
+      - --log-error=/var/log/mysql/error.log
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-authentication-plugin=mysql_native_password
+%(repl_flags)s    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -uroot -p\\"$$MYSQL_ROOT_PASSWORD\\""]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 300s
+    networks:
+      - app-network""" % {
+        "image": "%s:%s" % (meta["image"], meta["tag"]),
+        "host_port": host_port,
+        "init_vol": "\n      - ./mysql/init:/docker-entrypoint-initdb.d" if role == "master" else "",
+        "repl_flags": "".join("      - %s\n" % f for f in repl_flags),
+    }
+
+
+def _node_redis_blocks(cfg, catalog, role, master_ip):
+    """多机 Redis 节点 compose 块 (每台: redis + sentinel); role: master / replica"""
+    meta = catalog["services"]["redis"]
+    ports = cfg["ports"]
+    replicaof = "--replicaof %(mip)s %(mport)d " % {"mip": master_ip, "mport": ports["redis"]} if role == "replica" else ""
+    return """
+  redis:
+    image: %(image)s
+    container_name: redis
+    restart: always
+    environment:
+      TZ: ${TZ}
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    ports:
+      - "%(port)d:6379"
+    volumes:
+      - ./redis/data:/data
+      - ./redis/log:/var/log/redis
+      - ./redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+    command: redis-server /usr/local/etc/redis/redis.conf --requirepass "${REDIS_PASSWORD}" --masterauth "${REDIS_PASSWORD}" %(replicaof)s
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \\"$$REDIS_PASSWORD\\" ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - app-network
+  redis-sentinel:
+    image: %(image)s
+    container_name: redis-sentinel
+    restart: always
+    environment:
+      TZ: ${TZ}
+    command: redis-server /usr/local/etc/redis/sentinel.conf --sentinel
+    ports:
+      - "%(sentinel_port)d:26379"
+    volumes:
+      - ./redis/sentinel.conf:/usr/local/etc/redis/sentinel.conf:ro
+    networks:
+      - app-network""" % {
+        "image": "%s:%s" % (meta["image"], meta["tag"]),
+        "port": ports["redis"] if role == "master" else ports["redis_replica"],
+        "replicaof": replicaof,
+        "sentinel_port": ports.get("redis_sentinel", 26379),
+    }
+
+
+def gen_proxysql_conf(cfg):
+    """ProxySQL 读写分离配置: 写 -> HG10(主库), 读 -> HG20(从库), SELECT 自动路由到读组"""
+    ports = cfg["ports"]
+    pw = cfg["secrets"].get("MYSQL_ROOT_PASSWORD", "")
+    mh_groups = []
+    for s in ("mysql8", "mysql57"):
+        if is_multihost(cfg, s):
+            mh_groups.append((s, master_server_ip(cfg, s), ports[s],
+                              [(cfg["servers"][i]["ip"], ports["%s_replica" % s])
+                               for i in cfg["multihost"][s]["replicas"]]))
+    srv_lines = []
+    for s, mip, mport, replicas in mh_groups:
+        srv_lines.append('\t\t{address="%s",port=%d,hostgroup=10,max_connections=200},' % (mip, mport))
+        for rip, rport in replicas:
+            srv_lines.append('\t\t{address="%s",port=%d,hostgroup=20,max_connections=200},' % (rip, rport))
+    ver = "8.0.46" if any(s == "mysql8" for s, *_ in mh_groups) else "5.7.44"
+    return """# 由打包器自动生成 (ProxySQL 读写分离, 重新部署时可覆盖)
+datadir="/var/lib/proxysql"
+errorlog="/var/lib/proxysql/proxysql.log"
+admin_variables={
+\tadmin_credentials="admin:admin;admin:admin123"
+\tmysql_ifaces="0.0.0.0:6032"
+}
+mysql_variables={
+\tthreads=4
+\tmax_connections=2048
+\tinterfaces="0.0.0.0:6033"
+\tdefault_schema="information_schema"
+\tstacksize=1048576
+\tserver_version="%s"
+\tconnect_timeout_server=3000
+\tmonitor_username="root"
+\tmonitor_password="%s"
+\tmonitor_connect_interval=2000
+\tmonitor_ping_interval=2000
+\tmonitor_read_only_interval=1500
+\tmysql_servers=(
+%s
+\t)
+\tmysql_replication_hostgroups=(
+\t\t{writer_hostgroup=10,reader_hostgroup=20,check_type="read_only"}
+\t)
+\tmysql_users=(
+\t\t{username="root",password="%s",default_hostgroup=10,active=1}
+\t)
+\tmysql_query_rules=(
+\t\t{rule_id=100,active=1,match_pattern="^\\\\s*SELECT .* FOR UPDATE",destination_hostgroup=10,apply=1},
+\t\t{rule_id=200,active=1,match_pattern="^\\\\s*SELECT\\\\b",destination_hostgroup=20,apply=1},
+\t\t{rule_id=1000,active=1,match_pattern=".*",destination_hostgroup=10,apply=1}
+\t)
+}
+""" % (ver, pw, "\n".join(srv_lines), pw)
+
+
+def _node_backup_files(cfg):
+    """MySQL 主库节点的定时备份配置 (backup.sh 需要: BACKUP_DIR/MYSQL_ENABLED/MYSQL_SERVICES/MYSQL_KEEP/MYSQL_ROOT_PASSWORD)"""
+    b = cfg.get("backup") or {}
+    eng = ((b.get("engines") or {}).get("mysql") or {})
+    if not eng.get("enabled"):
+        return None
+    dow = ",".join(sorted(str(0 if d == 7 else d) for d in (eng.get("days") or [])))
+    return {
+        "BACKUP_DIR": bash_quote(b.get("dir") or "/data/backup/db"),
+        "MYSQL_ENABLED": "1",
+        "MYSQL_SERVICES": '("mysql")',
+        "MYSQL_KEEP": str(int(eng.get("keep", 7))),
+        "MYSQL_ROOT_PASSWORD": bash_quote(cfg["secrets"].get("MYSQL_ROOT_PASSWORD", "")),
+        "CRON": "0 %d * * %s" % (int(eng.get("hour", 3)), dow),
+    }
+
+
+def gen_nodes(cfg, catalog):
+    """多机部署: 按角色生成各节点安装计划(主节点优先, 保证从库安装时主已就绪)。
+    返回 [{name, server, roles, compose, env, images, conf_files, post_sql,
+           health_wait, data_dirs, chown_dirs, port_checks, backup}]"""
+    nodes = []
+    if not has_multihost(cfg):
+        return nodes
+    ports = cfg["ports"]
+    servers = cfg["servers"]
+    acc = {}   # idx -> 计划字典
+
+    def acc_of(idx):
+        if idx not in acc:
+            acc[idx] = {
+                "name": servers[idx]["name"], "server": servers[idx], "roles": [],
+                "compose_parts": [], "env_keys": set(), "images": [], "conf_files": {},
+                "post_sql": [], "health_wait": [], "data_dirs": [], "chown_dirs": [],
+                "port_checks": [], "backup": None,
+            }
+        return acc[idx]
+
+    def add_image(plan, svc_or_key, rel, short):
+        plan["images"].append(("%s-%s.tar" % (svc_or_key, cfg["arch"]), rel, short))
+
+    # ---- Kafka 节点 ----
+    if is_multihost(cfg, "kafka"):
+        kc = PLUGINS["kafka"].CLUSTER
+        for n, idx in enumerate(cfg["multihost"]["kafka"]["brokers"]):
+            p = acc_of(idx)
+            p["roles"].append("kafka#broker%d" % (n + 1))
+            p["compose_parts"].append(_node_kafka_block(cfg, ports, idx, n))
+            p["env_keys"].add("KAFKA_PASSWORD")
+            p["images"].append(("kafka-%s.tar" % cfg["arch"], kc["images"][cfg["arch"]],
+                                "%s:%s" % (kc["image"], kc["tag"])))
+            p["health_wait"].append("kafka")
+            p["data_dirs"].append("kafka/data")
+            p["port_checks"] += [ports["kafka_mh_inter"], ports["kafka_mh_ctrl"], ports["kafka_mh_sasl"]]
+
+    # ---- MySQL 节点 (主节点先于从库, 由 distribute 按计划顺序执行) ----
+    for s in ("mysql8", "mysql57"):
+        if not is_multihost(cfg, s):
+            continue
+        meta = catalog["services"][s]
+        mh = cfg["multihost"][s]
+        # 主库
+        p = acc_of(mh["master"])
+        p["roles"].append("%s#master" % s)
+        p["compose_parts"].append(_node_mysql_block(cfg, catalog, s, "master"))
+        p["env_keys"].add("MYSQL_ROOT_PASSWORD")
+        p["images"].append(("%s-%s.tar" % (s, cfg["arch"]), meta["images"][cfg["arch"]],
+                            "%s:%s" % (meta["image"], meta["tag"])))
+        p["conf_files"]["conf/mysql/my.cnf"] = TPL_DIR / "mysql-my.cnf"
+        p["health_wait"].append("mysql")
+        p["data_dirs"] += ["mysql/data", "mysql/log"]
+        p["chown_dirs"].append("mysql/log")
+        p["port_checks"].append(ports[s])
+        # 主库建 repl 账号 (幂等)
+        pw = cfg["secrets"].get("MYSQL_ROOT_PASSWORD", "")
+        p["post_sql"].append(("mysql",
+            "CREATE USER IF NOT EXISTS 'repl'@'%%' IDENTIFIED BY '%s'; "
+            "ALTER USER 'repl'@'%%' IDENTIFIED BY '%s'; "
+            "GRANT REPLICATION SLAVE, REPLICATION CLIENT ON *.* TO 'repl'@'%%'; FLUSH PRIVILEGES;" % (pw, pw)))
+        p["backup"] = _node_backup_files(cfg)
+        # 从库 (每台一个)
+        for r, idx in enumerate(mh["replicas"]):
+            rp = acc_of(idx)
+            rp["roles"].append("%s#replica%d" % (s, r + 1))
+            rp["compose_parts"].append(_node_mysql_block(cfg, catalog, s, "replica", r))
+            rp["env_keys"].add("MYSQL_ROOT_PASSWORD")
+            rp["images"].append(("%s-%s.tar" % (s, cfg["arch"]), meta["images"][cfg["arch"]],
+                                 "%s:%s" % (meta["image"], meta["tag"])))
+            rp["conf_files"]["conf/mysql/my.cnf"] = TPL_DIR / "mysql-my.cnf"
+            rp["health_wait"].append("mysql")
+            rp["data_dirs"] += ["mysql/data", "mysql/log"]
+            rp["chown_dirs"].append("mysql/log")
+            rp["port_checks"].append(ports["%s_replica" % s])
+            master_ip = servers[mh["master"]]["ip"]
+            mport = ports[s]
+            if s == "mysql8":
+                sql = ("CHANGE REPLICATION SOURCE TO SOURCE_HOST='%s', SOURCE_PORT=%d, SOURCE_USER='repl', "
+                       "SOURCE_PASSWORD='%s', SOURCE_AUTO_POSITION=1, GET_MASTER_PUBLIC_KEY=1; START REPLICA;") % (master_ip, mport, pw)
+            else:
+                sql = ("CHANGE MASTER TO MASTER_HOST='%s', MASTER_PORT=%d, MASTER_USER='repl', "
+                       "MASTER_PASSWORD='%s', MASTER_AUTO_POSITION=1; START SLAVE;") % (master_ip, mport, pw)
+            rp["post_sql"].append(("mysql", sql))
+
+    # ---- Redis 哨兵节点 ----
+    if is_multihost(cfg, "redis"):
+        meta = catalog["services"]["redis"]
+        mh = cfg["multihost"]["redis"]
+        master_ip = servers[mh["master"]]["ip"]
+        mport = ports["redis"]
+        # 主库机
+        p = acc_of(mh["master"])
+        p["roles"].append("redis#master")
+        p["compose_parts"].append(_node_redis_blocks(cfg, catalog, "master", master_ip))
+        p["env_keys"].add("REDIS_PASSWORD")
+        p["images"].append(("redis-%s.tar" % cfg["arch"], meta["images"][cfg["arch"]],
+                            "%s:%s" % (meta["image"], meta["tag"])))
+        p["conf_files"]["conf/redis/redis.conf"] = TPL_DIR / "redis.conf"
+        p["conf_files"]["conf/redis/sentinel.conf"] = _node_sentinel_conf(cfg, master_ip, mport, master_ip)
+        p["health_wait"] += ["redis", "redis-sentinel"]
+        p["data_dirs"] += ["redis/data", "redis/log"]
+        p["chown_dirs"] += ["redis/log", "redis/sentinel.conf:999"]
+        p["port_checks"] += [ports["redis"], ports.get("redis_sentinel", 26379)]
+        # 从库机 (2 台)
+        for r, idx in enumerate(mh["replicas"]):
+            rp = acc_of(idx)
+            rp["roles"].append("redis#replica%d" % (r + 1))
+            rp["compose_parts"].append(_node_redis_blocks(cfg, catalog, "replica", master_ip))
+            rp["env_keys"].add("REDIS_PASSWORD")
+            rp["images"].append(("redis-%s.tar" % cfg["arch"], meta["images"][cfg["arch"]],
+                                 "%s:%s" % (meta["image"], meta["tag"])))
+            rp["conf_files"]["conf/redis/redis.conf"] = TPL_DIR / "redis.conf"
+            rp["conf_files"]["conf/redis/sentinel.conf"] = _node_sentinel_conf(cfg, master_ip, mport,
+                                                                               servers[idx]["ip"])
+            rp["health_wait"] += ["redis", "redis-sentinel"]
+            rp["data_dirs"] += ["redis/data", "redis/log"]
+            rp["chown_dirs"] += ["redis/log", "redis/sentinel.conf:999"]
+            rp["port_checks"] += [ports["redis_replica"], ports.get("redis_sentinel", 26379)]
+
+    # ---- 组装 (主节点优先: mysql master > redis master > kafka > 其余) ----
+    def role_rank(idx):
+        r = acc[idx]["roles"]
+        if any(x.endswith("#master") for x in r):
+            return 0
+        if any(x.startswith("kafka") for x in r):
+            return 1
+        return 2
+
+    for idx in sorted(acc, key=role_rank):
+        p = acc[idx]
+        p["compose"] = ("# 由 packer.py 自动生成 (多机节点: %s)\nname: %s-%s\n\nservices:\n" % (
+            p["name"], cfg["project"], p["name"])) + "\n".join(p["compose_parts"]) + \
+            "\n\nnetworks:\n  app-network:\n    driver: bridge\n"
+        env = ["# 由 packer.py 自动生成 (权限600, 节点 %s)" % p["name"], "TZ=Asia/Shanghai"]
+        if "MYSQL_ROOT_PASSWORD" in p["env_keys"]:
+            env.append("MYSQL_ROOT_PASSWORD=%s" % env_quote(cfg["secrets"]["MYSQL_ROOT_PASSWORD"]))
+        if "REDIS_PASSWORD" in p["env_keys"]:
+            env.append("REDIS_PASSWORD=%s" % env_quote(cfg["secrets"]["REDIS_PASSWORD"]))
+        if "KAFKA_PASSWORD" in p["env_keys"]:
+            env.append("KAFKA_PASSWORD=%s" % env_quote(cfg["secrets"]["KAFKA_PASSWORD"]))
+        p["env"] = "\n".join(env) + "\n"
+        p["summary"] = ["%s  %s@%s (SSH %d)" % (p["name"], p["server"]["user"], p["server"]["ip"], p["server"]["ssh"])
+                        + "  角色: " + ", ".join(p["roles"])]
+        nodes.append(p)
+    return nodes
+
+
+def _node_sentinel_conf(cfg, master_ip, master_port, self_ip):
+    """多机哨兵配置: monitor 指向主库节点 IP, announce 本机 IP 供对端/客户端回连"""
+    port = cfg["ports"].get("redis_sentinel", 26379)
+    pw = cfg["secrets"].get("REDIS_PASSWORD", "")
+    return ("# 由打包器生成 (多机哨兵, 重新部署时自动覆盖)\n"
+            "port 26379\n"
+            "sentinel monitor mymaster %s %d 2\n"
+            "sentinel auth-pass mymaster %s\n"
+            "sentinel down-after-milliseconds mymaster 5000\n"
+            "sentinel failover-timeout mymaster 60000\n"
+            "sentinel parallel-syncs mymaster 1\n"
+            "sentinel announce-ip %s\n"
+            "sentinel announce-port %d\n" % (master_ip, master_port, pw, self_ip, port))
+
+
+def gen_node_install_sh(cfg, node):
+    """生成单节点安装脚本 (自包含: load 镜像 -> compose up -> 健康等待 -> 初始化 SQL -> 备份 crontab)"""
+    b = node.get("backup")
+    backup_cron = b["CRON"] if b else ""
+    backup_lines = ""
+    if b:
+        backup_lines = "\n".join([
+            "BACKUP_DIR=%s" % b["BACKUP_DIR"],
+            "MYSQL_ENABLED=%s" % b["MYSQL_ENABLED"],
+            "MYSQL_SERVICES=%s" % b["MYSQL_SERVICES"],
+            "MYSQL_KEEP=%s" % b["MYSQL_KEEP"],
+            "MYSQL_ROOT_PASSWORD=%s" % b["MYSQL_ROOT_PASSWORD"],
+        ])
+    post_sql = "|".join("%s|%s" % (cn, sql) for cn, sql in node["post_sql"])
+    return """#!/usr/bin/env bash
+# 由 packer.py 自动生成 — 节点 %(name)s 安装脚本 (自包含, 可重复执行)
+set -euo pipefail
+cd "$(dirname "$0")"
+NODE_NAME=%(name)s
+HEALTH_WAIT=(%(health_wait)s)
+POST_SQL=(%(post_sql)s)
+BACKUP_CRON=%(backup_cron)s
+
+log(){ printf '[node-%%s] %%s\\n' "$NODE_NAME" "$*"; }
+die(){ printf '[node-%%s] 错误: %%s\\n' "$NODE_NAME" "$*" >&2; exit 1; }
+
+command -v docker >/dev/null 2>&1 || die "本机未安装 Docker, 请先安装 Docker 再执行"
+docker compose version >/dev/null 2>&1 || docker-compose version >/dev/null 2>&1 \\
+  || die "缺少 Docker Compose, 请先安装"
+
+set -a; source ./.env; set +a
+
+log "加载节点镜像..."
+for tar in images/*.tar; do
+  [ -f "$tar" ] || { log "无镜像文件"; break; }
+  docker load -i "$tar" >/dev/null && log "  $(basename "$tar") 已加载"
+done
+
+log "启动容器..."
+if docker compose version >/dev/null 2>&1; then
+  docker compose up -d
+else
+  docker-compose up -d
+fi
+
+log "等待容器健康 (最长 10 分钟)..."
+for cn in "${HEALTH_WAIT[@]}"; do
+  for i in $(seq 1 120); do
+    st="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$cn" 2>/dev/null || echo missing)"
+    case "$st" in healthy|running) break;; esac
+    [ "$i" = 120 ] && die "$cn 健康检查超时 (当前状态: $st)"
+    sleep 5
+  done
+  log "  $cn 就绪 ($st)"
+done
+
+if [ "${#POST_SQL[@]}" -gt 0 ] && [ -n "${POST_SQL[0]}" ]; then
+  log "执行初始化 SQL..."
+  for entry in "${POST_SQL[@]}"; do
+    cn="${entry%%|*}"; sql="${entry#*|}"
+    docker exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" "$cn" mysql -uroot -e "$sql" \\
+      || die "初始化 SQL 执行失败: ${sql:0:60}..."
+    log "  $cn SQL 完成"
+  done
+fi
+
+if [ -n "$BACKUP_CRON" ] && [ -f backup.sh ] && [ -f backup.conf ]; then
+  log "配置定时备份: $BACKUP_CRON"
+  chmod +x backup.sh && chmod 600 backup.conf
+  INST_DIR="$(pwd)"
+  CRON_LINE="$BACKUP_CRON /bin/bash $INST_DIR/backup.sh >> $INST_DIR/backup.log 2>&1"
+  (crontab -l 2>/dev/null | grep -vF "$INST_DIR/backup.sh" ; echo "$CRON_LINE") | crontab -
+  mkdir -p "$BACKUP_DIR"
+fi
+
+log "节点 $NODE_NAME 安装完成"
+docker compose ps --format 'table {{.Name}}\\t{{.Status}}' 2>/dev/null || docker ps
+""" % {
+        "name": bash_quote(node["name"]),
+        "health_wait": " ".join(bash_quote(n) for n in node["health_wait"]),
+        "post_sql": " ".join(bash_quote(post_sql)) if node["post_sql"] else '""',
+        "backup_cron": bash_quote(backup_cron),
+        "backup_lines": backup_lines,
+    }
+
+
+def gen_distribute_sh(cfg, nodes, catalog):
+    """生成主部署机分发脚本: 预检 -> (可选装 compose) -> tar 管道传输 -> 远程安装"""
+    arch = cfg["arch"]
+    pkg_sub = "x86_64" if arch == "amd64" else "aarch64"
+    nodes_str = " ".join(bash_quote("%s|%s|%s|%d" % (n["name"], n["server"]["user"], n["server"]["ip"], n["server"]["ssh"]))
+                         for n in nodes)
+    return """#!/usr/bin/env bash
+# 由 packer.py 自动生成 — 多机节点分发安装 (在主部署机上执行)
+# 用法: ./distribute.sh            分发全部节点 (按主节点优先顺序)
+#       ./distribute.sh node2 ...  只分发指定节点 (重装/补发)
+set -uo pipefail
+cd "$(dirname "$0")"
+NODES=(%(nodes)s)
+DEPLOY_DIR=%(deploy_dir)s
+COMPOSE_BIN="packages/%(pkg_sub)s/docker-compose-linux-%(pkg_sub)s"
+FAILED=()
+
+log(){ printf '\\033[32m[distribute]\\033[0m %%s\\n' "$*"; }
+warn(){ printf '\\033[33m[distribute]\\033[0m %%s\\n' "$*"; }
+
+[ ${#NODES[@]} -gt 0 ] || { echo "无多机节点, 无需分发"; exit 0; }
+
+ONLY=("$@")
+for NODE in "${NODES[@]}"; do
+  IFS='|' read -r NAME RUSER RIP RSSH <<< "$NODE"
+  if [ ${#ONLY[@]} -gt 0 ]; then
+    keep=0; for o in "${ONLY[@]}"; do [ "$o" = "$NAME" ] && keep=1; done
+    [ $keep -eq 0 ] && continue
+  fi
+  log "[$NAME] 预检 $RUSER@$RIP:$RSSH ..."
+  if ! ssh -p "$RSSH" -o BatchMode=yes -o ConnectTimeout=8 "$RUSER@$RIP" \\
+      "command -v docker >/dev/null 2>&1" 2>/dev/null; then
+    warn "[$NAME] SSH 免密不通或未安装 Docker, 已跳过 (请检查 ssh-copy-id 与 Docker 安装)"
+    FAILED+=("$NAME"); continue
+  fi
+  if ! ssh -p "$RSSH" -o BatchMode=yes "$RUSER@$RIP" \\
+      "docker compose version >/dev/null 2>&1 || docker-compose version >/dev/null 2>&1" 2>/dev/null; then
+    log "[$NAME] 节点缺少 compose, 从包内安装二进制..."
+    if scp -P "$RSSH" -q "$COMPOSE_BIN" "$RUSER@$RIP:/tmp/mw-compose" \\
+        && ssh -p "$RSSH" "$RUSER@$RIP" "mkdir -p ~/.local/bin && mv /tmp/mw-compose ~/.local/bin/docker-compose && chmod +x ~/.local/bin/docker-compose"; then
+      ssh -p "$RSSH" "$RUSER@$RIP" "export PATH=\\$HOME/.local/bin:\\$PATH; docker-compose version >/dev/null 2>&1" \\
+        || warn "[$NAME] compose 二进制已放置于 ~/.local/bin, 若 PATH 未包含请手动处理"
+    else
+      warn "[$NAME] compose 传输失败, 继续尝试安装"
+    fi
+  fi
+  log "[$NAME] 传输节点包 -> $DEPLOY_DIR ..."
+  ssh -p "$RSSH" "$RUSER@$RIP" "mkdir -p '$DEPLOY_DIR'" || { FAILED+=("$NAME"); continue; }
+  tar czf - -C "nodes/$NAME" . | ssh -p "$RSSH" "$RUSER@$RIP" "tar xzf - -C '$DEPLOY_DIR'" \\
+    || { warn "[$NAME] 传输失败"; FAILED+=("$NAME"); continue; }
+  log "[$NAME] 执行节点安装..."
+  if ssh -p "$RSSH" "$RUSER@$RIP" "cd '$DEPLOY_DIR' && PATH=\\$HOME/.local/bin:\\$PATH bash install-node.sh"; then
+    log "[$NAME] 完成"
+  else
+    warn "[$NAME] 安装脚本执行失败, 请登录节点查看日志"
+    FAILED+=("$NAME")
+  fi
+done
+
+echo ""
+if [ ${#FAILED[@]} -gt 0 ]; then
+  warn "以下节点未成功安装: ${FAILED[*]}"
+  warn "修复后可重跑: ./distribute.sh ${FAILED[*]}"
+  exit 1
+fi
+log "全部节点安装完成"
+""" % {
+        "nodes": nodes_str,
+        "deploy_dir": bash_quote(cfg["deploy_dir"]),
+        "pkg_sub": pkg_sub,
+    }
 
 
 # ---------------------------------------------------------------- nginx 反代配置生成
@@ -1482,6 +2305,10 @@ def gen_nginx_confs(cfg, catalog):
 # ---------------------------------------------------------------- compose 静态校验(本机有 docker 才执行)
 
 def validate_compose_with_docker(compose_text, env_text):
+    # 纯多机部署时主部署机可能没有任何服务(compose 仅骨架), 跳过校验
+    body = compose_text.split("services:", 1)
+    if len(body) == 2 and not re.search(r"^  \S", body[1].split("\nnetworks:", 1)[0], re.M):
+        return []
     docker = shutil.which("docker")
     if not docker:
         return ["本机未安装 docker, 跳过 docker compose config 校验(服务器端 deploy.sh 启动前也会校验)"]
@@ -1626,6 +2453,7 @@ def pack(cfg, catalog, out_dir=None, progress=None):
     project = cfg["project"]
     arch = cfg["arch"]
     needs_client, client_img = resolve_db(cfg)
+    nodes = gen_nodes(cfg, catalog)   # 多机节点安装计划(主节点优先)
 
     bundle_name = "%s-%s-%s-offline" % (project, "x86" if arch == "amd64" else "arm",
                                         datetime.now().strftime("%Y%m%d-%H%M"))
@@ -1643,6 +2471,9 @@ def pack(cfg, catalog, out_dir=None, progress=None):
     ]
     for fname, rel, _ in gen_images_txt(cfg, catalog):
         big_files.append(("%s/images/%s" % (bundle_name, fname), BASE_DIR / rel))
+    for nd in nodes:   # 多机节点镜像(随节点分发)
+        for fname, rel, _ in nd["images"]:
+            big_files.append(("%s/nodes/%s/images/%s" % (bundle_name, nd["name"], fname), BASE_DIR / rel))
     total_bytes = sum(p.stat().st_size for _, p in big_files)
 
     prog.begin(total_bytes)
@@ -1683,7 +2514,7 @@ def pack(cfg, catalog, out_dir=None, progress=None):
                 conf_files["conf/nginx/ssl/%s/privkey.pem" % rel] = s["key_pem"]
     if "redis" in cfg["services"]:
         conf_files["conf/redis/redis.conf"] = TPL_DIR / "redis.conf"
-        if (cfg.get("topology") or {}).get("redis") == "sentinel":
+        if (cfg.get("topology") or {}).get("redis") == "sentinel" and not is_multihost(cfg, "redis"):
             _rp = cfg["secrets"].get("REDIS_PASSWORD", "")
             conf_files["conf/redis/sentinel.conf"] = (
                 "# 由打包器生成 (Redis 哨兵配置, 重新部署时自动覆盖)\n"
@@ -1697,13 +2528,19 @@ def pack(cfg, catalog, out_dir=None, progress=None):
                 "sentinel failover-timeout mymaster 60000\n"
                 "sentinel parallel-syncs mymaster 1\n" % _rp)
 
-    # MySQL 配置文件挂载出来(容器内 /etc/mysql/conf.d/my.cnf), 主库/从库各一份
+    # MySQL 配置文件挂载出来(容器内 /etc/mysql/conf.d/my.cnf), 主库/从库各一份; 多机时在节点包内
     if "mysql8" in cfg["services"] or "mysql57" in cfg["services"]:
         for _ms in ("mysql8", "mysql57"):
-            if _ms in cfg["services"]:
+            if _ms in cfg["services"] and not is_multihost(cfg, _ms):
                 conf_files["conf/%s/my.cnf" % _ms] = TPL_DIR / "mysql-my.cnf"
                 if (cfg.get("topology") or {}).get(_ms) == "master-slave":
                     conf_files["conf/%s-replica/my.cnf" % _ms] = TPL_DIR / "mysql-my.cnf"
+                    if (cfg.get("replicas") or {}).get(_ms, 1) == 2:
+                        conf_files["conf/%s-replica2/my.cnf" % _ms] = TPL_DIR / "mysql-my.cnf"
+
+    # ProxySQL 读写分离配置(可选组件)
+    if (cfg.get("features") or {}).get("proxysql"):
+        conf_files["conf/proxysql/proxysql.cnf"] = gen_proxysql_conf(cfg)
 
     # ---- 插件附带的配置文件(可选 conf_files 钩子) ----
     for s in cfg["services"]:
@@ -1717,6 +2554,8 @@ def pack(cfg, catalog, out_dir=None, progress=None):
     env_text = gen_env(cfg, catalog)
     manifest_text = gen_manifest_sh(cfg, catalog, client_img, summary_lines, bundle_name=bundle_name)
     warns += validate_compose_with_docker(compose_text, env_text)
+    for nd in nodes:   # 节点 compose 同样过一遍 docker 校验
+        warns += validate_compose_with_docker(nd["compose"], nd["env"])
 
     images = gen_images_txt(cfg, catalog)
     images_txt = "# tar文件|统一短名\n" + "".join("%s|%s\n" % (f, short) for f, _, short in images)
@@ -1730,6 +2569,11 @@ def pack(cfg, catalog, out_dir=None, progress=None):
         "proxies": cfg.get("proxies") or [],
         "backup": cfg.get("backup") or {},
         "mysql_client_image": client_img,
+        "servers": cfg.get("servers") or [],
+        "multihost": cfg.get("multihost") or {},
+        "replicas": cfg.get("replicas") or {},
+        "features": cfg.get("features") or {},
+        "nodes": [{"name": n["name"], "ip": n["server"]["ip"], "roles": n["roles"]} for n in nodes],
     }
 
     readme = BUNDLE_README.format(bundle=bundle_name, deploy_dir=cfg["deploy_dir"],
@@ -1762,6 +2606,39 @@ def pack(cfg, catalog, out_dir=None, progress=None):
     # 一键卸载脚本: 始终随包提供 (停容器→可选删数据卷→清 crontab→保留物料)
     small_files.append(("%s/uninstall.sh" % bundle_name,
                         (TPL_DIR / "uninstall.sh").read_text(encoding="utf-8").encode("utf-8"), 0o755))
+
+    # ---- 多机节点产物 ----
+    if nodes:
+        for nd in nodes:
+            base = "%s/nodes/%s" % (bundle_name, nd["name"])
+            node_compose = nd["compose"]
+            small_files.append(("%s/install-node.sh" % base,
+                                gen_node_install_sh(cfg, nd).encode("utf-8"), 0o755))
+            small_files.append(("%s/docker-compose.yml" % base, node_compose.encode("utf-8"), 0o644))
+            small_files.append(("%s/.env" % base, nd["env"].encode("utf-8"), 0o600))
+            small_files.append(("%s/images.txt" % base,
+                                ("# tar文件|统一短名\n" + "".join("%s|%s\n" % (f, s) for f, _, s in nd["images"])).encode("utf-8"),
+                                0o644))
+            small_files.append(("%s/uninstall.sh" % base,
+                                (TPL_DIR / "uninstall.sh").read_text(encoding="utf-8").encode("utf-8"), 0o755))
+            for rel, src in nd["conf_files"].items():
+                data = src.read_text(encoding="utf-8") if isinstance(src, Path) else src
+                small_files.append(("%s/%s" % (base, rel), data.encode("utf-8"), 0o644))
+            if nd.get("backup"):
+                small_files.append(("%s/backup.sh" % base,
+                                    (TPL_DIR / "backup.sh").read_text(encoding="utf-8").encode("utf-8"), 0o755))
+                small_files.append(("%s/backup.conf" % base,
+                                    ("\n".join(["# 由 packer.py 自动生成 (节点备份配置)",
+                                                "BACKUP_DIR=%s" % nd["backup"]["BACKUP_DIR"],
+                                                "MYSQL_ENABLED=%s" % nd["backup"]["MYSQL_ENABLED"],
+                                                "MYSQL_SERVICES=%s" % nd["backup"]["MYSQL_SERVICES"],
+                                                "MYSQL_KEEP=%s" % nd["backup"]["MYSQL_KEEP"],
+                                                "MYSQL_ROOT_PASSWORD=%s" % nd["backup"]["MYSQL_ROOT_PASSWORD"]]) + "\n").encode("utf-8"),
+                                    0o600))
+        small_files.append(("%s/distribute.sh" % bundle_name,
+                            gen_distribute_sh(cfg, nodes, catalog).encode("utf-8"), 0o755))
+        warns += ["多机部署: 打包完成后请检查 nodes/ 各节点配置, 在主部署机执行 ./distribute.sh 分发安装"
+                  "|Multi-host: review nodes/ configs, then run ./distribute.sh on the main host"]
     total_bytes += sum(len(d) for _, d, _ in small_files)
     prog.set_total(total_bytes)
 
@@ -2074,6 +2951,7 @@ def make_handler(catalog):
                     cfg2, warns = validate_config(dict(cfg), catalog)
                     compose = gen_compose(cfg2, catalog)
                     env = gen_env(cfg2, catalog)
+                    _nodes = gen_nodes(cfg2, catalog)
                     self._send_json({
                         "compose": compose,
                         "env": env,
@@ -2082,6 +2960,11 @@ def make_handler(catalog):
                                                     build_summary_lines(cfg2, catalog)),
                         "summary_lines": build_summary_lines(cfg2, catalog),
                         "images": [i[0] for i in gen_images_txt(cfg2, catalog)],
+                        "nodes": [{"name": n["name"], "ip": n["server"]["ip"],
+                                   "user": n["server"]["user"], "ssh": n["server"]["ssh"],
+                                   "roles": n["roles"],
+                                   "images": [i[0] for i in n["images"]]} for n in _nodes],
+                        "proxysql_conf": gen_proxysql_conf(cfg2) if (cfg2.get("features") or {}).get("proxysql") else "",
                         "backup_crons": ["%s %s" % (cron, eng) for eng, cron in backup_crons(cfg2.get("backup") or {})],
                         "warnings": warns + validate_compose_with_docker(compose, env),
                     })

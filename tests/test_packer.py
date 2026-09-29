@@ -294,3 +294,151 @@ def test_catalog_response_shape(catalog):
     # 监控套件包含 alertmanager (告警链路)
     metrics = next(s for s in resp["suites"] if s["key"] == "metrics")
     assert "alertmanager" in metrics["members"]
+
+
+# ---------------------------------------------------------------- 多机部署
+
+def _mh_cfg(services, topology, multihost, servers=None, **kw):
+    return make_cfg(None, services=services, topology=topology,
+                    servers=servers if servers is not None else [
+                        {"name": "node%d" % i, "user": "root", "ip": "10.0.0.1%d" % i, "ssh": 22}
+                        for i in (1, 2, 3, 4, 5)],
+                    multihost=multihost,
+                    replicas=kw.pop("replicas", {}), features=kw.pop("features", {}), **kw)
+
+
+def test_multihost_kafka_5nodes(catalog):
+    cfg = _mh_cfg(["kafka", "kafka-ui"], {"kafka": "cluster"},
+                  {"kafka": {"enabled": True, "count": 5, "brokers": [0, 1, 2, 3, 4]}})
+    cfg, _ = packer.validate_config(cfg, catalog)
+    compose = packer.gen_compose(cfg, catalog)
+    assert "kafka_mh_inter" in cfg["ports"]
+    # 主 compose 不含 kafka 容器, kafka-ui bootstrap 指向节点 IP
+    assert "container_name: kafka1" not in compose
+    assert "10.0.0.11:9092,10.0.0.12:9092" in compose
+    # 节点产物: voters / advertised / 端口映射
+    nodes = packer.gen_nodes(cfg, catalog)
+    assert len(nodes) == 5
+    n1 = nodes[0]
+    assert n1["roles"] == ["kafka#broker1"]
+    assert "KAFKA_CFG_NODE_ID: 1" in n1["compose"]
+    assert "1@10.0.0.11:9093,2@10.0.0.12:9093,3@10.0.0.13:9093" in n1["compose"]
+    assert "INTERNAL://10.0.0.11:9092" in n1["compose"]
+    assert '"9092:9092"' in n1["compose"]
+    assert n1["health_wait"] == ["kafka"]
+    # 主包 images.txt 排除 kafka 镜像
+    imgs = [f for f, _, _ in packer.gen_images_txt(cfg, catalog)]
+    assert "kafka-amd64.tar" not in imgs            # bitnami broker 镜像随节点分发
+    assert "kafka-ui-amd64.tar" in imgs             # kafka-ui 仍在主部署机
+    # manifest 标记
+    mf = packer.gen_manifest_sh(cfg, catalog, "", [])
+    assert "KAFKA_MULTIHOST=1" in mf and "NODES_COUNT=5" in mf
+
+
+def test_multihost_mysql_replication_sql(catalog):
+    cfg = _mh_cfg(["mysql8", "mysql57"], {"mysql8": "master-slave", "mysql57": "master-slave"},
+                  {"mysql8": {"enabled": True, "master": 0, "replicas": [1]},
+                   "mysql57": {"enabled": True, "master": 2, "replicas": [3]}})
+    cfg, _ = packer.validate_config(cfg, catalog)
+    nodes = {n["server"]["ip"]: n for n in packer.gen_nodes(cfg, catalog)}
+    n2 = nodes["10.0.0.12"]   # mysql8 从库
+    assert any("CHANGE REPLICATION SOURCE TO SOURCE_HOST='10.0.0.11', SOURCE_PORT=%d" % cfg["ports"]["mysql8"]
+               in sql for _, sql in n2["post_sql"])
+    n4 = nodes["10.0.0.14"]   # mysql57 从库: 5.7 语法
+    assert any("CHANGE MASTER TO MASTER_HOST='10.0.0.13'" in sql for _, sql in n4["post_sql"])
+    n1 = nodes["10.0.0.11"]   # 主库: 建 repl 账号
+    assert any("GRANT REPLICATION SLAVE" in sql for _, sql in n1["post_sql"])
+    # 主 compose 不含 mysql 容器; manifest 跳过复制配置
+    compose = packer.gen_compose(cfg, catalog)
+    assert "container_name: mysql8" not in compose and "container_name: mysql57" not in compose
+    assert "MYSQL_MULTIHOST=1" in packer.gen_manifest_sh(cfg, catalog, "", [])
+
+
+def test_multihost_mysql_single_machine_two_replicas(catalog):
+    cfg = _mh_cfg(["mysql8"], {"mysql8": "master-slave"}, {}, replicas={"mysql8": 2})
+    cfg, _ = packer.validate_config(cfg, catalog)
+    compose = packer.gen_compose(cfg, catalog)
+    assert "container_name: mysql8-replica" in compose
+    assert "container_name: mysql8-replica2" in compose
+    assert "--server-id=2" in compose and "--server-id=3" in compose
+    assert cfg["ports"]["mysql8_replica2"] == 13310
+
+
+def test_multihost_redis_sentinel(catalog):
+    cfg = _mh_cfg(["redis"], {"redis": "sentinel"},
+                  {"redis": {"enabled": True, "master": 0, "replicas": [1, 2]}})
+    cfg, _ = packer.validate_config(cfg, catalog)
+    nodes = {n["server"]["ip"]: n for n in packer.gen_nodes(cfg, catalog)}
+    n2 = nodes["10.0.0.12"]
+    assert "--replicaof 10.0.0.11 %d" % cfg["ports"]["redis"] in n2["compose"]
+    assert "redis-sentinel" in n2["compose"]
+    sent = n2["conf_files"]["conf/redis/sentinel.conf"]
+    assert "sentinel monitor mymaster 10.0.0.11 %d 2" % cfg["ports"]["redis"] in sent
+    assert "sentinel announce-ip 10.0.0.12" in sent
+    # 主 compose 不含 redis 容器
+    assert "container_name: redis\n" not in packer.gen_compose(cfg, catalog)
+
+
+def test_multihost_proxysql_conf(catalog):
+    cfg = _mh_cfg(["mysql8"], {"mysql8": "master-slave"},
+                  {"mysql8": {"enabled": True, "master": 0, "replicas": [1, 2]}},
+                  features={"proxysql": True})
+    cfg, _ = packer.validate_config(cfg, catalog)
+    conf = packer.gen_proxysql_conf(cfg)
+    assert '{address="10.0.0.11",port=%d,hostgroup=10' % cfg["ports"]["mysql8"] in conf
+    assert 'hostgroup=20' in conf
+    assert 'default_hostgroup=10' in conf
+    assert 'match_pattern' in conf   # 读写分流规则
+    compose = packer.gen_compose(cfg, catalog)
+    assert "container_name: proxysql" in compose
+    imgs = [f for f, _, _ in packer.gen_images_txt(cfg, catalog)]
+    assert any("proxysql" in i for i in imgs)
+
+
+def test_multihost_validation_errors(catalog):
+    # IP 重复
+    cfg = _mh_cfg(["kafka"], {"kafka": "cluster"},
+                  {"kafka": {"enabled": True, "count": 3, "brokers": [0, 1, 2]}},
+                  servers=[{"ip": "10.0.0.11"}, {"ip": "10.0.0.11"}, {"ip": "10.0.0.13"}])
+    with pytest.raises(packer.PackError, match="重复"):
+        packer.validate_config(cfg, catalog)
+    # IP 非法
+    cfg = _mh_cfg(["kafka"], {"kafka": "cluster"},
+                  {"kafka": {"enabled": True, "count": 3, "brokers": [0, 1, 2]}},
+                  servers=[{"ip": "999.1.1.1"}, {"ip": "10.0.0.12"}, {"ip": "10.0.0.13"}])
+    with pytest.raises(packer.PackError, match="IP"):
+        packer.validate_config(cfg, catalog)
+    # 主从同机
+    cfg = _mh_cfg(["mysql8"], {"mysql8": "master-slave"},
+                  {"mysql8": {"enabled": True, "master": 0, "replicas": [0, 1]}})
+    with pytest.raises(packer.PackError):
+        packer.validate_config(cfg, catalog)
+    # broker 数量与节点数不符
+    cfg = _mh_cfg(["kafka"], {"kafka": "cluster"},
+                  {"kafka": {"enabled": True, "count": 3, "brokers": [0, 1, 1]}})
+    with pytest.raises(packer.PackError):
+        packer.validate_config(cfg, catalog)
+    # redis 多机必须 1 主 2 从
+    cfg = _mh_cfg(["redis"], {"redis": "sentinel"},
+                  {"redis": {"enabled": True, "master": 0, "replicas": [1]}})
+    with pytest.raises(packer.PackError):
+        packer.validate_config(cfg, catalog)
+
+
+def test_multihost_distribute_and_install_scripts(catalog):
+    cfg = _mh_cfg(["redis"], {"redis": "sentinel"},
+                  {"redis": {"enabled": True, "master": 0, "replicas": [1, 2]}})
+    cfg, _ = packer.validate_config(cfg, catalog)
+    nodes = packer.gen_nodes(cfg, catalog)
+    dist = packer.gen_distribute_sh(cfg, nodes, catalog)
+    assert "node1|root|10.0.0.11|22" in dist
+    assert "node2|root|10.0.0.12|22" in dist
+    assert 'tar czf - -C "nodes/$NAME"' in dist
+    inst = packer.gen_node_install_sh(cfg, nodes[0])
+    assert "docker load" in inst and "docker compose up -d" in inst
+    assert "BACKUP_CRON" in inst
+    bash = _find_bash()
+    r = subprocess.run([bash, "-n"], input=dist.encode(), capture_output=True)
+    assert r.returncode == 0, r.stderr.decode(errors="replace")
+    r = subprocess.run([bash, "-n"], input=inst.encode(), capture_output=True)
+    assert r.returncode == 0, r.stderr.decode(errors="replace")

@@ -662,6 +662,34 @@ import_sql_local() { # 本地库: 在 compose up 且 MySQL 健康之后兜底导
   local svc sql schema cnt
   log "初始化本地数据库(幂等, 已导入过自动跳过)"
 
+  if [ "${MYSQL_MULTIHOST:-0}" = "1" ]; then
+    # 多机 MySQL: 主库在远端节点, 主部署机用客户端镜像走网络导入
+    [ -n "$MYSQL_CLIENT_IMG" ] || die "多机 MySQL 导表缺少 mysql 客户端镜像, 请重新打包"
+    if [ "${NACOS_IMPORT:-0}" = "1" ] && [ "$NACOS_DB_MODE" = "local" ]; then
+      R_HOST="$NACOS_DB_HOST_IMPORT"; R_PORT="$NACOS_DB_PORT"; R_USER="$NACOS_DB_USER"; R_PASS="$NACOS_DB_PASSWORD"
+      sql="$BASE_DIR/$NACOS_SQL"; schema="$NACOS_SCHEMA"
+      cnt=$(remote_query "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='$schema';" 2>/dev/null || echo 0)
+      if [ "${cnt:-0}" -gt 0 ]; then
+        log "Nacos 库($schema)已有表, 跳过导入"
+      else
+        remote_import "$sql" && log "Nacos SQL 已导入多机主库 $R_HOST:$R_PORT/$schema" \
+          || warn "Nacos SQL 导入报错, 请人工核对(若为表已存在告警可忽略)"
+      fi
+    fi
+    if [ "${XXL_IMPORT:-0}" = "1" ] && [ "$XXL_DB_MODE" = "local" ]; then
+      R_HOST="$XXL_DB_HOST_IMPORT"; R_PORT="$XXL_DB_PORT"; R_USER="$XXL_DB_USER"; R_PASS="$XXL_DB_PASSWORD"
+      sql="$BASE_DIR/$XXL_SQL"; schema="$XXL_SCHEMA"
+      cnt=$(remote_query "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='$schema';" 2>/dev/null || echo 0)
+      if [ "${cnt:-0}" -gt 0 ]; then
+        log "XXL-Job 库($schema)已有表, 跳过导入"
+      else
+        remote_import "$sql" && log "XXL-Job SQL 已导入多机主库 $R_HOST:$R_PORT/$schema" \
+          || warn "XXL-Job SQL 导入报错, 请人工核对"
+      fi
+    fi
+    return 0
+  fi
+
   if [ "${NACOS_IMPORT:-0}" = "1" ] && [ "$NACOS_DB_MODE" = "local" ]; then
     svc="$LOCAL_MYSQL_SVC"; sql="$BASE_DIR/$NACOS_SQL"; schema="$NACOS_SCHEMA"
     wait_mysql_ready "$svc"
@@ -754,6 +782,10 @@ setup_one_replication() { # <svc> 对某一代 MySQL 配置主从
 }
 
 setup_mysql_replication() {
+  if [ "${MYSQL_MULTIHOST:-0}" = "1" ]; then
+    log "MySQL 主从为多机部署: 复制关系已由各节点 install-node.sh 自动建立, 跳过本机配置"
+    return 0
+  fi
   local svc topo
   for svc in mysql8 mysql57; do
     if [ "$svc" = "mysql8" ]; then topo="${MYSQL8_TOPOLOGY:-single}"; else topo="${MYSQL57_TOPOLOGY:-single}"; fi
@@ -814,6 +846,10 @@ plan_upgrade() { # $1=旧 compose 路径(首次部署为空)
 #------------------------------- 7. 启动 -------------------------------
 startup() {
   hr; log "【8/9】启动服务 (docker compose up -d)"
+  # 纯多机部署: 主部署机没有任何本地服务, 跳过启动(节点由 distribute.sh 安装)
+  if [ -z "$(compose_svc_names "$DEPLOY_DIR/docker-compose.yml" 2>/dev/null)" ]; then
+    log "主部署机无本地服务(纯多机部署), 跳过 compose 启动"
+  else
   local old_compose=""
   [ -n "${OLD_ENV_FILE:-}" ] && old_compose="$(dirname "$OLD_ENV_FILE")/docker-compose.yml"
   plan_upgrade "$old_compose"
@@ -851,6 +887,7 @@ startup() {
   fi
   sleep 5
   (cd "$DEPLOY_DIR" && docker compose ps)
+  fi
 }
 
 #------------------------------- 9. 健康实测 -------------------------------

@@ -498,6 +498,7 @@
           <button class="tab on" data-t="compose">docker-compose.yml</button>
           <button class="tab" data-t="env">.env</button>
           <button class="tab" data-t="manifest">manifest.sh</button>
+          <button class="tab" data-t="nodes" id="tabKafkaNodes" style="display:none">节点分发预览</button>
           <span style="flex:1"></span>
           <button class="mini" id="btnCopy" style="align-self:center;margin-bottom:9px">复制当前内容</button>
         </div>
@@ -540,7 +541,14 @@
 <script>
 let CATALOG = null;
 const selected = new Set();
-const state = { ports: {}, secrets: {}, db: {}, extra: {}, backup: null, proxies: [], topology: { mysql8: 'single', mysql57: 'single', redis: 'single', kafka: 'single' }, svcFilter: 'all' };
+const state = { ports: {}, secrets: {}, db: {}, extra: {}, backup: null, proxies: [], topology: { mysql8: 'single', mysql57: 'single', redis: 'single', kafka: 'single' }, svcFilter: 'all',
+  servers: [],
+  mh: { kafka: { enabled:false, count:3, brokers:[null,null,null] },
+        mysql8: { enabled:false, master:null, replicas:[null] },
+        mysql57: { enabled:false, master:null, replicas:[null] },
+        redis: { enabled:false, master:null, replicas:[null,null] } },
+  replicas: { mysql8: 1, mysql57: 1 },
+  features: { proxysql: false } };
 const WEEK = ["", "周一", "周二", "周三", "周四", "周五", "周六", "周日"];
 let previewData = { compose: "", env: "", manifest: "" };
 let curTab = "compose";
@@ -985,49 +993,223 @@ function renderSvcGridSync(){
 
 function renderTopology(){
   const box = $('#topoBox'); if (!box) return;
+  const clusterish = ['kafka','mysql8','mysql57','redis'].some(s => selected.has(s));
+  const poolOpts = (pick) => {
+    let o = '<option value="">选择服务器…</option>';
+    state.servers.forEach((sv, i) => {
+      const lab = (sv.name || ('node'+(i+1))) + ' · ' + (sv.ip || 'IP未填');
+      o += '<option value="'+i+'" '+(pick===i?'selected':'')+'>'+esc(lab)+'</option>';
+    });
+    return o;
+  };
+  const selMh = (svc, field, idx, pick) =>
+    '<select data-mh="'+svc+':'+field+':'+idx+'">'+poolOpts(pick)+'</select>';
   let html = '';
-  if (selected.has('mysql8')){
-    const m = state.topology.mysql8 || 'single';
-    html += '<div class="grp"><h3>MySQL 8.0 部署形态</h3><div class="segs">'+
-      '<label><input type="radio" name="topo_mysql8" value="single" '+(m==='single'?'checked':'')+'><span>单机</span></label>'+
-      '<label><input type="radio" name="topo_mysql8" value="master-slave" '+(m==='master-slave'?'checked':'')+'><span>主从复制 (一主一从 · GTID)</span></label>'+
-      '</div><div class="hint" style="margin-top:7px">主库服务名仍为 mysql8 (Nacos/XXL-Job 照常连它), 从库只读端口 13308 自动同步; 部署脚本自动配置复制关系</div></div>';
+
+  // ---- 部署服务器池 ----
+  if (clusterish){
+    html += '<div class="grp"><h3>部署服务器池 <span class="hint">(多机部署的节点来源; 纯单机部署可留空)</span></h3><div class="map">'+
+      '<div class="map-cols"><span>别名</span><span>SSH 用户</span><span>服务器 IP (IPv4)</span><span>SSH 端口</span></div>';
+    state.servers.forEach((sv, i) => {
+      html += '<div class="map-row">'+
+        '<input type="text" data-sv="'+i+':name" value="'+esc(sv.name)+'" placeholder="node'+(i+1)+'">'+
+        '<input type="text" data-sv="'+i+':user" value="'+esc(sv.user)+'" placeholder="root">'+
+        '<input type="text" data-sv="'+i+':ip" value="'+esc(sv.ip)+'" placeholder="如 10.0.0.1'+i+'">'+
+        '<input type="text" data-sv="'+i+':ssh" value="'+esc(sv.ssh)+'" placeholder="22" style="text-align:center">'+
+        '<button type="button" class="delrow" data-svdel="'+i+'" title="移除">×</button></div>';
+    });
+    html += '</div><button type="button" class="addport" data-svadd="1">+ 添加服务器</button>'+
+      '<div class="hint" style="margin-top:7px">前置条件: 主部署机可 SSH 免密登录所选节点, 节点已安装 Docker (distribute.sh 分发前会自动预检)</div></div>';
   }
-  if (selected.has('mysql57')){
-    const m = state.topology.mysql57 || 'single';
-    html += '<div class="grp"><h3>MySQL 5.7 部署形态</h3><div class="segs">'+
-      '<label><input type="radio" name="topo_mysql57" value="single" '+(m==='single'?'checked':'')+'><span>单机</span></label>'+
-      '<label><input type="radio" name="topo_mysql57" value="master-slave" '+(m==='master-slave'?'checked':'')+'><span>主从复制 (一主一从 · GTID)</span></label>'+
-      '</div><div class="hint" style="margin-top:7px">主库服务名仍为 mysql57, 从库只读端口 13309 自动同步; 部署脚本按 5.7 语法 (CHANGE MASTER) 自动配置复制关系</div></div>';
+
+  // ---- MySQL 8.0 / 5.7 ----
+  for (const s of ['mysql8', 'mysql57']){
+    if (!selected.has(s)) continue;
+    const m = state.topology[s] || 'single';
+    const nm = s === 'mysql8' ? 'MySQL 8.0' : 'MySQL 5.7';
+    const defPort = s === 'mysql8' ? '13308' : '13309';
+    const mh = state.mh[s] || { enabled:false, master:null, replicas:[null] };
+    html += '<div class="grp"><h3>'+nm+' 部署形态</h3><div class="segs">'+
+      '<label><input type="radio" name="topo_'+s+'" value="single" '+(m==='single'?'checked':'')+'><span>单机</span></label>'+
+      '<label><input type="radio" name="topo_'+s+'" value="master-slave" '+(m==='master-slave'?'checked':'')+'><span>主从复制 (GTID)</span></label>'+
+      '</div>';
+    if (m === 'master-slave'){
+      html += '<div class="segs" style="margin-top:10px">'+
+        '<label><input type="radio" name="reps_'+s+'" value="1" '+((state.replicas[s]||1)===1?'checked':'')+'><span>1 从库</span></label>'+
+        '<label><input type="radio" name="reps_'+s+'" value="2" '+((state.replicas[s]||1)===2?'checked':'')+'><span>2 从库</span></label>'+
+        '<label><input type="radio" name="mhmode_'+s+'" value="single" '+(mh.enabled?'':'checked')+'><span>同机部署</span></label>'+
+        '<label><input type="radio" name="mhmode_'+s+'" value="multi" '+(mh.enabled?'checked':'')+'><span>多机部署 (跨服务器)</span></label></div>';
+      if (mh.enabled){
+        const nrep = state.replicas[s] || 1;
+        html += '<div class="pxsub" style="margin-top:12px"><div style="font-weight:600;font-size:12.5px;margin-bottom:9px">角色分配 <span class="hint">(从服务器池中选择, 每台一角色)</span></div>'+
+          '<div class="map-row" style="grid-template-columns:80px 1fr;gap:10px;margin-bottom:8px"><span class="ctn">主库</span>'+selMh(s,'master',0,mh.master)+'</div>';
+        for (let r = 0; r < nrep; r++){
+          html += '<div class="map-row" style="grid-template-columns:80px 1fr;gap:10px;margin-bottom:8px"><span class="ctn">从库'+(r+1)+'</span>'+
+            selMh(s,'replicas',r,(mh.replicas||[])[r])+'</div>';
+        }
+        html += '<div class="hint">从库只读 (GTID 自动同步), 复制关系由节点安装脚本自动建立; 主库 IP 自动写入 Nacos/XXL-Job 配置</div></div>';
+      } else {
+        html += '<div class="hint" style="margin-top:7px">主库服务名仍为 '+s+' (Nacos/XXL-Job 照常连它), 从库只读端口 '+defPort+' 自动同步; 部署脚本自动配置复制关系</div>';
+      }
+      html += '<div style="margin-top:10px"><label style="display:inline-flex;align-items:center;gap:7px;cursor:pointer">'+
+        '<input type="checkbox" data-feat="proxysql" '+(state.features.proxysql?'checked':'')+'>'+
+        '<span>读写分离 (ProxySQL: 写走主库, SELECT 自动分流到从库, 应用只连一个入口端口)</span></label></div>';
+    }
+    html += '</div>';
   }
+
+  // ---- Redis ----
   if (selected.has('redis')){
     const r = state.topology.redis || 'single';
+    const mh = state.mh.redis || { enabled:false, master:null, replicas:[null,null] };
     html += '<div class="grp"><h3>Redis 部署形态</h3><div class="segs">'+
       '<label><input type="radio" name="topo_redis" value="single" '+(r==='single'?'checked':'')+'><span>单机</span></label>'+
       '<label><input type="radio" name="topo_redis" value="sentinel" '+(r==='sentinel'?'checked':'')+'><span>哨兵高可用 (主 + 从 + 3 哨兵)</span></label>'+
-      '</div><div class="hint" style="margin-top:7px">哨兵: 从库端口 16380 只读; 应用侧使用 sentinel 协议 (redis-sentinel:26379, master 名称 mymaster) 实现故障自动切换</div></div>';
+      '</div>';
+    if (r === 'sentinel'){
+      html += '<div class="segs" style="margin-top:10px">'+
+        '<label><input type="radio" name="mhmode_redis" value="single" '+(mh.enabled?'':'checked')+'><span>同机部署 (1 台服务器)</span></label>'+
+        '<label><input type="radio" name="mhmode_redis" value="multi" '+(mh.enabled?'checked':'')+'><span>多机部署 (3 台服务器)</span></label></div>';
+      if (mh.enabled){
+        html += '<div class="pxsub" style="margin-top:12px"><div style="font-weight:600;font-size:12.5px;margin-bottom:9px">角色分配</div>'+
+          '<div class="map-row" style="grid-template-columns:80px 1fr;gap:10px;margin-bottom:8px"><span class="ctn">主库</span>'+selMh('redis','master',0,mh.master)+'</div>';
+        for (let i = 0; i < 2; i++){
+          html += '<div class="map-row" style="grid-template-columns:80px 1fr;gap:10px;margin-bottom:8px"><span class="ctn">从库'+(i+1)+'</span>'+
+            selMh('redis','replicas',i,(mh.replicas||[])[i])+'</div>';
+        }
+        html += '<div class="hint">每台节点运行 redis + sentinel, 哨兵监控指向主库节点 IP, 应用走 sentinel 协议</div></div>';
+      } else {
+        html += '<div class="hint" style="margin-top:7px">哨兵: 从库端口 16380 只读; 应用侧使用 sentinel 协议 (redis-sentinel:26379, master 名称 mymaster) 实现故障自动切换</div>';
+      }
+    }
+    html += '</div>';
   }
+
+  // ---- Kafka ----
   if (selected.has('kafka')){
     const k = state.topology.kafka || 'single';
+    const mh = state.mh.kafka || { enabled:false, count:3, brokers:[null,null,null] };
     html += '<div class="grp"><h3>Kafka 部署形态</h3><div class="segs">'+
       '<label><input type="radio" name="topo_kafka" value="single" '+(k==='single'?'checked':'')+'><span>单节点 (KRaft)</span></label>'+
-      '<label><input type="radio" name="topo_kafka" value="cluster" '+(k==='cluster'?'checked':'')+'><span>3 节点集群 (KRaft + SASL)</span></label>'+
-      '</div><div class="hint" style="margin-top:7px">集群: 3 broker 互为副本与仲裁 (KRaft 组合模式, 无 ZooKeeper), SASL_PLAINTEXT 多用户鉴权, 部署时自动把广播地址改写为服务器 IP; 镜像改用 bitnami/kafka 3.7.0 (双架构, 体积约为单节点的 3 倍)</div></div>';
+      '<label><input type="radio" name="topo_kafka" value="cluster" '+(k==='cluster'?'checked':'')+'><span>集群 (KRaft + SASL)</span></label>'+
+      '</div>';
+    if (k === 'cluster'){
+      html += '<div class="segs" style="margin-top:10px">'+
+        '<label><input type="radio" name="mhmode_kafka" value="single" '+(mh.enabled?'':'checked')+'><span>单机部署 (1 台服务器 · 3 容器)</span></label>'+
+        '<label><input type="radio" name="mhmode_kafka" value="multi" '+(mh.enabled?'checked':'')+'><span>多机部署 (每台 1 broker)</span></label></div>';
+      if (mh.enabled){
+        const cnt = mh.count || 3;
+        html += '<div class="segs" style="margin-top:10px">'+
+          '<label><input type="radio" name="kafkacnt" value="3" '+(cnt===3?'checked':'')+'><span>3 节点</span></label>'+
+          '<label><input type="radio" name="kafkacnt" value="5" '+(cnt===5?'checked':'')+'><span>5 节点</span></label></div>'+
+          '<div class="pxsub" style="margin-top:12px"><div style="font-weight:600;font-size:12.5px;margin-bottom:9px">Broker 分配 <span class="hint">(broker 1..'+cnt+' 与节点一一对应)</span></div>';
+        for (let i = 0; i < cnt; i++){
+          html += '<div class="map-row" style="grid-template-columns:80px 1fr;gap:10px;margin-bottom:8px"><span class="ctn">broker'+(i+1)+'</span>'+
+            selMh('kafka','brokers',i,(mh.brokers||[])[i])+'</div>';
+        }
+        html += '<div class="hint">KRaft 组合模式 (无 ZooKeeper), SASL_PLAINTEXT 鉴权; 镜像改用 bitnami/kafka 3.7.0 (双架构); 节点端口组在「端口与反代」中配置</div></div>';
+      } else {
+        html += '<div class="hint" style="margin-top:7px">单机集群: 3 broker 互为副本与仲裁 (KRaft 组合模式, 无 ZooKeeper), SASL 多用户鉴权; 镜像改用 bitnami/kafka 3.7.0 (双架构, 体积约为单节点的 3 倍)</div>';
+      }
+    } else {
+      html += '<div class="hint" style="margin-top:7px">单节点 KRaft (无 ZooKeeper), SASL/SCRAM 鉴权, 密码在「账号与数据」中设置</div>';
+    }
+    html += '</div>';
   }
   box.innerHTML = html;
+
+  // ---- 事件: 服务器池 ----
+  box.querySelectorAll('input[data-sv]').forEach(i => i.oninput = () => {
+    const [idx, field] = i.dataset.sv.split(':');
+    state.servers[+idx][field] = i.value;
+    saveLocal();
+  });
+  box.querySelectorAll('[data-svdel]').forEach(b => b.onclick = () => {
+    state.servers.splice(+b.dataset.svdel, 1);
+    // 清空指向被删节点及越界的分配
+    for (const k of Object.keys(state.mh)){
+      const m = state.mh[k];
+      const fix = x => (typeof x === 'number' && x >= state.servers.length ? null : x);
+      if (k === 'kafka'){ m.brokers = (m.brokers||[]).map(fix); }
+      else { m.master = fix(m.master); m.replicas = (m.replicas||[]).map(fix); }
+    }
+    saveLocal(); renderTopology(); renderSvcGridSync();
+  });
+  box.querySelectorAll('[data-svadd]').forEach(b => b.onclick = () => {
+    state.servers.push({ name: 'node'+(state.servers.length+1), user: 'root', ip: '', ssh: 22 });
+    saveLocal(); renderTopology();
+  });
+
+  // ---- 事件: 部署形态单选 ----
   box.querySelectorAll('input[name^="topo_"]').forEach(r => r.onchange = () => {
     const k = r.name.replace('topo_', '');
     state.topology[k] = r.value;
+    if (r.value !== 'cluster' && r.value !== 'master-slave' && r.value !== 'sentinel'){
+      state.mh[k] = { enabled:false, count:3, master:null, replicas:[null,null], brokers:[null,null,null] };
+      if (k === 'kafka') state.mh[k] = { enabled:false, count:3, brokers:[null,null,null] };
+      if (k === 'redis') state.mh[k] = { enabled:false, master:null, replicas:[null,null] };
+      else state.mh[k] = { enabled:false, master:null, replicas:[null] };
+    }
     saveLocal();
     const names = { mysql8: 'MySQL 8.0', mysql57: 'MySQL 5.7', redis: 'Redis', kafka: 'Kafka' };
     const modes = {
-      mysql8: r.value === 'single' ? 'MySQL 8.0 单机模式' : 'MySQL 8.0 主从模式 (一主一从)',
-      mysql57: r.value === 'single' ? 'MySQL 5.7 单机模式' : 'MySQL 5.7 主从模式 (一主一从)',
+      mysql8: r.value === 'single' ? 'MySQL 8.0 单机模式' : 'MySQL 8.0 主从模式 (GTID)',
+      mysql57: r.value === 'single' ? 'MySQL 5.7 单机模式' : 'MySQL 5.7 主从模式 (GTID)',
       redis: r.value === 'single' ? 'Redis 单机模式' : 'Redis 哨兵高可用',
-      kafka: r.value === 'single' ? 'Kafka 单节点模式' : 'Kafka 3 节点集群模式 (KRaft + SASL)'
+      kafka: r.value === 'single' ? 'Kafka 单节点模式' : 'Kafka 集群模式 (KRaft + SASL)'
     };
     toast(modes[k] || (names[k] + ' ' + r.value));
     renderSvcGridSync();
+  });
+
+  // ---- 事件: 同机/多机切换 ----
+  box.querySelectorAll('input[name^="mhmode_"]').forEach(r => r.onchange = () => {
+    const k = r.name.replace('mhmode_', '');
+    const en = r.value === 'multi';
+    state.mh[k] = Object.assign(state.mh[k] || {}, { enabled: en });
+    if (en && k === 'kafka' && (state.mh.kafka.brokers||[]).length !== (state.mh.kafka.count||3))
+      state.mh.kafka.brokers = Array(state.mh.kafka.count||3).fill(null);
+    if (en && k === 'redis' && (state.mh.redis.replicas||[]).length !== 2)
+      state.mh.redis.replicas = [null, null];
+    if (en && (k === 'mysql8' || k === 'mysql57') && (state.mh[k].replicas||[]).length !== (state.replicas[k]||1))
+      state.mh[k].replicas = Array(state.replicas[k]||1).fill(null);
+    saveLocal(); renderTopology(); renderDynamic();
+    toast(en ? '多机部署: 请在服务器池中完成角色分配' : '同机部署: 所有容器运行在同一台服务器');
+  });
+
+  // ---- 事件: 从库数量 ----
+  box.querySelectorAll('input[name^="reps_"]').forEach(r => r.onchange = () => {
+    const k = r.name.replace('reps_', '');
+    state.replicas[k] = +r.value;
+    if (!state.mh[k].enabled) state.mh[k].replicas = Array(+r.value).fill(null);
+    else state.mh[k].replicas = Array(+r.value).fill(null);
+    saveLocal(); renderTopology();
+    toast((k === 'mysql8' ? 'MySQL 8.0' : 'MySQL 5.7') + ' 从库数量: ' + r.value);
+  });
+
+  // ---- 事件: Kafka 节点数 ----
+  box.querySelectorAll('input[name="kafkacnt"]').forEach(r => r.onchange = () => {
+    state.mh.kafka.count = +r.value;
+    state.mh.kafka.brokers = Array(+r.value).fill(null);
+    saveLocal(); renderTopology();
+    toast('Kafka 多机节点数: ' + r.value);
+  });
+
+  // ---- 事件: 角色分配下拉 ----
+  box.querySelectorAll('select[data-mh]').forEach(sel => sel.onchange = () => {
+    const [svc, field, idx] = sel.dataset.mh.split(':');
+    const v = sel.value === '' ? null : +sel.value;
+    if (field === 'master') state.mh[svc].master = v;
+    else if (field === 'replicas') state.mh[svc].replicas[+idx] = v;
+    else state.mh[svc].brokers[+idx] = v;
+    saveLocal();
+  });
+
+  // ---- 事件: 读写分离开关 ----
+  box.querySelectorAll('input[data-feat]').forEach(c => c.onchange = () => {
+    state.features.proxysql = c.checked;
+    saveLocal(); renderDynamic();
+    toast(c.checked ? '已启用读写分离 (ProxySQL, 镜像需补料: proxysql/proxysql 2.6.6)' : '已关闭读写分离');
   });
 }
 function updateSvcWarn(){}
@@ -1126,13 +1308,35 @@ function renderDynamic(){
     {key:'kafka_c2', label:'Kafka Broker 2 (SASL)', default:29092, container:9094},
     {key:'kafka_c3', label:'Kafka Broker 3 (SASL)', default:39092, container:9094}
   ];
+  const KAFKA_MH_PORTS = [
+    {key:'kafka_mh_inter', label:'Kafka 节点互联 (PLAINTEXT)', default:9092, container:9092},
+    {key:'kafka_mh_ctrl', label:'Kafka 控制器 (KRaft)', default:9093, container:9093},
+    {key:'kafka_mh_sasl', label:'Kafka SASL 对外', default:9094, container:9094}
+  ];
+  const mhOf = k => ((state.mh || {})[k] || {});
+  const mhOn = k => mhOf(k).enabled && ['cluster','master-slave','sentinel'].includes(state.topology[k]);
   const pb = $('#portBox'); pb.innerHTML = '';
   for (const s of svcs){
     const meta = CATALOG.services[s];
     const kCluster = s === 'kafka' && state.topology.kafka === 'cluster';
-    const portDefs = kCluster ? KAFKA_CLUSTER_PORTS : meta.ports;
+    const kMulti = kCluster && mhOn('kafka');
+    let portDefs = kCluster ? (kMulti ? KAFKA_MH_PORTS : KAFKA_CLUSTER_PORTS) : meta.ports;
+    if (s === 'kafka' && kMulti){
+      portDefs = portDefs.slice();
+      const hint = '<div class="hint" style="margin:4px 0 2px">同一组端口应用到所有 Kafka 节点 (每台独立机器不冲突); 节点分配在「选择中间件」中维护</div>';
+      pb.insertAdjacentHTML('beforeend', '');
+      var _kh = hint;   // 注入到 grp 标题后(见下方 html 拼接)
+    } else { var _kh = ''; }
+    if ((s === 'mysql8' || s === 'mysql57') && mhOn(s)){
+      portDefs = meta.ports.concat([{key:s+'_replica', label:'从库端口 (每台从机)', container:3306}]);
+    }
+    if (s === 'redis' && mhOn('redis')){
+      portDefs = meta.ports.concat([
+        {key:'redis_replica', label:'Redis 从库端口', container:6379},
+        {key:'redis_sentinel', label:'Redis 哨兵端口 (每节点)', container:26379}]);
+    }
     if (!portDefs.length && !(state.extra[s]||[]).length) continue;
-    let html = '<div class="grp"><h3>'+logoSm(s)+esc(trLabel(meta.label))+(kCluster?' <span class="hint">3 节点集群 · SASL 端口</span>':'')+'</h3><div class="map">'+
+    let html = '<div class="grp"><h3>'+logoSm(s)+esc(trLabel(meta.label))+(kCluster?' <span class="hint">'+(kMulti?'多机节点端口组':'3 节点集群 · SASL 端口')+'</span>':((mhOn(s))?' <span class="hint">多机 · 角色节点端口</span>':''))+'</h3>'+(_kh||'')+'<div class="map">'+
       '<div class="map-cols"><span></span><span>外部访问端口(宿主机)</span><span></span><span>容器端口</span></div>';
     for (const p of portDefs){
       if (!(p.key in state.ports)) state.ports[p.key] = p.default;
@@ -1154,6 +1358,24 @@ function renderDynamic(){
     });
     html += '</div><button type="button" class="addport" title="添加自定义端口" aria-label="添加自定义端口" data-eadd="'+s+'">+</button></div>';
     pb.insertAdjacentHTML('beforeend', html);
+  }
+  // ---- ProxySQL 读写分离端口 ----
+  if (state.features.proxysql){
+    const pxDefs = [
+      {key:'proxysql', label:'读写分离入口 (数据面)', default:16033, container:6033},
+      {key:'proxysql_admin', label:'ProxySQL 管理面', default:16032, container:6032}];
+    let ph = '<div class="grp"><h3>读写分离 (ProxySQL) <span class="hint">运行在主部署机</span></h3><div class="map">'+
+      '<div class="map-cols"><span></span><span>外部访问端口(宿主机)</span><span></span><span>容器端口</span></div>';
+    for (const p of pxDefs){
+      if (!(p.key in state.ports)) state.ports[p.key] = p.default;
+      ph += '<div class="map-row">'+
+        '<span class="mlabel" title="'+esc(trLabel(p.label))+'">'+esc(trLabel(p.label))+'</span>'+
+        '<input type="text" data-port="'+p.key+'" value="'+state.ports[p.key]+'">'+
+        '<span class="arrow">→</span>'+
+        '<span class="ctn">'+p.container+'</span></div>';
+    }
+    ph += '</div><div class="hint">应用统一连接 入口端口: 写自动路由到主库, SELECT 自动分流到从库; 管理面端口 (admin/admin) 供运维查看路由规则</div></div>';
+    pb.insertAdjacentHTML('beforeend', ph);
   }
   pb.querySelectorAll('input[data-port]').forEach(i => i.oninput = () => { state.ports[i.dataset.port] = i.value; validatePorts(); saveLocal(); });
   const syncExtra = (sel) => {
@@ -1590,6 +1812,19 @@ function buildConfig(){
     backup: JSON.parse(JSON.stringify(normBackup(state.backup))),
     db: JSON.parse(JSON.stringify(state.db)),
     topology: JSON.parse(JSON.stringify(state.topology || {})),
+    servers: JSON.parse(JSON.stringify(state.servers || [])),
+    multihost: (() => {
+      const out = {};
+      for (const k of Object.keys(state.mh || {})){
+        const m = state.mh[k] || {};
+        if (!m.enabled) continue;
+        if (k === 'kafka') out.kafka = { enabled:true, count: m.count || 3, brokers: m.brokers || [] };
+        else out[k] = { enabled:true, master: m.master, replicas: m.replicas || [] };
+      }
+      return out;
+    })(),
+    replicas: JSON.parse(JSON.stringify(state.replicas || {})),
+    features: JSON.parse(JSON.stringify(state.features || {})),
     proxies: state.proxies.map(p => {
       const o = JSON.parse(JSON.stringify(p));
       o.trusted_proxies = p.realip ? String(p.trusted||'').split(/[\s,]+/).filter(Boolean) : [];
@@ -1612,6 +1847,17 @@ function applyConfig(cfg){
   const xp = cfg.extra_ports || {};
   for (const k of Object.keys(xp)) state.extra[k] = xp[k];
   state.topology = Object.assign({ mysql8: 'single', mysql57: 'single', redis: 'single', kafka: 'single' }, cfg.topology || {});
+  state.servers = (Array.isArray(cfg.servers) ? cfg.servers : []).map(v =>
+    Object.assign({ name: '', user: 'root', ip: '', ssh: 22 }, v || {}));
+  const mhIn = cfg.multihost || {};
+  state.mh = {
+    kafka: Object.assign({ enabled:false, count:3, brokers:[null,null,null] }, mhIn.kafka || {}),
+    mysql8: Object.assign({ enabled:false, master:null, replicas:[null] }, mhIn.mysql8 || {}),
+    mysql57: Object.assign({ enabled:false, master:null, replicas:[null] }, mhIn.mysql57 || {}),
+    redis: Object.assign({ enabled:false, master:null, replicas:[null,null] }, mhIn.redis || {}),
+  };
+  state.replicas = Object.assign({ mysql8: 1, mysql57: 1 }, cfg.replicas || {});
+  state.features = Object.assign({ proxysql: false }, cfg.features || {});
   const bd = cfg.backup || {};
   state.backup = bd;   // normBackup() 在 renderBackup 时统一归一化(兼容旧版单一计划)
   state.proxies = (cfg.proxies || []).map(p => Object.assign(pxDefaultSite(), p, {
@@ -1665,6 +1911,14 @@ async function doPreview(){
   try {
     const d = await api('/api/preview', buildConfig());
     previewData = d;
+    if (d.nodes && d.nodes.length){
+      previewData.nodes = d.nodes.map(n =>
+        '# ' + n.name + '  ' + n.user + '@' + n.ip + ' (SSH ' + n.ssh + ')' +
+        '\n# 角色: ' + n.roles.join(', ') +
+        '\n# 镜像: ' + (n.images.length ? n.images.join(', ') : '(无)')).join('\n\n') +
+        (d.proxysql_conf ? '\n\n# ---- ProxySQL 读写分离配置 (conf/proxysql/proxysql.cnf) ----\n' + d.proxysql_conf : '');
+    }
+    $('#tabKafkaNodes').style.display = (d.nodes && d.nodes.length) ? '' : 'none';
     $('#previewCard').style.display = ''; switchTab('compose');
     let extra = '';
     if (d.backup_crons && d.backup_crons.length){
