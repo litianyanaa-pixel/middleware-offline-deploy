@@ -31,7 +31,7 @@ Local (Windows / macOS / Linux)                Server (offline intranet)
 - **Deployment report**: `部署报告.txt` (deployment report) auto-generated in the deploy directory (environment / inventory / health / accounts / backup / ops commands), rewritten on every run
 - **Reverse proxy wizard**: with NGINX selected, configure sites by domain, static frontend + API forwarding, real IP, WebSocket, upload limits; **HTTPS certs ship inside the bundle**, SSL ready at deploy time
 - **Database automation**: Nacos/XXL-Job schema SQL imported automatically (local DBs import on first boot, external DBs are connection-tested first, existing tables are skipped)
-- **Scheduled backup + one-command restore**: crontab + in-container mysqldump, per-database gzipped files with automatic rotation; `restore.sh` restores a database in one command
+- **Scheduled backup + one-command restore**: independent backup plan per database (MySQL/PostgreSQL/MongoDB, separate crontabs), in-container native tools (mysqldump / pg_dump -Fc / mongodump), per-database compressed files with automatic rotation; `restore.sh` restores a database in one command
 - **Unified image tags**: whatever registry prefix/tag suffix the tars carry, images are normalized to short names, with architecture mismatch intercepted
 - **Plugin-based extension**: adding middleware takes one plugin file + image tars; checkboxes, port forms, compose generation and deploy summaries all pick it up automatically
 - **Cluster modes**: MySQL 8.0 standalone / **primary-replica replication** (one master + one replica, GTID auto-sync, configured at deploy time); Redis standalone / **Sentinel HA** (master + replica + 3 sentinels, automatic failover)

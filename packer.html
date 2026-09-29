@@ -1330,56 +1330,86 @@ function pxSslStatus(p){
   return '已加载: ' + c + ' · ' + k;
 }
 
-/* ---- 数据库备份策略 ---- */
+/* ---- 数据库备份策略(每种数据库独立 开关/星期/时间/保留份数) ---- */
+const BK_ENGINES = {
+  mysql: { name: 'MySQL', svcs: ['mysql57', 'mysql8'],
+           hint: 'MySQL: mysqldump --single-transaction, 排除系统库, 每库一个 .sql.gz|MySQL: mysqldump --single-transaction, system DBs excluded, one .sql.gz per DB' },
+  pg:    { name: 'PostgreSQL', svcs: ['postgres'],
+           hint: 'PostgreSQL: pg_dump 按库导出, 每库一个 .sql.gz|PostgreSQL: pg_dump, one .sql.gz per DB' },
+  mongo: { name: 'MongoDB', svcs: ['mongodb'],
+           hint: 'MongoDB: mongodump --archive --gzip, 每库一个 .archive|MongoDB: mongodump --archive --gzip, one .archive per DB' }
+};
+// 兼容旧版单一计划({enabled,days,hour,keep,dir}) -> 新版 {dir, engines:{mysql,pg,mongo}}
+function normBackup(sb){
+  const b = sb || {};
+  const leg = Array.isArray(b.days)
+    ? { enabled: b.enabled !== false, days: b.days.map(Number), hour: b.hour != null ? +b.hour : 3, keep: b.keep || 7 }
+    : null;
+  const src = b.engines || {};
+  const engines = {};
+  for (const k of Object.keys(BK_ENGINES)){
+    const e = src[k] || {};
+    engines[k] = {
+      enabled: e.enabled != null ? !!e.enabled : (leg ? leg.enabled : true),
+      days: Array.isArray(e.days) ? e.days.map(Number) : (leg ? leg.days.slice() : [1,2,3,4,5,6,7]),
+      hour: e.hour != null ? +e.hour : (leg ? leg.hour : 3),
+      keep: e.keep || (leg ? leg.keep : 7)
+    };
+  }
+  return { dir: b.dir || '/data/backup/db', engines: engines };
+}
 function renderBackup(){
   const box = $('#backupBox');
-  if (!state.backup) state.backup = { enabled: true, days: [1,2,3,4,5,6,7], hour: 3, keep: 7, dir: '/data/backup/db' };
+  state.backup = normBackup(state.backup);
   const b = state.backup;
-  let html = '<div class="map-row" style="grid-template-columns:150px 1fr">'+
-    '<span class="mlabel">启用备份</span>'+
-    '<label style="margin:0;font-weight:500;cursor:pointer"><input type="checkbox" id="bkEnabled" '+(b.enabled?'checked':'')+'> 部署时自动写入 crontab, 服务器零手工配置</label></div>'+
-    '<div id="bkDetail" style="margin-top:13px;'+(b.enabled?'':'opacity:.45;pointer-events:none')+'">';
-  html += '<label>备份日 <span class="hint">可多选</span></label><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><div class="segs">';
-  for (let d=1; d<=7; d++){
-    html += '<label><input type="checkbox" data-bkd="'+d+'" '+(b.days.includes(d)?'checked':'')+'>'+WEEK[d]+'</label>';
-  }
-  html += '</div>'+
-    '<button type="button" class="mini" data-bkq="every">每天</button>'+
-    '<button type="button" class="mini" data-bkq="week">工作日</button>'+
-    '</div>';
-  html += '<div class="row" style="margin-top:13px">'+
-    '<div style="max-width:150px"><label>备份时间</label><select id="bkHour">';
-  for (let h=0; h<24; h++) html += '<option value="'+h+'" '+(b.hour===h?'selected':'')+'>'+String(h).padStart(2,'0')+':00</option>';
-  html += '</select></div>'+
-    '<div style="max-width:150px"><label>每库保留份数</label><input type="text" id="bkKeep" value="'+esc(b.keep)+'"></div>'+
-    '<div><label>备份目录(服务器)</label><input type="text" id="bkDir" value="'+esc(b.dir)+'"></div></div>';
-  const BK_ENGINES = {
-    mysql57: 'MySQL: mysqldump --single-transaction, 排除系统库, 每库一个 .sql.gz|MySQL: mysqldump --single-transaction, system DBs excluded, one .sql.gz per DB',
-    mysql8:  'MySQL: mysqldump --single-transaction, 排除系统库, 每库一个 .sql.gz|MySQL: mysqldump --single-transaction, system DBs excluded, one .sql.gz per DB',
-    postgres:'PostgreSQL: pg_dump -Fc 自定义格式, 每库一个 .dump|PostgreSQL: pg_dump -Fc custom format, one .dump per DB',
-    mongodb: 'MongoDB: mongodump --archive --gzip, 每库一个 .archive.gz|MongoDB: mongodump --archive --gzip, one .archive.gz per DB'
-  };
-  const eng = [...selected].filter(s => BK_ENGINES[s]).map(s => trLabel(BK_ENGINES[s]));
   const sep = LANG === 'en' ? '; ' : '；';
-  html += '<div class="hint" style="margin-top:10px">' + eng.join(sep) + sep
-        + trLabel('超出保留份数自动轮转删除|oldest files rotated out beyond retention') + '</div></div>';
+  const active = Object.keys(BK_ENGINES).filter(k => BK_ENGINES[k].svcs.some(s => selected.has(s)));
+  let html = '<div class="map-row" style="grid-template-columns:150px 1fr">'+
+    '<span class="mlabel">'+trLabel('备份目录|Backup dir')+'</span><div><input type="text" id="bkDir" value="'+esc(b.dir)+'">'+
+    '<div class="hint" style="margin-top:4px">'+trLabel('备份根目录, 每种数据库各自存子目录|Backup root; each DB engine stores its own sub-directory')+'</div></div></div>';
+  for (const k of active){
+    const e = b.engines[k];
+    html += '<div class="dbbox" style="margin-top:13px"><div class="dbhead"><b>'+BK_ENGINES[k].name+'</b>'+
+      '<label style="font-weight:500;cursor:pointer;margin-left:auto"><input type="checkbox" data-bken="'+k+'" '+(e.enabled?'checked':'')+'> '+trLabel('启用该库备份|Enable backup')+'</label></div>'+
+      '<div data-bkdet="'+k+'" style="margin-top:10px;'+(e.enabled?'':'opacity:.45;pointer-events:none')+'">';
+    html += '<label>'+trLabel('备份日|Backup days')+' <span class="hint">'+trLabel('可多选|multi-select')+'</span></label>'+
+      '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><div class="segs">';
+    for (let d=1; d<=7; d++) html += '<label><input type="checkbox" data-bkd="'+k+':'+d+'" '+(e.days.includes(d)?'checked':'')+'>'+WEEK[d]+'</label>';
+    html += '</div>'+
+      '<button type="button" class="mini" data-bkq="'+k+':every">'+trLabel('每天|Every day')+'</button>'+
+      '<button type="button" class="mini" data-bkq="'+k+':week">'+trLabel('工作日|Weekdays')+'</button></div>';
+    html += '<div class="row" style="margin-top:12px">'+
+      '<div style="max-width:150px"><label>'+trLabel('备份时间|Backup time')+'</label><select data-bkhour="'+k+'">';
+    for (let h=0; h<24; h++) html += '<option value="'+h+'" '+(e.hour===h?'selected':'')+'>'+String(h).padStart(2,'0')+':00</option>';
+    html += '</select></div>'+
+      '<div style="max-width:170px"><label>'+trLabel('每库保留份数|Copies kept per DB')+'</label><input type="text" data-bkkeep="'+k+'" value="'+esc(e.keep)+'"></div></div>';
+    html += '</div></div>';
+  }
+  html += '<div class="hint" style="margin-top:10px">' + active.map(k => trLabel(BK_ENGINES[k].hint)).join(sep) + sep
+        + trLabel('超出保留份数自动轮转删除|oldest files rotated out beyond retention') + '</div>';
   box.innerHTML = html;
 
-  box.querySelector('#bkEnabled').onchange = e => { b.enabled = e.target.checked; saveLocal(); renderBackup(); };
-  box.querySelectorAll('[data-bkd]').forEach(c => c.onchange = () => {
-    const d = +c.dataset.bkd;
-    if (c.checked){ if (!b.days.includes(d)) b.days.push(d); }
-    else b.days = b.days.filter(x => x !== d);
-    saveLocal();
-  });
-  box.querySelectorAll('[data-bkq]').forEach(btn => btn.onclick = () => {
-    b.days = btn.dataset.bkq === 'every' ? [1,2,3,4,5,6,7] : [1,2,3,4,5];
-    saveLocal(); renderBackup();
-    toast(btn.dataset.bkq === 'every' ? '已选每天备份' : '已选工作日备份');
-  });
-  const h = box.querySelector('#bkHour'); if (h) h.onchange = () => { b.hour = +h.value; saveLocal(); };
-  const k = box.querySelector('#bkKeep'); if (k) k.oninput = () => { b.keep = k.value; saveLocal(); };
   const dir = box.querySelector('#bkDir'); if (dir) dir.oninput = () => { b.dir = dir.value; saveLocal(); };
+  for (const k of active){
+    const e = b.engines[k];
+    box.querySelector('[data-bken="'+k+'"]').onchange = ev => {
+      e.enabled = ev.target.checked; saveLocal(); renderBackup();
+    };
+    box.querySelectorAll('[data-bkd^="'+k+':"]').forEach(c => c.onchange = () => {
+      const d = +c.dataset.bkd.split(':')[1];
+      if (c.checked){ if (!e.days.includes(d)) e.days.push(d); }
+      else e.days = e.days.filter(x => x !== d);
+      saveLocal();
+    });
+    box.querySelectorAll('[data-bkq^="'+k+':"]').forEach(btn => btn.onclick = () => {
+      const mode = btn.dataset.bkq.split(':')[1];
+      e.days = mode === 'every' ? [1,2,3,4,5,6,7] : [1,2,3,4,5];
+      saveLocal(); renderBackup();
+      toast(mode === 'every' ? trLabel('已选每天备份|Daily backup selected') : trLabel('已选工作日备份|Weekday backup selected'));
+    });
+    const h = box.querySelector('[data-bkhour="'+k+'"]'); if (h) h.onchange = () => { e.hour = +h.value; saveLocal(); };
+    const kp = box.querySelector('[data-bkkeep="'+k+'"]'); if (kp) kp.oninput = () => { e.keep = kp.value; saveLocal(); };
+  }
 }
 
 function renderPwds(){
@@ -1547,7 +1577,7 @@ function buildConfig(){
     docker_data_root: $('#data_root').value.trim(),
     registry_mirrors: $('#mirrors').value.split('\n').map(s=>s.trim()).filter(Boolean),
     extra_ports: JSON.parse(JSON.stringify(state.extra)),
-    backup: JSON.parse(JSON.stringify(state.backup)),
+    backup: JSON.parse(JSON.stringify(normBackup(state.backup))),
     db: JSON.parse(JSON.stringify(state.db)),
     topology: JSON.parse(JSON.stringify(state.topology || {})),
     proxies: state.proxies.map(p => {
@@ -1573,9 +1603,7 @@ function applyConfig(cfg){
   for (const k of Object.keys(xp)) state.extra[k] = xp[k];
   state.topology = Object.assign({ mysql8: 'single', mysql57: 'single', redis: 'single', kafka: 'single' }, cfg.topology || {});
   const bd = cfg.backup || {};
-  state.backup = { enabled: bd.enabled !== false,
-    days: (bd.days && bd.days.length ? bd.days : [1,2,3,4,5,6,7]).map(Number),
-    hour: (bd.hour != null ? +bd.hour : 3), keep: (bd.keep || 7), dir: (bd.dir || '/data/backup/db') };
+  state.backup = bd;   // normBackup() 在 renderBackup 时统一归一化(兼容旧版单一计划)
   state.proxies = (cfg.proxies || []).map(p => Object.assign(pxDefaultSite(), p, {
     trusted: Array.isArray(p.trusted_proxies) ? p.trusted_proxies.join(', ') : (p.trusted || '')
   }));
@@ -1629,7 +1657,9 @@ async function doPreview(){
     previewData = d;
     $('#previewCard').style.display = ''; switchTab('compose');
     let extra = '';
-    if (d.backup_cron) extra += '\n备份计划(crontab): ' + d.backup_cron + '  →  backup.sh';
+    if (d.backup_crons && d.backup_crons.length){
+      extra += '\n' + d.backup_crons.map(c => trLabel('备份计划|backup plan') + '(crontab): ' + c).join('\n');
+    }
     if (d.warnings.length) extra += '\n提示:\n- ' + d.warnings.join('\n- ');
     msg('预览已生成, 将打包镜像: ' + d.images.join(', ') + extra, d.warnings.length ? 'warn' : 'ok');
     $('#previewCard').scrollIntoView({behavior:'smooth'});

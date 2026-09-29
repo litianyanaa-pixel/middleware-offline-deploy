@@ -53,11 +53,14 @@ def test_bash_quote():
     assert packer.bash_quote(12) == "'12'"
 
 
-def test_backup_cron():
-    assert packer.backup_cron(None) == ""
-    assert packer.backup_cron({"enabled": False}) == ""
+def test_backup_crons():
+    assert packer.backup_crons(None) == []
+    assert packer.backup_crons({"dir": "/data/backup/db", "engines": {}}) == []
+    bk = {"dir": "/data/backup/db", "engines": {
+        "mysql": {"enabled": True, "days": [1, 7], "hour": 3, "keep": 5},
+        "pg": {"enabled": False, "days": [1], "hour": 2, "keep": 7}}}
     # 1=周一..7=周日 -> cron 0 表示周日
-    assert packer.backup_cron({"enabled": True, "days": [1, 7], "hour": 3}) == "0 3 * * 0,1"
+    assert packer.backup_crons(bk) == [("mysql", "0 3 * * 0,1")]
 
 
 def make_cfg(tmp_path, services=("nginx",), **kw):
@@ -87,6 +90,9 @@ def test_backup_conf_contains_all_engines(catalog):
                            "dir": "/data/backup/mysql"})
     cfg, _ = packer.validate_config(cfg, catalog)
     conf = packer.gen_backup_conf(cfg)
+    assert "MYSQL_ENABLED=1" in conf
+    assert "PG_ENABLED=1" in conf
+    assert "MONGO_ENABLED=1" in conf
     assert "MYSQL_SERVICES=(mysql8)" in conf
     assert "PG_SERVICES=(postgres)" in conf
     assert "MONGO_SERVICES=(mongodb)" in conf
@@ -94,12 +100,39 @@ def test_backup_conf_contains_all_engines(catalog):
     assert "MONGO_PASSWORD=" in conf
 
 
+def test_backup_per_engine_independent(catalog):
+    cfg = make_cfg(None, services=("mysql8", "postgres", "mongodb"),
+                   backup={"dir": "/data/backup/db", "engines": {
+                       "mysql": {"enabled": True, "days": [1, 3], "hour": 2, "keep": 9},
+                       "pg": {"enabled": True, "days": [7], "hour": 4, "keep": 3},
+                       "mongo": {"enabled": False}}})
+    cfg, _ = packer.validate_config(cfg, catalog)
+    conf = packer.gen_backup_conf(cfg)
+    assert "MYSQL_KEEP=9" in conf and "PG_KEEP=3" in conf
+    crons = dict(packer.backup_crons(cfg["backup"]))
+    assert crons["mysql"] == "0 2 * * 1,3"
+    assert crons["pg"] == "0 4 * * 0"
+    assert "mongo" not in crons
+
+
 def test_backup_warns_without_db(catalog):
     cfg = make_cfg(None, services=("nginx",),
                    backup={"enabled": True, "days": [1], "hour": 3, "keep": 7, "dir": "/data/backup/mysql"})
     cfg2, warns = packer.validate_config(cfg, catalog)
-    assert cfg2["backup"]["enabled"] is False
-    assert any("备份" in w for w in warns)
+    assert all(not e["enabled"] for e in cfg2["backup"]["engines"].values())
+    assert any("备份" in w or "backup" in w for w in warns)
+
+
+def test_backup_warns_engine_without_service(catalog):
+    # 选了 mysql 但 pg 计划开着 -> pg 被忽略并告警, mysql 计划保留
+    cfg = make_cfg(None, services=("mysql8",),
+                   backup={"dir": "/data/backup/db", "engines": {
+                       "mysql": {"enabled": True, "days": [1], "hour": 3, "keep": 7},
+                       "pg": {"enabled": True, "days": [1], "hour": 3, "keep": 7}}})
+    cfg2, warns = packer.validate_config(cfg, catalog)
+    assert cfg2["backup"]["engines"]["mysql"]["enabled"] is True
+    assert cfg2["backup"]["engines"]["pg"]["enabled"] is False
+    assert any("PostgreSQL" in w for w in warns)
 
 
 def test_backup_rejects_bad_days(catalog):

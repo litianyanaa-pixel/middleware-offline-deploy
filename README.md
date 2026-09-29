@@ -38,7 +38,7 @@
 - **部署报告**：部署完成自动在部署目录生成 `部署报告.txt`（环境/清单/健康/账号/备份/运维命令），每次重跑自动覆盖
 - **反向代理向导**：勾选 NGINX 后按站点配域名/前后端转发/真实IP/WebSocket/上传限制，**HTTPS 证书随包分发**，部署即配好 SSL
 - **数据库自动化**：Nacos/XXL-Job 建库建表 SQL 自动导入（本地库首启自动导，外部库先测连再导，已存在自动跳过）
-- **定时备份 + 一键恢复**：crontab + 容器内 mysqldump 按库分文件 gzip，超出保留份数自动轮转；`restore.sh` 一条命令恢复指定库
+- **定时备份 + 一键恢复**：MySQL/PostgreSQL/MongoDB 各自独立的备份计划(crontab), 容器内原生工具按库分文件压缩(mysqldump / pg_dump -Fc / mongodump), 超出保留份数自动轮转；`restore.sh` 一条命令恢复指定库
 - **镜像统一 tag**：tar 内镜像无论带什么仓库前缀/tag 后缀，自动归一为短名，并校验架构一致，不符拦截
 - **插件化扩展**：新增中间件只需一个插件文件 + 镜像 tar，页面勾选/端口/密码表单/编排生成全自动纳入
 - **集群形态**：MySQL 单机 / **主从复制**(一主一从 · GTID 自动同步 · 部署时自动配置复制，8.0 与 5.7 均支持)；
@@ -114,7 +114,7 @@ xxx-offline/
 ├── packages/<arch>/     # docker 静态二进制 + compose 插件(按架构)
 ├── conf/                # nginx 站点配置/证书、redis.conf 等生成配置
 ├── sql/                 # 需自动导入的建库 SQL(nacos/xxl-job)
-├── backup.sh / backup.conf / restore.sh   # 备份与恢复(配置了备份/本地 MySQL 时)
+├── backup.sh / backup.conf / restore.sh   # 备份与恢复(配置了备份或部署了本地数据库时)
 └── README.txt           # 面向服务器操作者的两步说明
 ```
 
@@ -144,13 +144,13 @@ cd <项目名>-offline
    本地 MySQL 已有数据时禁止变更 root 密码（改了也不生效，直接拦下）
 6. **数据库初始化**：已有表自动跳过；外部库在启动前导表（连接测试失败会明确报错）
 7. **启动**：`docker compose up -d` 并打印访问摘要
-8. **数据库定时备份**（打包时配置了才会装）：自动写入 crontab，mysqldump 在 mysql 容器内执行，
+8. **数据库定时备份**（打包时配置了才会装）：每种所选数据库一条独立 crontab，备份在对应容器内执行，
    按库分文件 gzip 导出（排除系统库），超出保留份数自动轮转；手工备份：部署目录下 `./backup.sh`
 9. **健康实测**：所有带 compose 健康检查的容器(mysql/redis/minio/postgres/kafka/elasticsearch 等插件中间件)等转 healthy；
    nginx/nacos/xxl-job/minio 再从宿主机实测 HTTP 可用性（重试至 60s），客户端三级降级
    `curl → wget → bash 内建 /dev/tcp`（全缺也能跑，https 仅验证端口连通性），
    每项结果（✓/✗ + 排查提示）打进部署摘要，不通过不影响部署完成状态
-10. **备份恢复脚本**：部署了本地 MySQL 时自动安装 `restore.sh` 到部署目录
+10. **备份恢复脚本**：部署了本地数据库(MySQL/PostgreSQL/MongoDB)时自动安装 `restore.sh` 到部署目录
 11. **部署报告 + 运维命令**：自动在部署目录生成 `部署报告.txt`（环境信息/服务清单/健康实测/
     账号与安全/备份策略/日常运维命令），每次执行自动覆盖重写；终端同时直接贴出日志查看等常用命令
 

@@ -2,6 +2,32 @@
 
 按时间倒序记录每次功能与修复。`docs/` 演示站随前端改动同步更新。
 
+## 2026-09-29
+
+- **备份计划按数据库拆分**：MySQL / PostgreSQL / MongoDB 各自独立的启用开关、备份日、备份时间与保留份数,
+  部署时写入三条独立 crontab; 生成预览与《部署报告》分别列出每库的备份计划
+- **备份区按所选数据库动态展示**：勾选了哪些库就显示哪些引擎的说明(mysqldump / pg_dump -Fc / mongodump),
+  顶部列出"备份对象"清单, 多选时明确提示"N 种数据库将同时纳入备份计划"; 默认备份目录改为 /data/backup/db(每库独立子目录)
+- **分区序号动态重排**：隐藏的配置分区不再占号, 消除"账号密码 1 → 数据库备份 3"跳号问题
+- **修复**：backup.sh 轮转函数在备份目录为空时因 `set -o pipefail` 误退出(ls 无匹配), 改用 find 实现
+- **修复**：打包器所有 HTTP 响应补 `Cache-Control: no-store`, 根治浏览器缓存旧页面导致"新功能看不到"
+- README 中英文档全部 7 张 UI 截图更新为当前版本(含 Alertmanager / Kafka 双形态 / 三库独立备份计划)
+
+## 2026-09-28（晚间）
+
+- **备份恢复扩展到 PostgreSQL / MongoDB**：backup.sh / restore.sh 支持三种引擎——
+  MySQL(mysqldump --single-transaction)、PostgreSQL(pg_dump -Fc)、MongoDB(mongodump --archive --gzip),
+  全部在容器内执行零宿主机依赖, 按库分文件、保留 N 份自动轮转; 恢复前自动生成安全备份(pre_restore_*), 支持 --yes 免交互
+- **一键卸载 uninstall.sh**：停容器 → 清理备份 crontab → 默认保留全部数据与物料, `--purge-data` 才删数据目录
+  (仅限部署目录内挂载点, 需二次确认输入 DELETE); 删除失败时如实告警不中断
+- **Alertmanager 告警链路闭环**：新插件 prom/alertmanager v0.28.1(双架构), 告警 Webhook 地址可空可校验;
+  选配后 Prometheus 自动生成抓取配置与告警规则并挂载, "指标监控套件 / 可观测全家桶"同步纳入
+- **物料补齐一键化**：物料仓库抽屉新增"补料脚本"按钮——盘点双架构全部缺失物料并生成
+  pull_missing_images.sh(docker pull 多镜像源回退 → crane 兜底, tar 自动落位)
+- **工程质量**：新增 tests/test_packer.py(18 用例)与 tools/local_e2e_test.py(真实容器端到端:
+  起栈 → 三库备份 → 毁数据 → 恢复校验 → 告警注入 → 卸载); GitHub Actions CI(pytest + bash 语法 + shellcheck + 打包冒烟)
+- Toast 提示改为平滑消失动画; Kafka 版本号/镜像体积按部署形态动态显示(单节点 4.3.1 / 集群 3.7.0)
+
 ## 2026-09-28
 
 - **全项目中英双语**：打包器顶栏新增 中/EN 一键切换(选择记忆在浏览器, 切换即时生效)；

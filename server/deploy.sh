@@ -533,18 +533,27 @@ prepare_deploy_dir() {
 }
 
 # 安装/卸载数据库备份定时任务(crontab), 幂等可重跑
+# BACKUP_CRONS=("engine|cron" ...) 每种数据库独立调度, backup.conf 内有对应引擎开关
 install_backup() {
-  if [ "${BACKUP_ENABLED:-0}" = "1" ]; then
+  if [ -n "${BACKUP_CRONS:-}" ]; then
     hr; log "【6/9】配置数据库定时备份"
     cp -f "$BASE_DIR/backup.sh"   "$DEPLOY_DIR/backup.sh"
     cp -f "$BASE_DIR/backup.conf" "$DEPLOY_DIR/backup.conf"
     chmod 700 "$DEPLOY_DIR/backup.sh"
     chmod 600 "$DEPLOY_DIR/backup.conf"
     mkdir -p "$BACKUP_DIR"
-    local cron_line="$BACKUP_CRON $DEPLOY_DIR/backup.sh >> $DEPLOY_DIR/backup.log 2>&1 # mw-backup"
-    (crontab -l 2>/dev/null | grep -v "# mw-backup" || true; echo "$cron_line") | crontab -
-    log "定时备份已安装: crontab '$BACKUP_CRON' (保留最近份, 见 manifest.sh)"
-    log "备份目录: $BACKUP_DIR, 手工备份: $DEPLOY_DIR/backup.sh"
+    local tmp entry eng cron
+    tmp="$(mktemp)"
+    (crontab -l 2>/dev/null | grep -v "# mw-backup" || true) > "$tmp"
+    for entry in "${BACKUP_CRONS[@]}"; do
+      eng="${entry%%|*}"; cron="${entry#*|}"
+      [ -n "$eng" ] && [ -n "$cron" ] || continue
+      echo "$cron $DEPLOY_DIR/backup.sh $eng >> $DEPLOY_DIR/backup.log 2>&1 # mw-backup" >> "$tmp"
+      log "  - $eng: $cron"
+    done
+    crontab "$tmp"; rm -f "$tmp"
+    log "定时备份已安装(见上方各引擎计划, 保留份数见 manifest.sh)"
+    log "备份目录: $BACKUP_DIR, 手工备份: $DEPLOY_DIR/backup.sh [mysql|pg|mongo|all]"
   else
     # 未启用则清理可能存在的旧任务
     if crontab -l 2>/dev/null | grep -q "# mw-backup"; then
@@ -1073,10 +1082,15 @@ write_report() { # $1=本机IP
   rpt "----------------------------------------------------------------"
   rpt "$(T '五、数据库备份' '5. Database backup')"
   rpt "----------------------------------------------------------------"
-  if [ "${BACKUP_ENABLED:-0}" = "1" ]; then
-    rpt "  $(T '定时备份' 'scheduled'): $(T '已启用' 'enabled'), crontab '$BACKUP_CRON'"
-    rpt "  $(T '备份目录' 'backup dir'): $BACKUP_DIR ($(T '按库分文件 gzip, 轮转策略见 backup.conf' 'one gzip per database, rotation in backup.conf'))"
-    [ -f "$DEPLOY_DIR/backup.sh" ]  && rpt "  $(T '手工备份' 'manual backup'): $DEPLOY_DIR/backup.sh"
+  if [ -n "${BACKUP_CRONS:-}" ]; then
+    rpt "  $(T '定时备份' 'scheduled'):"
+    local _e _c
+    for _e in "${BACKUP_CRONS[@]}"; do
+      _c="${_e#*|}"; _e="${_e%%|*}"
+      rpt "    - $_e: crontab '$_c'"
+    done
+    rpt "  $(T '备份目录' 'backup dir'): $BACKUP_DIR ($(T '按库分文件 gzip, 各引擎保留份数见 backup.conf' 'one gzip per database, per-engine retention in backup.conf'))"
+    [ -f "$DEPLOY_DIR/backup.sh" ]  && rpt "  $(T '手工备份' 'manual backup'): $DEPLOY_DIR/backup.sh [mysql|pg|mongo|all]"
     [ -f "$DEPLOY_DIR/restore.sh" ] && rpt "  $(T '备份恢复' 'restore'): $DEPLOY_DIR/restore.sh list ($(T '恢复指定库' 'restore one DB'): ./restore.sh <svc> <db>)"
   else
     rpt "  $(T '未启用 (如需, 在本地打包器配置后重新打包部署)' 'not enabled (configure in the local packer and re-pack to enable)')"

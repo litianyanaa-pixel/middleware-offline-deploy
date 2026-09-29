@@ -105,13 +105,24 @@ if [ "$PURGE" -eq 1 ]; then
     [ "$ans2" = "DELETE" ] || { log "已保留数据目录 (仅卸载了容器)"; exit 0; }
   fi
   log "[3/3] 删除数据目录..."
+  PURGE_FAIL=0
   for d in "${BIND_DIRS[@]+"${BIND_DIRS[@]}"}"; do
     case "$d" in
-      "$DIR"/*) rm -rf "$d" && log "  已删除: $d" || warn "  删除失败: $d" ;;
+      "$DIR"/*)
+        if rm -rf "$d" 2>/dev/null && [ ! -e "$d" ]; then
+          log "  已删除: $d"
+        else
+          warn "  删除失败: $d (可能被进程占用, 请稍后手工删除)"
+          PURGE_FAIL=1
+        fi ;;
       *) warn "  跳过部署目录之外的挂载点: $d (如确认不再需要请手工处理)" ;;
     esac
   done
-  log "数据目录已清除"
+  if [ "$PURGE_FAIL" -eq 0 ]; then
+    log "数据目录已清除"
+  else
+    warn "数据目录部分清除, 存在删除失败的目录, 请按上方提示手工处理"
+  fi
 else
   log "[3/3] 跳过 (数据目录已保留)"
 fi

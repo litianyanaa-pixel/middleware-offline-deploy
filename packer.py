@@ -332,34 +332,45 @@ def validate_config(cfg, catalog):
         norm_extra[svc] = norm_rows
     cfg["extra_ports"] = norm_extra
 
-    # ---- 数据库备份策略(部署了任一数据库类服务才生效) ----
+    # ---- 数据库备份策略(按数据库类型独立计划) ----
     b = cfg.get("backup") or {}
-    enabled = bool(b.get("enabled"))
-    if enabled and not backupable_services({"services": services}):
-        enabled = False
-        warns.append("本次未部署任何数据库(MySQL/PostgreSQL/MongoDB), 备份策略配置已忽略|No database selected, backup policy ignored")
-    if enabled:
-        try:
-            days = sorted({int(d) for d in (b.get("days") or [])})
-        except (TypeError, ValueError):
-            raise PackError("备份星期配置不合法|Invalid backup weekdays")
-        if not days or [d for d in days if not (1 <= d <= 7)]:
-            raise PackError("请至少选择一个有效备份日 (1=周一 ... 7=周日)|Select at least one valid backup day (1=Mon ... 7=Sun)")
-        try:
-            hour, keep = int(b.get("hour", 3)), int(b.get("keep", 7))
-        except (TypeError, ValueError):
-            raise PackError("备份时间/保留份数不合法|Invalid backup hour/retention")
-        if not 0 <= hour <= 23:
-            raise PackError("备份小时必须 0-23|Backup hour must be 0-23")
-        if not 1 <= keep <= 999:
-            raise PackError("备份保留份数必须 1-999|Backup retention must be 1-999")
-        bdir = str(b.get("dir") or "/data/backup/db").strip()
-        if not LINUX_PATH_RE.match(bdir) or bdir == "/":
-            raise PackError("备份目录必须是 Linux 绝对路径, 如 /data/backup/db|Backup dir must be a Linux absolute path, e.g. /data/backup/db")
-        b = {"enabled": True, "days": days, "hour": hour, "keep": keep, "dir": bdir.rstrip("/")}
-    else:
-        b = {"enabled": False, "days": [], "hour": 3, "keep": 7, "dir": "/data/backup/db"}
-    cfg["backup"] = b
+    engines_in = b.get("engines") if isinstance(b.get("engines"), dict) else {}
+    # 兼容旧版单一计划配置: 顶层 days/hour/keep -> 三个引擎继承同一份计划
+    if not engines_in and b.get("days") is not None:
+        engines_in = {k: {"enabled": bool(b.get("enabled")), "days": b.get("days"),
+                          "hour": b.get("hour"), "keep": b.get("keep")}
+                      for k in ("mysql", "pg", "mongo")}
+    eng_of = {"mysql57": "mysql", "mysql8": "mysql", "postgres": "pg", "mongodb": "mongo"}
+    have_engines = {eng_of[s] for s in backupable_services({"services": services})}
+    norm_eng = {}
+    for key, label in (("mysql", "MySQL"), ("pg", "PostgreSQL"), ("mongo", "MongoDB")):
+        e = engines_in.get(key) or {}
+        enabled = bool(e.get("enabled"))
+        if enabled and key not in have_engines:
+            enabled = False
+            warns.append("未部署 %s, 其备份计划已忽略|%s not selected, its backup plan is ignored" % (label, label))
+        if enabled:
+            try:
+                days = sorted({int(d) for d in (e.get("days") or [])})
+            except (TypeError, ValueError):
+                raise PackError("%s 备份星期配置不合法|Invalid %s backup weekdays" % (label, label))
+            if not days or [d for d in days if not (1 <= d <= 7)]:
+                raise PackError("%s 请至少选择一个有效备份日 (1=周一 ... 7=周日)|%s: select at least one valid backup day (1=Mon ... 7=Sun)" % (label, label))
+            try:
+                hour, keep = int(e.get("hour", 3)), int(e.get("keep", 7))
+            except (TypeError, ValueError):
+                raise PackError("%s 备份时间/保留份数不合法|Invalid %s backup hour/retention" % (label, label))
+            if not 0 <= hour <= 23:
+                raise PackError("%s 备份小时必须 0-23|%s backup hour must be 0-23" % (label, label))
+            if not 1 <= keep <= 999:
+                raise PackError("%s 备份保留份数必须 1-999|%s backup retention must be 1-999" % (label, label))
+            norm_eng[key] = {"enabled": True, "days": days, "hour": hour, "keep": keep}
+        else:
+            norm_eng[key] = {"enabled": False, "days": [], "hour": 3, "keep": 7}
+    bdir = str(b.get("dir") or "/data/backup/db").strip()
+    if not LINUX_PATH_RE.match(bdir) or bdir == "/":
+        raise PackError("备份目录必须是 Linux 绝对路径, 如 /data/backup/db|Backup dir must be a Linux absolute path, e.g. /data/backup/db")
+    cfg["backup"] = {"dir": bdir.rstrip("/"), "engines": norm_eng}
 
     # ---- Nginx 反向代理向导(勾选 NGINX 才生效) ----
     proxies = cfg.get("proxies") or []
@@ -668,12 +679,16 @@ def resolve_db(cfg):
     return needs_client, client_img
 
 
-def backup_cron(backup):
-    """备份策略 -> crontab 时间字段。UI 1=周一...7=周日, cron 0/7=周日, 生成如 '0 3 * * 1,3,0'"""
-    if not backup or not backup.get("enabled"):
-        return ""
-    dow = ",".join(sorted(str(0 if d == 7 else d) for d in backup["days"]))
-    return "0 %d * * %s" % (int(backup["hour"]), dow)
+def backup_crons(backup):
+    """备份策略 -> [(engine, crontab 时间字段)], 只返回已启用的引擎。UI 1=周一..7=周日, cron 0=周日, 如 ('mysql', '0 3 * * 0,1')"""
+    out = []
+    for eng in ("mysql", "pg", "mongo"):
+        e = ((backup or {}).get("engines") or {}).get(eng) or {}
+        if not e.get("enabled"):
+            continue
+        dow = ",".join(sorted(str(0 if d == 7 else d) for d in (e.get("days") or [])))
+        out.append((eng, "0 %d * * %s" % (int(e.get("hour", 3)), dow)))
+    return out
 
 
 # 参与定时备份的数据库类服务 -> (备份.conf 中的服务数组变量名)
@@ -691,24 +706,36 @@ def backupable_services(cfg):
 
 
 def gen_backup_conf(cfg):
-    """生成 backup.conf(由 backup.sh source), 部署在部署目录"""
+    """生成 backup.conf(由 backup.sh source), 按数据库类型独立 开关/保留份数"""
     b = cfg["backup"]
+    engines = b.get("engines") or {}
     picked = backupable_services(cfg)
+    def eng(key):
+        e = engines.get(key) or {}
+        return int(bool(e.get("enabled"))), int(e.get("keep") or 7)
+    mysql_on, mysql_keep = eng("mysql")
+    pg_on, pg_keep = eng("pg")
+    mongo_on, mongo_keep = eng("mongo")
     lines = [
-        "# 由 packer.py 自动生成 — backup.sh 的配置",
+        "# 由 packer.py 自动生成 — backup.sh 的配置(每种数据库独立开关/保留份数)",
         "BACKUP_DIR=%s" % bash_quote(b["dir"]),
-        "BACKUP_KEEP=%d" % int(b["keep"]),
         "",
         "# MySQL (mysqldump 按库导出)",
+        "MYSQL_ENABLED=%d" % mysql_on,
         "MYSQL_SERVICES=(%s)" % " ".join(s for s in picked if s.startswith("mysql")),
+        "MYSQL_KEEP=%d" % mysql_keep,
         "MYSQL_ROOT_PASSWORD=%s" % bash_quote(cfg["secrets"].get("MYSQL_ROOT_PASSWORD", "")),
         "",
         "# PostgreSQL (pg_dump 按库导出, 容器内自带客户端)",
+        "PG_ENABLED=%d" % pg_on,
         "PG_SERVICES=(%s)" % " ".join(s for s in picked if s == "postgres"),
+        "PG_KEEP=%d" % pg_keep,
         "POSTGRES_PASSWORD=%s" % bash_quote(cfg["secrets"].get("POSTGRES_PASSWORD", "")),
         "",
         "# MongoDB (mongodump 按库导出, 容器内自带客户端)",
+        "MONGO_ENABLED=%d" % mongo_on,
         "MONGO_SERVICES=(%s)" % " ".join(s for s in picked if s == "mongodb"),
+        "MONGO_KEEP=%d" % mongo_keep,
         "MONGO_USER=%s" % bash_quote(cfg["secrets"].get("MONGO_INITDB_ROOT_USERNAME", "root")),
         "MONGO_PASSWORD=%s" % bash_quote(cfg["secrets"].get("MONGO_INITDB_ROOT_PASSWORD", "")),
     ]
@@ -1224,8 +1251,7 @@ def gen_manifest_sh(cfg, catalog, client_img, summary_lines, bundle_name=None):
     lines += db_lines("xxljob", "XXL")
     b = cfg.get("backup") or {}
     lines += [
-        "BACKUP_ENABLED=%d" % (1 if b.get("enabled") else 0),
-        "BACKUP_CRON=%s" % bash_quote(backup_cron(b)),
+        "BACKUP_CRONS=(%s)" % " ".join(bash_quote("%s|%s" % (eng, cron)) for eng, cron in backup_crons(b)),
         "BACKUP_DIR=%s" % bash_quote(b.get("dir") or "/data/backup/db"),
     ]
     for s in services:
@@ -1728,7 +1754,7 @@ def pack(cfg, catalog, out_dir=None, progress=None):
     if any(s in ("mysql57", "mysql8", "postgres", "mongodb") for s in cfg["services"]):
         small_files.append(("%s/restore.sh" % bundle_name,
                             (TPL_DIR / "restore.sh").read_text(encoding="utf-8").encode("utf-8"), 0o755))
-    if cfg["backup"]["enabled"]:
+    if any(e.get("enabled") for e in (cfg["backup"].get("engines") or {}).values()):
         small_files.append(("%s/backup.sh" % bundle_name,
                             (TPL_DIR / "backup.sh").read_text(encoding="utf-8").encode("utf-8"), 0o755))
         small_files.append(("%s/backup.conf" % bundle_name,
@@ -1985,6 +2011,7 @@ def make_handler(catalog):
             data = json.dumps(obj, ensure_ascii=False).encode("utf-8")
             self.send_response(code)
             self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
             self.send_header("Content-Length", str(len(data)))
             self.end_headers()
             self.wfile.write(data)
@@ -2001,6 +2028,7 @@ def make_handler(catalog):
                 html = HTML_FILE.read_bytes()
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Cache-Control", "no-store")
                 self.send_header("Content-Length", str(len(html)))
                 self.end_headers()
                 self.wfile.write(html)
@@ -2010,6 +2038,7 @@ def make_handler(catalog):
                 data = LOGOS_JS.read_bytes() if LOGOS_JS.is_file() else b"const LOGOS={};"
                 self.send_response(200)
                 self.send_header("Content-Type", "application/javascript; charset=utf-8")
+                self.send_header("Cache-Control", "no-store")
                 self.send_header("Content-Length", str(len(data)))
                 self.end_headers()
                 self.wfile.write(data)
@@ -2053,7 +2082,7 @@ def make_handler(catalog):
                                                     build_summary_lines(cfg2, catalog)),
                         "summary_lines": build_summary_lines(cfg2, catalog),
                         "images": [i[0] for i in gen_images_txt(cfg2, catalog)],
-                        "backup_cron": backup_cron(cfg2.get("backup") or {}),
+                        "backup_crons": ["%s %s" % (cron, eng) for eng, cron in backup_crons(cfg2.get("backup") or {})],
                         "warnings": warns + validate_compose_with_docker(compose, env),
                     })
                 elif self.path == "/api/pack":
