@@ -482,7 +482,7 @@
       </div>
 
       <div class="card" id="sec-backup" style="display:none">
-        <h2><span class="num">3</span>数据库备份 <span class="hint">crontab + 容器内 mysqldump, 按库分文件 gzip</span></h2>
+        <h2><span class="num">3</span>数据库备份 <span class="hint">crontab + 容器内原生工具导出, 按库分文件压缩|crontab + in-container native dump, per-DB compressed</span></h2>
         <div class="body" id="backupBox"></div>
       </div>
 
@@ -606,6 +606,7 @@ const EN_DICT = {
   "Nacos / XXL-Job 的建库连库方式": "how Nacos / XXL-Job connect to their database",
   "MySQL 服务": "MySQL service", "使用哪个 MySQL": "Which MySQL", "root (自动使用 root 密码)": "root (uses root password)",
   "数据库备份": "Database Backup", "启用备份": "Enable backup", "部署时自动写入 crontab": "crontab written on deploy",
+  "crontab + 容器内原生工具导出, 按库分文件压缩": "crontab + in-container native dump, per-DB compressed",
   "备份日": "Days", "工作日": "Weekdays", "每天": "Every day",
   "周一": "Mon", "周二": "Tue", "周三": "Wed", "周四": "Thu", "周五": "Fri", "周六": "Sat", "周日": "Sun",
   "备份时间": "Time", "每库保留份数": "Copies kept per DB", "备份目录(服务器)": "Backup dir (server)",
@@ -1080,6 +1081,18 @@ function updateStepBadges(){
   if (pending){ b4.textContent = pending + ' 项待配置'; b4.className = 'wbadge warn'; }
   else { b4.textContent = hasSecret ? '已配置' : ''; b4.className = 'wbadge'; }
 }
+// 分区序号动态重排: 隐藏的分区不占号, 避免 1→3 跳号
+function renumberSections(){
+  for (const step of document.querySelectorAll('.wstep')){
+    let n = 0;
+    for (const card of step.querySelectorAll('.card')){
+      const num = card.querySelector('h2 .num');
+      if (!num) continue;
+      if (card.style.display === 'none'){ continue; }
+      num.textContent = ++n;
+    }
+  }
+}
 function renderDynamic(){
   const svcs = [...selected];
   const has = svcs.length > 0;
@@ -1088,10 +1101,11 @@ function renderDynamic(){
   const hasSecret = CATALOG.secrets.some(it => it.services.some(s => selected.has(s)));
   $('#sec-pwd').style.display  = has && hasSecret ? '' : 'none';
   $('#sec-db').style.display   = has && svcs.some(s => s==='nacos'||s==='xxljob') ? '' : 'none';
-  $('#sec-backup').style.display = has && svcs.some(s => s==='mysql57'||s==='mysql8') ? '' : 'none';
+  $('#sec-backup').style.display = has && svcs.some(s => ['mysql57','mysql8','postgres','mongodb'].includes(s)) ? '' : 'none';
   const vis = id => { const el = document.getElementById(id); return el && el.style.display !== 'none'; };
   $('#step3Empty').style.display = (vis('sec-port') || vis('sec-proxy')) ? 'none' : '';
   $('#step4Empty').style.display = (vis('sec-pwd') || vis('sec-db') || vis('sec-backup')) ? 'none' : '';
+  renumberSections();
   $('#step5Empty').style.display = vis('previewCard') ? 'none' : '';
   updateStepBadges();
   renderTopology();
@@ -1319,7 +1333,7 @@ function pxSslStatus(p){
 /* ---- 数据库备份策略 ---- */
 function renderBackup(){
   const box = $('#backupBox');
-  if (!state.backup) state.backup = { enabled: true, days: [1,2,3,4,5,6,7], hour: 3, keep: 7, dir: '/data/backup/mysql' };
+  if (!state.backup) state.backup = { enabled: true, days: [1,2,3,4,5,6,7], hour: 3, keep: 7, dir: '/data/backup/db' };
   const b = state.backup;
   let html = '<div class="map-row" style="grid-template-columns:150px 1fr">'+
     '<span class="mlabel">启用备份</span>'+
@@ -1339,7 +1353,16 @@ function renderBackup(){
   html += '</select></div>'+
     '<div style="max-width:150px"><label>每库保留份数</label><input type="text" id="bkKeep" value="'+esc(b.keep)+'"></div>'+
     '<div><label>备份目录(服务器)</label><input type="text" id="bkDir" value="'+esc(b.dir)+'"></div></div>';
-  html += '<div class="hint" style="margin-top:10px">mysqldump 在 mysql 容器内执行(--single-transaction, 排除系统库), 每库一个 .sql.gz; 超出保留份数自动轮转删除</div></div>';
+  const BK_ENGINES = {
+    mysql57: 'MySQL: mysqldump --single-transaction, 排除系统库, 每库一个 .sql.gz|MySQL: mysqldump --single-transaction, system DBs excluded, one .sql.gz per DB',
+    mysql8:  'MySQL: mysqldump --single-transaction, 排除系统库, 每库一个 .sql.gz|MySQL: mysqldump --single-transaction, system DBs excluded, one .sql.gz per DB',
+    postgres:'PostgreSQL: pg_dump -Fc 自定义格式, 每库一个 .dump|PostgreSQL: pg_dump -Fc custom format, one .dump per DB',
+    mongodb: 'MongoDB: mongodump --archive --gzip, 每库一个 .archive.gz|MongoDB: mongodump --archive --gzip, one .archive.gz per DB'
+  };
+  const eng = [...selected].filter(s => BK_ENGINES[s]).map(s => trLabel(BK_ENGINES[s]));
+  const sep = LANG === 'en' ? '; ' : '；';
+  html += '<div class="hint" style="margin-top:10px">' + eng.join(sep) + sep
+        + trLabel('超出保留份数自动轮转删除|oldest files rotated out beyond retention') + '</div></div>';
   box.innerHTML = html;
 
   box.querySelector('#bkEnabled').onchange = e => { b.enabled = e.target.checked; saveLocal(); renderBackup(); };
@@ -1552,7 +1575,7 @@ function applyConfig(cfg){
   const bd = cfg.backup || {};
   state.backup = { enabled: bd.enabled !== false,
     days: (bd.days && bd.days.length ? bd.days : [1,2,3,4,5,6,7]).map(Number),
-    hour: (bd.hour != null ? +bd.hour : 3), keep: (bd.keep || 7), dir: (bd.dir || '/data/backup/mysql') };
+    hour: (bd.hour != null ? +bd.hour : 3), keep: (bd.keep || 7), dir: (bd.dir || '/data/backup/db') };
   state.proxies = (cfg.proxies || []).map(p => Object.assign(pxDefaultSite(), p, {
     trusted: Array.isArray(p.trusted_proxies) ? p.trusted_proxies.join(', ') : (p.trusted || '')
   }));

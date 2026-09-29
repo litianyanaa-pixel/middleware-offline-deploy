@@ -353,12 +353,12 @@ def validate_config(cfg, catalog):
             raise PackError("备份小时必须 0-23|Backup hour must be 0-23")
         if not 1 <= keep <= 999:
             raise PackError("备份保留份数必须 1-999|Backup retention must be 1-999")
-        bdir = str(b.get("dir") or "/data/backup/mysql").strip()
+        bdir = str(b.get("dir") or "/data/backup/db").strip()
         if not LINUX_PATH_RE.match(bdir) or bdir == "/":
-            raise PackError("备份目录必须是 Linux 绝对路径, 如 /data/backup/mysql|Backup dir must be a Linux absolute path, e.g. /data/backup/mysql")
+            raise PackError("备份目录必须是 Linux 绝对路径, 如 /data/backup/db|Backup dir must be a Linux absolute path, e.g. /data/backup/db")
         b = {"enabled": True, "days": days, "hour": hour, "keep": keep, "dir": bdir.rstrip("/")}
     else:
-        b = {"enabled": False, "days": [], "hour": 3, "keep": 7, "dir": "/data/backup/mysql"}
+        b = {"enabled": False, "days": [], "hour": 3, "keep": 7, "dir": "/data/backup/db"}
     cfg["backup"] = b
 
     # ---- Nginx 反向代理向导(勾选 NGINX 才生效) ----
@@ -1226,7 +1226,7 @@ def gen_manifest_sh(cfg, catalog, client_img, summary_lines, bundle_name=None):
     lines += [
         "BACKUP_ENABLED=%d" % (1 if b.get("enabled") else 0),
         "BACKUP_CRON=%s" % bash_quote(backup_cron(b)),
-        "BACKUP_DIR=%s" % bash_quote(b.get("dir") or "/data/backup/mysql"),
+        "BACKUP_DIR=%s" % bash_quote(b.get("dir") or "/data/backup/db"),
     ]
     for s in services:
         if s in PLUGINS and hasattr(PLUGINS[s], "manifest_lines"):
@@ -2113,7 +2113,7 @@ EXAMPLE_CONFIG = {
     "docker_data_root": "/data/docker",
     "registry_mirrors": [],
     "extra_ports": {},
-    "backup": {"enabled": True, "days": [1, 2, 3, 4, 5, 6, 7], "hour": 3, "keep": 7, "dir": "/data/backup/mysql"},
+    "backup": {"enabled": True, "days": [1, 2, 3, 4, 5, 6, 7], "hour": 3, "keep": 7, "dir": "/data/backup/db"},
     "db": {
         "nacos": None,
         "xxljob": {"mode": "local", "schema": "xxl_job"},
