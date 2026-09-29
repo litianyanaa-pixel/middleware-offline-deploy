@@ -118,3 +118,23 @@ Shell 垫片脚本, 记录全部调用参数到 `/var/log/fake-docker.log`, `doc
 - **沙箱拦截 wsl.exe**: 测试后期 Docker Desktop 的 WSL 后端被安全策略拦截,
   引擎无法稳定重启, S3 主部署机完整流程与 S6 运行时分发中断——待解除黑名单
   后可续测 (复现环境与包均已就绪)。
+
+### 6.3 补测收官 (wsl.exe 解禁后)
+
+Docker Desktop GUI 交互完成发行版重装后重建测试矩阵 (3 sshd 节点), 补完剩余两项:
+
+1. **S3 主部署机 deploy.sh 完整流程 ✅ EXIT=0**: 9 步全走通 (docker 检测跳过/
+   compose 检测/4 镜像 load+架构校验/磁盘与端口预检/部署目录/conf 桥接/compose up/
+   健康实测/摘要报告)。部署摘要准确: 多机主从地址(主 13307/从 13308)、读写分离
+   入口(16033)、Nacos/XXL 动态本机 IP、部署报告自动生成。nacos/xxl-job 健康实测
+   HTTP 000 为预期 (伪 docker 未真启服务, /dev/tcp 探测被拒恰好证明探测逻辑真实工作)。
+2. **S6 组合场景运行时分发 ✅ DIST_EXIT=0**: sshpass 密码路径分发 3 节点全部
+   完成; 核验 kid=1/2/3、voters/advertised、n1 主库 vs n2/n3 从库(read-only+
+   CHANGE REPLICATION SOURCE TO)、replicaof+sentinel monitor、每节点 3 镜像
+   load+compose up、conf 桥接落位全对。
+
+**最终矩阵: S1 redis 哨兵 / S2 kafka5 / S3 mysql8+proxysql / S4 mysql57 /
+S5 免密 / S6 组合 —— 6/6 全绿。**
+
+期间 Docker Desktop VM 第 6 次崩溃 (distribute 传输中), 引擎恢复后幂等重跑一次通过,
+再次验证 distribute.sh 幂等设计价值; 环境事件全部记录于 docs/测试环境问题记录.md。
