@@ -36,15 +36,15 @@ jobs:
           shellcheck -S error server/deploy.sh templates/*.sh
 
   # 仓库中含 warehouse/ 物料时(本地仓库未提交物料, CI 通常跳过)执行完整打包冒烟
+  # 注意: hashFiles 只能用在 step 级 if, 不能用在 job 级 if (会导致 startup failure)
   pack-smoke:
     runs-on: ubuntu-latest
-    if: hashFiles('warehouse/images/**') != ''
     steps:
       - uses: actions/checkout@v4
-      - name: Install Docker Compose
-        run: docker compose version
-      - name: Pack smoke bundle
+      - name: Pack smoke bundle (skipped if no warehouse images)
+        if: hashFiles('warehouse/images/**') != ''
         run: |
+          docker compose version
           python -c "
           import json, packer
           cat = packer.load_catalog()
