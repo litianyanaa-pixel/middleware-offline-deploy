@@ -326,6 +326,11 @@
     border-left:1px solid rgba(255,255,255,.75);box-shadow:-24px 0 60px rgba(15,23,42,.18);
     animation:dwin .38s var(--spring)}
   @keyframes dwin{from{transform:translateX(48px);opacity:0}to{transform:none;opacity:1}}
+  /* 关闭出场: 抽屉滑出 + 遮罩淡出 (JS 加 closing 类, 动画结束后再 hidden) */
+  .dw-wrap.closing .dw{animation:dwout .28s cubic-bezier(.5,0,.75,.4) forwards}
+  .dw-wrap.closing .dw-mask{animation:dwmaskout .28s ease forwards}
+  @keyframes dwout{from{transform:none;opacity:1}to{transform:translateX(48px);opacity:0}}
+  @keyframes dwmaskout{from{opacity:1}to{opacity:0}}
   .dw-head{display:flex;align-items:center;gap:10px;padding:15px 20px;border-bottom:1px solid var(--line)}
   .dw-head>b{font-size:14.5px;flex:none}
   .dw-head .hint{flex:1;text-align:right}
@@ -854,7 +859,7 @@ async function init(){
   $('#btnPreview').onclick = () => { gotoStep(5); doPreview(); };
   $('#btnWh').onclick = () => openDrawer('wh');
   $('#btnOut').onclick = () => { openDrawer('out'); loadBundles(); };
-  $$('[data-dwclose]').forEach(el => el.onclick = closeDrawers);
+  $$('[data-dwclose]').forEach(el => el.onclick = () => closeDrawers());
   document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDrawers(); });
   $$('#wizSteps .wtab').forEach(b => b.onclick = () => gotoView(b.dataset.v));
   window.addEventListener('resize', () => movePill(curStep));
@@ -1055,12 +1060,18 @@ function movePill(v){
   pill.style.width = tab.offsetWidth + 'px';
 }
 function openDrawer(id){
-  $$('.dw-wrap').forEach(w => w.classList.add('hidden'));
+  $$('.dw-wrap').forEach(w => { w.classList.add('hidden'); w.classList.remove('closing'); });
   const el = document.getElementById('dw-' + id);
   if (el) el.classList.remove('hidden');
 }
-function closeDrawers(){
-  $$('.dw-wrap').forEach(w => w.classList.add('hidden'));
+function closeDrawers(instant){
+  $$('.dw-wrap').forEach(w => {
+    if (w.classList.contains('hidden')) return;
+    if (instant){ w.classList.add('hidden'); w.classList.remove('closing'); return; }
+    if (w.classList.contains('closing')) return;   // 出场动画进行中, 不重复触发
+    w.classList.add('closing');
+    setTimeout(() => { w.classList.add('hidden'); w.classList.remove('closing'); }, 280);
+  });
 }
 function gotoView(v){
   v = String(v);
