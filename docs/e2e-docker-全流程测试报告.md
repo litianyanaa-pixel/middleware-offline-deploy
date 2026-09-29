@@ -74,3 +74,47 @@ Shell 垫片脚本, 记录全部调用参数到 `/var/log/fake-docker.log`, `doc
 打包 → 分发 → 安装全链路在容器化 OS 环境一次通过; 密码分发路径 (sshpass) 与免密回退
 逻辑、单节点重装、无效节点容错均验证通过。复现: `tmp_e2e/dockerenv/` 构建
 `mwe2e/ossh` 镜像, 配置见 `tmp_e2e/e2e-multihost.json`。
+
+---
+
+## 6. 全场景扩展测试 (多机矩阵)
+
+应用户要求补测多机集群全部场景, 5 配置 × 容器运行 (debian:12-slim, 1 主部署机 + 5 sshd 节点):
+
+| 场景 | 内容 | 打包 | 分发+安装 | 配置核验 |
+|---|---|---|---|---|
+| S2 kafka5 | Kafka KRaft 5 节点多机 | ✅ 1.9GB | ✅ 5/5 | node_id/voters/advertised/端口/SASL/.env 全对 |
+| S3 mysql8mh | MySQL8 一主两从 + ProxySQL + Nacos/XXL | ✅ 1.8GB | ✅ 3/3 | GRANT REPLICATION SLAVE / server-id / read-only / CHANGE REPLICATION SOURCE TO(8.0 语法) / HG10 主 HG20 从 / Nacos/XXL 指主库节点 |
+| S4 mysql57mh | MySQL5.7 一主一从 | ✅ 351MB | ✅ 2/2 | CHANGE MASTER TO(5.7 语法) / START SLAVE / read-only |
+| S5 keyauth | 免密模式 (BatchMode) | ✅ 246MB | ✅ 3/3 | 密钥分发→免密路径→哨兵配置全对 |
+| S6 combo | Kafka3 节点+MySQL8 主从+Redis 哨兵+ProxySQL 同灌 3 台 | ✅ 3GB | 静态核验 ✅ | 三节点角色/voters/复制/哨兵仲裁 2/读写分组/密码泄露扫描全过 |
+
+### 6.1 发现并修复的真实 Bug ⭐
+
+1. **POST_SQL 数组双重转义 (S4 抓获, 严重)**: `gen_node_install_sh` 先把
+   `"cn|sql"` 列表 bash_quote 再被模板 `" ".join(bash_quote(...))` 逐字符转义,
+   生成的 `POST_SQL=(...)` 每个字符间都被塞了空格, MySQL 节点 install-node.sh
+   **解析即崩**, 主从复制关系建立失败。此前单测只对 post_sql 为空的 redis 节点
+   做 `bash -n`, 没覆盖 mysql 节点。修复后新增断言: mysql 多机节点脚本必须过
+   `bash -n` 且 `POST_SQL=('mysql|...` 单引号包裹。
+2. **节点侧 conf 目录桥接缺失 (S3 抓获)**: 主部署机 deploy.sh 有
+   `conf/<svc>/* → $DEPLOY_DIR/<svc>/` 桥接, 节点 install-node.sh 没有——节点
+   compose 挂载 `./redis/redis.conf` 但文件实际在 `conf/redis/` 下, 真实部署会
+   挂载成空目录导致容器起不来。已在 install-node.sh 补齐桥接 + 数据目录创建。
+3. **教训**: `bash -n` 语法防线必须覆盖「含复杂内插(SQL/密码/引号)」的每一种
+   节点类型, 而不只是最简单的那种; 生成器双重转义类 bug 只有运行时或逐字节
+   repr 检查能暴露 (`repr(line)` 看到字符间空格才定位到 join 误用)。
+
+### 6.2 测试环境问题 (非产品 Bug)
+
+- **Docker Desktop VM 反复崩溃**: GB 级 tar 流 SSH 传输期间引擎整体 255 退出
+  (>=4 次, 16GB VM), 之后复测发现同一步骤手动执行正常。处理: 节点镜像 tar
+  (>300MB) 换成等格式小代理 tar (真实大镜像流传输已在 redis 138MB×3 验证),
+  编排/SSH/安装逻辑不受影响。
+- **deploy.sh 主部署机冒烟**: 步骤 1-4 (docker 检测跳过/compose 检测/镜像加载
+  +架构校验/磁盘与端口预检) 全过, 步骤 5 起需可写目录——:ro 挂载报
+  `Read-only file system` 属预期 (真实使用为本地解包目录); 无 docker daemon
+  时 `docker info` 失败正确 die 并提示 journalctl 排查, 守护逻辑有效。
+- **沙箱拦截 wsl.exe**: 测试后期 Docker Desktop 的 WSL 后端被安全策略拦截,
+  引擎无法稳定重启, S3 主部署机完整流程与 S6 运行时分发中断——待解除黑名单
+  后可续测 (复现环境与包均已就绪)。

@@ -1,0 +1,21 @@
+{
+  "project": "e2e-combo",
+  "arch": "amd64",
+  "services": ["kafka", "mysql8", "redis", "nacos", "xxljob"],
+  "secrets": {"MYSQL_ROOT_PASSWORD": "E2eMysql#2026", "REDIS_PASSWORD": "E2eRedis#2026", "KAFKA_PASSWORD": "E2eKafka#2026"},
+  "deploy_dir": "/opt/middleware",
+  "topology": {"kafka": "cluster", "mysql8": "master-slave", "redis": "sentinel"},
+  "servers": [
+    {"name": "node1", "user": "root", "ip": "10.66.0.11", "ssh": 22, "password": "Node1Pass#2026"},
+    {"name": "node2", "user": "root", "ip": "10.66.0.12", "ssh": 22, "password": "Node2Pass#2026"},
+    {"name": "node3", "user": "root", "ip": "10.66.0.13", "ssh": 22, "password": "Node3Pass#2026"}
+  ],
+  "multihost": {
+    "kafka": {"enabled": true, "count": 3, "brokers": [0, 1, 2]},
+    "mysql8": {"enabled": true, "master": 0, "replicas": [1, 2]},
+    "redis": {"enabled": true, "master": 0, "replicas": [1, 2]}
+  },
+  "replicas": {"mysql8": 2},
+  "features": {"proxysql": true},
+  "db": {"nacos": {"mode": "local", "schema": "nacos"}, "xxljob": {"mode": "local", "schema": "xxl_job"}}
+}

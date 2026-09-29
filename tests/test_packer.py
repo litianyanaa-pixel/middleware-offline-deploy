@@ -459,3 +459,23 @@ def test_multihost_distribute_and_install_scripts(catalog):
     assert r.returncode == 0, r.stderr.decode(errors="replace")
     r = subprocess.run([bash, "-n"], input=inst.encode(), capture_output=True)
     assert r.returncode == 0, r.stderr.decode(errors="replace")
+
+    # mysql 多机: POST_SQL 含引号/空格/分号的复制 SQL 必须安全转义 (E2E 曾因未转义炸掉解析)
+    cfg3 = _mh_cfg(["mysql8"], {"mysql8": "master-slave"},
+                   {"mysql8": {"enabled": True, "master": 0, "replicas": [1, 2]}})
+    cfg3, _ = packer.validate_config(cfg3, catalog)
+    nodes3 = packer.gen_nodes(cfg3, catalog)
+    for nd in nodes3:
+        s = packer.gen_node_install_sh(cfg3, nd)
+        r = subprocess.run([bash, "-n"], input=s.encode(), capture_output=True)
+        assert r.returncode == 0, "%s: %s" % (nd["name"], r.stderr.decode(errors="replace"))
+    mst = next(n for n in nodes3 if "master" in n["roles"][0])
+    rep = next(n for n in nodes3 if "replica" in n["roles"][0])
+    assert "GRANT REPLICATION SLAVE" in packer.gen_node_install_sh(cfg3, mst)
+    rep_sh = packer.gen_node_install_sh(cfg3, rep)
+    assert "CHANGE REPLICATION SOURCE TO" in rep_sh and "START REPLICA" in rep_sh
+    # POST_SQL 数组元素必须带单引号包裹
+    assert "POST_SQL=('mysql|" in rep_sh
+    # 节点侧必须桥接 conf/<svc>/ -> <svc>/ (compose 挂载相对路径), 并预建数据目录
+    assert "for d in ./conf/*/" in rep_sh
+    assert "mysql/data" in rep_sh and "mkdir -p" in rep_sh

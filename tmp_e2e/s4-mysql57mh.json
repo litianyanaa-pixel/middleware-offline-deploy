@@ -1,0 +1,16 @@
+{
+  "project": "e2e-mysql57mh",
+  "arch": "amd64",
+  "services": ["mysql57"],
+  "secrets": {"MYSQL_ROOT_PASSWORD": "E2eMysql#2026"},
+  "deploy_dir": "/opt/middleware",
+  "topology": {"mysql57": "master-slave"},
+  "servers": [
+    {"name": "node1", "user": "root", "ip": "10.66.0.11", "ssh": 22, "password": "Node1Pass#2026"},
+    {"name": "node2", "user": "root", "ip": "10.66.0.12", "ssh": 22, "password": "Node2Pass#2026"}
+  ],
+  "multihost": {"mysql57": {"enabled": true, "master": 0, "replicas": [1]}},
+  "replicas": {"mysql57": 1},
+  "features": {},
+  "db": {"nacos": null, "xxljob": {"mode": "local", "schema": "xxl_job"}}
+}

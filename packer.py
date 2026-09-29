@@ -2003,7 +2003,7 @@ def _node_sentinel_conf(cfg, master_ip, master_port, self_ip):
 
 
 def gen_node_install_sh(cfg, node):
-    """生成单节点安装脚本 (自包含: load 镜像 -> compose up -> 健康等待 -> 初始化 SQL -> 备份 crontab)"""
+    """生成单节点安装脚本 (自包含: 配置桥接 -> load 镜像 -> compose up -> 健康等待 -> 初始化 SQL -> 备份 crontab)"""
     b = node.get("backup")
     backup_cron = b["CRON"] if b else ""
     backup_lines = ""
@@ -2015,7 +2015,7 @@ def gen_node_install_sh(cfg, node):
             "MYSQL_KEEP=%s" % b["MYSQL_KEEP"],
             "MYSQL_ROOT_PASSWORD=%s" % b["MYSQL_ROOT_PASSWORD"],
         ])
-    post_sql = "|".join("%s|%s" % (cn, sql) for cn, sql in node["post_sql"])
+    post_sql = " ".join(bash_quote("%s|%s" % (cn, sql)) for cn, sql in node["post_sql"])
     return """#!/usr/bin/env bash
 # 由 packer.py 自动生成 — 节点 %(name)s 安装脚本 (自包含, 可重复执行)
 set -euo pipefail
@@ -2033,6 +2033,31 @@ docker compose version >/dev/null 2>&1 || docker-compose version >/dev/null 2>&1
   || die "缺少 Docker Compose, 请先安装"
 
 set -a; source ./.env; set +a
+
+# 桥接配置目录: 包内 conf/<svc>/* -> 部署目录 <svc>/* (与主部署机 deploy.sh 同规则)
+if [ -d ./conf ]; then
+  for d in ./conf/*/; do
+    [ -d "$d" ] || continue
+    name="$(basename "$d")"
+    mkdir -p "./$name"
+    cp -a "$d/." "./$name/"
+  done
+fi
+
+# 预建数据/日志目录并收紧属主 (compose 挂载点; 权限不匹配会导致容器写不进)
+for d in %(data_dirs)s; do
+  [ -z "$d" ] && continue
+  mkdir -p "./$d"
+done
+for d in %(chown_dirs)s; do
+  [ -z "$d" ] && continue
+  case "$d" in
+    *:*) dir="${d%%%%:*}"; uid="${d##*:}" ;;
+    *)   dir="$d"; uid="999" ;;
+  esac
+  [ -e "./$dir" ] && chown -R "$uid:$uid" "./$dir" 2>/dev/null \\
+    || log "  提示: chown $uid:$uid $dir 未生效(可忽略, 视节点用户而定)"
+done
 
 log "加载节点镜像..."
 for tar in images/*.tar; do
@@ -2058,7 +2083,7 @@ for cn in "${HEALTH_WAIT[@]}"; do
   log "  $cn 就绪 ($st)"
 done
 
-if [ "${#POST_SQL[@]}" -gt 0 ] && [ -n "${POST_SQL[0]}" ]; then
+if [ "${#POST_SQL[@]}" -gt 0 ] && [ -n "${POST_SQL[0]:-}" ]; then
   log "执行初始化 SQL..."
   for entry in "${POST_SQL[@]}"; do
     cn="${entry%%|*}"; sql="${entry#*|}"
@@ -2082,7 +2107,9 @@ docker compose ps --format 'table {{.Name}}\\t{{.Status}}' 2>/dev/null || docker
 """ % {
         "name": bash_quote(node["name"]),
         "health_wait": " ".join(bash_quote(n) for n in node["health_wait"]),
-        "post_sql": " ".join(bash_quote(post_sql)) if node["post_sql"] else '""',
+        "data_dirs": " ".join(bash_quote(d) for d in node["data_dirs"]),
+        "chown_dirs": " ".join(bash_quote(d) for d in node["chown_dirs"]),
+        "post_sql": post_sql or '""',
         "backup_cron": bash_quote(backup_cron),
         "backup_lines": backup_lines,
     }

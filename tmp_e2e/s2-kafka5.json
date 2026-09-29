@@ -1,0 +1,19 @@
+{
+  "project": "e2e-kafka5",
+  "arch": "amd64",
+  "services": ["kafka"],
+  "secrets": {"KAFKA_PASSWORD": "E2eKafka#2026"},
+  "deploy_dir": "/opt/middleware",
+  "topology": {"kafka": "cluster"},
+  "servers": [
+    {"name": "node1", "user": "root", "ip": "10.66.0.11", "ssh": 22, "password": "Node1Pass#2026"},
+    {"name": "node2", "user": "root", "ip": "10.66.0.12", "ssh": 22, "password": "Node2Pass#2026"},
+    {"name": "node3", "user": "root", "ip": "10.66.0.13", "ssh": 22, "password": "Node3Pass#2026"},
+    {"name": "node4", "user": "root", "ip": "10.66.0.14", "ssh": 22, "password": "Node4Pass#2026"},
+    {"name": "node5", "user": "root", "ip": "10.66.0.15", "ssh": 22, "password": "Node5Pass#2026"}
+  ],
+  "multihost": {"kafka": {"enabled": true, "count": 5, "brokers": [0, 1, 2, 3, 4]}},
+  "replicas": {},
+  "features": {},
+  "db": {"nacos": null, "xxljob": {"mode": "local", "schema": "xxl_job"}}
+}

@@ -1,0 +1,17 @@
+{
+  "project": "e2e-keyauth",
+  "arch": "amd64",
+  "services": ["redis"],
+  "secrets": {"REDIS_PASSWORD": "E2eRedis#2026"},
+  "deploy_dir": "/opt/middleware",
+  "topology": {"redis": "sentinel"},
+  "servers": [
+    {"name": "node1", "user": "root", "ip": "10.66.0.11", "ssh": 22},
+    {"name": "node2", "user": "root", "ip": "10.66.0.12", "ssh": 22},
+    {"name": "node3", "user": "root", "ip": "10.66.0.13", "ssh": 22}
+  ],
+  "multihost": {"redis": {"enabled": true, "master": 0, "replicas": [1, 2]}},
+  "replicas": {},
+  "features": {},
+  "db": {"nacos": null, "xxljob": {"mode": "local", "schema": "xxl_job"}}
+}
