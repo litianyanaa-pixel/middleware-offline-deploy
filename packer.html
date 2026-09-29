@@ -66,6 +66,11 @@
   .tbtn:hover{background:rgba(255,255,255,.88);transform:translateY(-1px);box-shadow:var(--sh-2), inset 0 1px 0 rgba(255,255,255,.9)}
   .tbtn:active{transform:translateY(0) scale(.97)}
   .tbtn.warn{color:#e11d48;border-color:rgba(225,29,72,.4)}
+  /* 物料仓库/历史产物 出场动画: 页面加载后依次从右侧滑入 */
+  #btnWh,#btnOut{animation:btnin .55s var(--spring) backwards}
+  #btnWh{animation-delay:.12s}
+  #btnOut{animation-delay:.26s}
+  @keyframes btnin{from{opacity:0;transform:translateX(28px) scale(.86)}to{opacity:1;transform:none}}
   .content{flex:1;padding:22px 28px 96px;max-width:1064px;width:100%;margin:0 auto}
 
   /* ============ 玻璃卡片 ============ */
