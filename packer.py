@@ -3260,7 +3260,7 @@ def pack(cfg, catalog, out_dir=None, progress=None):
         if up_to:
             kube_src = BASE_DIR / ("warehouse/cluster/kube/%s/%s" % (up_to, arch))
             for b in ("kubeadm", "kubelet", "kubectl"):
-                big_files.append(("%s/cluster/upgrade/%s/%s" % (bundle_name, up_to, b), kube_src / b))
+                big_files.append(("%s/cluster/upgrade/%s/%s/%s" % (bundle_name, up_to, arch, b), kube_src / b))
             cluster_small["upgrade-cluster.sh"] = gen_upgrade_sh(cfg)
 
     total_bytes = sum(p.stat().st_size for _, p in big_files)
