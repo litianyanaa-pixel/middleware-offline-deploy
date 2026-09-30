@@ -348,7 +348,45 @@ warehouse/images/postgres/15.19/arm64.tar   ← postgres-15.19-arm64.tar 放这�
 ├── warehouse/                 # ★ 原始物料仓库(不进 git, 体积大)
 │   ├── packages/x86_64/       #   docker-29.8.0.tgz, docker-compose-linux-x86_64
 │   ├── packages/aarch64/      #   docker-29.8.0.tgz, docker-compose-linux-aarch64
-│   └── images/<中间件>/<版本>/ #   amd64.tar / arm64.tar
+│   ├── images/<中间件>/<版本>/ #   amd64.tar / arm64.tar
+│   └── cluster/               #   K8s 物料(kk/二进制/artifact/信创 OS 包), 见 k8s/README.md
+├── k8s/                       # ★ K8s 集群部署模块(KubeKey · 信创, 已集成进打包页面)
+│   └── server/deploy-cluster.sh # 集群部署脚本(随包分发, deploy.sh 的【0.5/9】调用)
 ├── dist/                      # 打包产物输出目录(不进 git)
 └── legacy/deploy.sh           # 旧交互式脚本存档(已被新方案取代)
 ```
+
+## ☸ 九、Kubernetes 集群离线部署（信创）
+
+除单机中间件外，打包器还能交付 **K8s 集群**（基于 KubeKey，支持信创）：页面勾选
+「Kubernetes 集群」卡片（可再叠加任意中间件同包部署）→ 在部署形态区填集群参数并给
+服务器池节点分配角色 → 一键打包。服务器上仍是 `./deploy.sh` 一条命令：先建集群、
+再装中间件（纯集群包建完集群即结束）。**当前开放 amd64（x86_64）；arm64（鲲鹏/飞腾）
+后续开放**（页面勾选时会给提示）。
+
+![Kubernetes 集群卡片](docs/images/ui-cluster-card.png)
+
+集群参数（版本/CNI/CIDR/kube-proxy 模式等双列表单）、离线物料模式（artifact / 二进制
+缓存）、按发行版的 OS 依赖包勾选（麒麟/统信UOS/openEuler/龙蜥/阿里云Linux 等 9 种）
+与节点角色分配，全部在与 MySQL/Redis/Kafka 多机形态同一处的「部署形态」区完成；
+服务器池里改别名/IP，下方角色分配的节点标签实时联动：
+
+![集群参数与角色分配](docs/images/ui-cluster-form.png)
+
+生成预览会多出「集群 inventory」「集群 config」两个标签页，实时展示将打进包里的
+inventory.yaml / config.yaml：
+
+![K8s 预览标签页](docs/images/ui-cluster-preview.png)
+
+物料缺失**打包时自动补齐**：二进制组件从国内可达源自动下载（带每组件进度）；
+artifact 产物自动调用 Docker Desktop 执行 `kk artifact export` 构建（zone=cn 国内源，
+本机实测约 3~5 分钟）；仅无法自动补齐的物料才会提示放置路径：
+
+![打包完成与历史产物](docs/images/ui-cluster-packdone.png)
+
+本地已用容器化双节点（Ubuntu 22.04 systemd + SSH）完成端到端验证：kk 全流程 340 个任务
+0 失败、双节点注册、幂等重跑通过，过程与修复记录见
+[docs/k8s-容器验证记录.md](docs/k8s-容器验证记录.md)。
+
+物料准备（打过补丁的 kk、离线产物、OS 依赖包）与信创适配矩阵：
+[docs/k8s-信创离线部署.md](docs/k8s-信创离线部署.md) · [docs/k8s-README.md](docs/k8s-README.md)

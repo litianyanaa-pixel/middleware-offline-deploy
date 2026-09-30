@@ -323,3 +323,42 @@ Port/password changes should go through "edit locally → repack → redeploy", 
 ├── dist/                      # bundle output directory (not in git)
 └── legacy/deploy.sh           # archived legacy interactive script (superseded)
 ```
+
+## ☸ 9. Kubernetes Cluster Deployment (Xinchuang-ready)
+
+Beyond middleware, the packer also delivers a **Kubernetes cluster** (based on KubeKey):
+tick the "Kubernetes cluster" card (optionally stack any middleware into the same bundle) →
+fill cluster parameters and assign roles to the server-pool nodes → pack with one click.
+On the server it is still `./deploy.sh`: the cluster is provisioned first, then middleware
+(a cluster-only bundle finishes after the cluster). **amd64 (x86_64) only for now;
+arm64 (Kunpeng/Phytium) will open later** (the UI hints when selected).
+
+![Kubernetes cluster card](docs/images/ui-cluster-card.png)
+
+Cluster settings (version / CNI / CIDR / kube-proxy mode in a two-column form), offline
+material mode (artifact / binary cache), per-distro OS package selection (Kylin / UOS /
+openEuler / Anolis / Alibaba Cloud Linux etc., 9 distros) and node role assignment all
+live in the same "deployment topology" area as the MySQL/Redis/Kafka multi-host forms;
+renaming a server in the pool updates the role-assignment labels live:
+
+![Cluster settings & role assignment](docs/images/ui-cluster-form.png)
+
+Generate Preview gains "Cluster inventory" and "Cluster config" tabs showing the exact
+inventory.yaml / config.yaml that go into the bundle:
+
+![K8s preview tabs](docs/images/ui-cluster-preview.png)
+
+Missing materials are **auto-completed at pack time**: binaries are downloaded from
+China-reachable mirrors (with per-component progress); the artifact bundle is built
+automatically via Docker Desktop running `kk artifact export` (zone=cn domestic mirrors,
+~3-5 minutes measured); only materials that cannot be auto-fetched prompt for a path:
+
+![Pack done & artifacts](docs/images/ui-cluster-packdone.png)
+
+Validated end-to-end with a containerized two-node cluster (Ubuntu 22.04 systemd + SSH):
+340 kk tasks with 0 failures, both nodes joined, idempotent re-run passed — see
+[docs/k8s-容器验证记录.md](docs/k8s-容器验证记录.md) (Chinese).
+
+Material preparation (patched kk, offline artifact, OS packages) and the Xinchuang
+compatibility matrix: [docs/k8s-信创离线部署.md](docs/k8s-信创离线部署.md) ·
+[docs/k8s-README.md](docs/k8s-README.md) (Chinese).

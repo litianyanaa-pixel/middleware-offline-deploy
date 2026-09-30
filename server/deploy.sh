@@ -1215,8 +1215,23 @@ setup_kibana_user() {
 }
 
 #===============================================================================
+# K8s 集群部署(打包时勾选了集群才有): 先用 KubeKey 建集群(多节点 SSH, 耗时较长),
+# 成功后再继续中间件部分; 纯集群包(CLUSTER_ONLY=1)在集群就绪后直接结束。
+deploy_cluster() {
+  if [ "${CLUSTER_ENABLED:-0}" != "1" ] || [ ! -x "$BASE_DIR/deploy-cluster.sh" ]; then
+    return 0
+  fi
+  hr; log "【0.5/9】部署 Kubernetes 集群 (KubeKey · ${CLUSTER_KUBE_VERSION:-})"
+  bash "$BASE_DIR/deploy-cluster.sh" || die "K8s 集群部署失败, 中间件部分未执行; 修复后重跑 ./deploy.sh (幂等)"
+  if [ "${CLUSTER_ONLY:-0}" = "1" ]; then
+    hr; log "本包仅含 K8s 集群, 部署完成 (报告: cluster-k8s-报告.txt)"; exit 0
+  fi
+  log "K8s 集群就绪, 继续中间件部署..."
+}
+
 main() {
   verify_bundle_integrity
+  deploy_cluster
   install_docker
   install_compose
   load_images

@@ -1,4 +1,962 @@
 {
+  "cluster": {
+    "_comment": "K8s 集群离线部署(KubeKey · 信创)。物料放 warehouse/cluster/, 详见 docs/k8s-信创离线部署.md。{arch}: amd64|arm64",
+    "label": "Kubernetes 集群 (KubeKey)",
+    "tag": "v1.34.11",
+    "kk": {
+      "version": "v4.0.7-xc1",
+      "note": "须为打过信创补丁的构建(kylin/uos/openEuler/anolis/alinux 白名单), 见 docs/k8s-信创离线部署.md",
+      "binaries": {
+        "amd64": "warehouse/cluster/kk/v4.0.7-xc1/amd64/kk",
+        "arm64": "warehouse/cluster/kk/v4.0.7-xc1/arm64/kk"
+      }
+    },
+    "versions": {
+      "v1.23.17": {
+        "recommended": false,
+        "note": "信创推荐线: 兼容 cgroup v1 与旧内核(iptables 模式)",
+        "cni_plugin": {
+          "type": "calico",
+          "version": "v3.25.2"
+        },
+        "cni_versions": {
+          "calico": "v3.25.2",
+          "cilium": "1.14.19",
+          "flannel": "v0.27.4",
+          "kubeovn": "v1.13.15"
+        },
+        "sandbox_image_tag": "3.6",
+        "components": {
+          "kube": {
+            "warehouse_dir": "warehouse/cluster/kube/v1.23.17/{arch}",
+            "cache_layout": "kube/v1.23.17/{arch}"
+          },
+          "etcd": {
+            "version": "v3.5.6",
+            "warehouse_dir": "warehouse/cluster/etcd/v3.5.6/{arch}",
+            "cache_layout": "etcd/v3.5.6/{arch}"
+          },
+          "cni_plugins": {
+            "version": "v1.9.1",
+            "warehouse_dir": "warehouse/cluster/cni/v1.9.1/{arch}",
+            "cache_layout": "cni/plugins/v1.9.1/{arch}"
+          },
+          "helm": {
+            "version": "v3.8.2",
+            "warehouse_dir": "warehouse/cluster/helm/v3.8.2/{arch}",
+            "cache_layout": "helm/v3.8.2/{arch}"
+          },
+          "crictl": {
+            "version": "v1.23.0",
+            "warehouse_dir": "warehouse/cluster/crictl/v1.23.0/{arch}",
+            "cache_layout": "crictl/v1.23.0/{arch}"
+          },
+          "containerd": {
+            "version": "v1.6.21",
+            "warehouse_dir": "warehouse/cluster/containerd/v1.6.21/{arch}",
+            "cache_layout": "containerd/v1.6.21/{arch}"
+          },
+          "runc": {
+            "version": "v1.1.7",
+            "warehouse_dir": "warehouse/cluster/runc/v1.1.7/{arch}",
+            "cache_layout": "runc/v1.1.7/{arch}"
+          }
+        }
+      },
+      "v1.24.17": {
+        "recommended": false,
+        "note": "信创推荐线: 兼容 cgroup v1 与旧内核(iptables 模式)",
+        "cni_plugin": {
+          "type": "calico",
+          "version": "v3.26.5"
+        },
+        "cni_versions": {
+          "calico": "v3.26.5",
+          "cilium": "1.14.19",
+          "flannel": "v0.27.4",
+          "kubeovn": "v1.13.15"
+        },
+        "sandbox_image_tag": "3.7",
+        "components": {
+          "kube": {
+            "warehouse_dir": "warehouse/cluster/kube/v1.24.17/{arch}",
+            "cache_layout": "kube/v1.24.17/{arch}"
+          },
+          "etcd": {
+            "version": "v3.5.6",
+            "warehouse_dir": "warehouse/cluster/etcd/v3.5.6/{arch}",
+            "cache_layout": "etcd/v3.5.6/{arch}"
+          },
+          "cni_plugins": {
+            "version": "v1.9.1",
+            "warehouse_dir": "warehouse/cluster/cni/v1.9.1/{arch}",
+            "cache_layout": "cni/plugins/v1.9.1/{arch}"
+          },
+          "helm": {
+            "version": "v3.10.3",
+            "warehouse_dir": "warehouse/cluster/helm/v3.10.3/{arch}",
+            "cache_layout": "helm/v3.10.3/{arch}"
+          },
+          "crictl": {
+            "version": "v1.24.0",
+            "warehouse_dir": "warehouse/cluster/crictl/v1.24.0/{arch}",
+            "cache_layout": "crictl/v1.24.0/{arch}"
+          },
+          "containerd": {
+            "version": "v1.7.28",
+            "warehouse_dir": "warehouse/cluster/containerd/v1.7.28/{arch}",
+            "cache_layout": "containerd/v1.7.28/{arch}"
+          },
+          "runc": {
+            "version": "v1.3.3",
+            "warehouse_dir": "warehouse/cluster/runc/v1.3.3/{arch}",
+            "cache_layout": "runc/v1.3.3/{arch}"
+          }
+        }
+      },
+      "v1.25.16": {
+        "recommended": false,
+        "note": "信创推荐线: 兼容 cgroup v1 与旧内核(iptables 模式)",
+        "cni_plugin": {
+          "type": "calico",
+          "version": "v3.26.5"
+        },
+        "cni_versions": {
+          "calico": "v3.26.5",
+          "cilium": "1.14.19",
+          "flannel": "v0.27.4",
+          "kubeovn": "v1.13.15"
+        },
+        "sandbox_image_tag": "3.8",
+        "components": {
+          "kube": {
+            "warehouse_dir": "warehouse/cluster/kube/v1.25.16/{arch}",
+            "cache_layout": "kube/v1.25.16/{arch}"
+          },
+          "etcd": {
+            "version": "v3.5.9",
+            "warehouse_dir": "warehouse/cluster/etcd/v3.5.9/{arch}",
+            "cache_layout": "etcd/v3.5.9/{arch}"
+          },
+          "cni_plugins": {
+            "version": "v1.9.1",
+            "warehouse_dir": "warehouse/cluster/cni/v1.9.1/{arch}",
+            "cache_layout": "cni/plugins/v1.9.1/{arch}"
+          },
+          "helm": {
+            "version": "v3.10.3",
+            "warehouse_dir": "warehouse/cluster/helm/v3.10.3/{arch}",
+            "cache_layout": "helm/v3.10.3/{arch}"
+          },
+          "crictl": {
+            "version": "v1.25.0",
+            "warehouse_dir": "warehouse/cluster/crictl/v1.25.0/{arch}",
+            "cache_layout": "crictl/v1.25.0/{arch}"
+          },
+          "containerd": {
+            "version": "v1.7.28",
+            "warehouse_dir": "warehouse/cluster/containerd/v1.7.28/{arch}",
+            "cache_layout": "containerd/v1.7.28/{arch}"
+          },
+          "runc": {
+            "version": "v1.3.3",
+            "warehouse_dir": "warehouse/cluster/runc/v1.3.3/{arch}",
+            "cache_layout": "runc/v1.3.3/{arch}"
+          }
+        }
+      },
+      "v1.26.15": {
+        "recommended": false,
+        "note": "信创推荐线: 兼容 cgroup v1 与旧内核(iptables 模式)",
+        "cni_plugin": {
+          "type": "calico",
+          "version": "v3.26.5"
+        },
+        "cni_versions": {
+          "calico": "v3.26.5",
+          "cilium": "1.15.19",
+          "flannel": "v0.27.4",
+          "kubeovn": "v1.13.15"
+        },
+        "sandbox_image_tag": "3.9",
+        "components": {
+          "kube": {
+            "warehouse_dir": "warehouse/cluster/kube/v1.26.15/{arch}",
+            "cache_layout": "kube/v1.26.15/{arch}"
+          },
+          "etcd": {
+            "version": "v3.5.10",
+            "warehouse_dir": "warehouse/cluster/etcd/v3.5.10/{arch}",
+            "cache_layout": "etcd/v3.5.10/{arch}"
+          },
+          "cni_plugins": {
+            "version": "v1.9.1",
+            "warehouse_dir": "warehouse/cluster/cni/v1.9.1/{arch}",
+            "cache_layout": "cni/plugins/v1.9.1/{arch}"
+          },
+          "helm": {
+            "version": "v3.11.2",
+            "warehouse_dir": "warehouse/cluster/helm/v3.11.2/{arch}",
+            "cache_layout": "helm/v3.11.2/{arch}"
+          },
+          "crictl": {
+            "version": "v1.26.0",
+            "warehouse_dir": "warehouse/cluster/crictl/v1.26.0/{arch}",
+            "cache_layout": "crictl/v1.26.0/{arch}"
+          },
+          "containerd": {
+            "version": "v1.7.28",
+            "warehouse_dir": "warehouse/cluster/containerd/v1.7.28/{arch}",
+            "cache_layout": "containerd/v1.7.28/{arch}"
+          },
+          "runc": {
+            "version": "v1.3.3",
+            "warehouse_dir": "warehouse/cluster/runc/v1.3.3/{arch}",
+            "cache_layout": "runc/v1.3.3/{arch}"
+          }
+        }
+      },
+      "v1.27.16": {
+        "recommended": false,
+        "note": "信创推荐线: 兼容 cgroup v1 与旧内核(iptables 模式)",
+        "cni_plugin": {
+          "type": "calico",
+          "version": "v3.28.5"
+        },
+        "cni_versions": {
+          "calico": "v3.28.5",
+          "cilium": "1.16.19",
+          "flannel": "v0.27.4",
+          "kubeovn": "v1.13.15"
+        },
+        "sandbox_image_tag": "3.9",
+        "components": {
+          "kube": {
+            "warehouse_dir": "warehouse/cluster/kube/v1.27.16/{arch}",
+            "cache_layout": "kube/v1.27.16/{arch}"
+          },
+          "etcd": {
+            "version": "v3.5.12",
+            "warehouse_dir": "warehouse/cluster/etcd/v3.5.12/{arch}",
+            "cache_layout": "etcd/v3.5.12/{arch}"
+          },
+          "cni_plugins": {
+            "version": "v1.9.1",
+            "warehouse_dir": "warehouse/cluster/cni/v1.9.1/{arch}",
+            "cache_layout": "cni/plugins/v1.9.1/{arch}"
+          },
+          "helm": {
+            "version": "v3.12.1",
+            "warehouse_dir": "warehouse/cluster/helm/v3.12.1/{arch}",
+            "cache_layout": "helm/v3.12.1/{arch}"
+          },
+          "crictl": {
+            "version": "v1.27.0",
+            "warehouse_dir": "warehouse/cluster/crictl/v1.27.0/{arch}",
+            "cache_layout": "crictl/v1.27.0/{arch}"
+          },
+          "containerd": {
+            "version": "v1.7.28",
+            "warehouse_dir": "warehouse/cluster/containerd/v1.7.28/{arch}",
+            "cache_layout": "containerd/v1.7.28/{arch}"
+          },
+          "runc": {
+            "version": "v1.3.3",
+            "warehouse_dir": "warehouse/cluster/runc/v1.3.3/{arch}",
+            "cache_layout": "runc/v1.3.3/{arch}"
+          }
+        }
+      },
+      "v1.28.15": {
+        "recommended": false,
+        "note": "信创推荐线: 兼容 cgroup v1 与旧内核(iptables 模式)",
+        "cni_plugin": {
+          "type": "calico",
+          "version": "v3.28.5"
+        },
+        "cni_versions": {
+          "calico": "v3.28.5",
+          "cilium": "1.16.19",
+          "flannel": "v0.27.4",
+          "kubeovn": "v1.13.15"
+        },
+        "sandbox_image_tag": "3.9",
+        "components": {
+          "kube": {
+            "warehouse_dir": "warehouse/cluster/kube/v1.28.15/{arch}",
+            "cache_layout": "kube/v1.28.15/{arch}"
+          },
+          "etcd": {
+            "version": "v3.5.15",
+            "warehouse_dir": "warehouse/cluster/etcd/v3.5.15/{arch}",
+            "cache_layout": "etcd/v3.5.15/{arch}"
+          },
+          "cni_plugins": {
+            "version": "v1.9.1",
+            "warehouse_dir": "warehouse/cluster/cni/v1.9.1/{arch}",
+            "cache_layout": "cni/plugins/v1.9.1/{arch}"
+          },
+          "helm": {
+            "version": "v3.12.1",
+            "warehouse_dir": "warehouse/cluster/helm/v3.12.1/{arch}",
+            "cache_layout": "helm/v3.12.1/{arch}"
+          },
+          "crictl": {
+            "version": "v1.28.0",
+            "warehouse_dir": "warehouse/cluster/crictl/v1.28.0/{arch}",
+            "cache_layout": "crictl/v1.28.0/{arch}"
+          },
+          "containerd": {
+            "version": "v1.7.28",
+            "warehouse_dir": "warehouse/cluster/containerd/v1.7.28/{arch}",
+            "cache_layout": "containerd/v1.7.28/{arch}"
+          },
+          "runc": {
+            "version": "v1.3.3",
+            "warehouse_dir": "warehouse/cluster/runc/v1.3.3/{arch}",
+            "cache_layout": "runc/v1.3.3/{arch}"
+          }
+        }
+      },
+      "v1.29.15": {
+        "recommended": false,
+        "note": "信创推荐线: 兼容 cgroup v1 与旧内核(iptables 模式)",
+        "cni_plugin": {
+          "type": "calico",
+          "version": "v3.29.7"
+        },
+        "cni_versions": {
+          "calico": "v3.29.7",
+          "cilium": "1.17.18",
+          "flannel": "v0.27.4",
+          "kubeovn": "v1.15.0"
+        },
+        "sandbox_image_tag": "3.9",
+        "components": {
+          "kube": {
+            "warehouse_dir": "warehouse/cluster/kube/v1.29.15/{arch}",
+            "cache_layout": "kube/v1.29.15/{arch}"
+          },
+          "etcd": {
+            "version": "v3.5.15",
+            "warehouse_dir": "warehouse/cluster/etcd/v3.5.15/{arch}",
+            "cache_layout": "etcd/v3.5.15/{arch}"
+          },
+          "cni_plugins": {
+            "version": "v1.9.1",
+            "warehouse_dir": "warehouse/cluster/cni/v1.9.1/{arch}",
+            "cache_layout": "cni/plugins/v1.9.1/{arch}"
+          },
+          "helm": {
+            "version": "v3.13.3",
+            "warehouse_dir": "warehouse/cluster/helm/v3.13.3/{arch}",
+            "cache_layout": "helm/v3.13.3/{arch}"
+          },
+          "crictl": {
+            "version": "v1.29.0",
+            "warehouse_dir": "warehouse/cluster/crictl/v1.29.0/{arch}",
+            "cache_layout": "crictl/v1.29.0/{arch}"
+          },
+          "containerd": {
+            "version": "v1.7.28",
+            "warehouse_dir": "warehouse/cluster/containerd/v1.7.28/{arch}",
+            "cache_layout": "containerd/v1.7.28/{arch}"
+          },
+          "runc": {
+            "version": "v1.3.3",
+            "warehouse_dir": "warehouse/cluster/runc/v1.3.3/{arch}",
+            "cache_layout": "runc/v1.3.3/{arch}"
+          }
+        }
+      },
+      "v1.30.14": {
+        "recommended": false,
+        "note": "信创推荐线: 兼容 cgroup v1 与旧内核(iptables 模式)",
+        "cni_plugin": {
+          "type": "calico",
+          "version": "v3.29.7"
+        },
+        "cni_versions": {
+          "calico": "v3.29.7",
+          "cilium": "1.18.13",
+          "flannel": "v0.27.4",
+          "kubeovn": "v1.15.0"
+        },
+        "sandbox_image_tag": "3.9",
+        "components": {
+          "kube": {
+            "warehouse_dir": "warehouse/cluster/kube/v1.30.14/{arch}",
+            "cache_layout": "kube/v1.30.14/{arch}"
+          },
+          "etcd": {
+            "version": "v3.5.15",
+            "warehouse_dir": "warehouse/cluster/etcd/v3.5.15/{arch}",
+            "cache_layout": "etcd/v3.5.15/{arch}"
+          },
+          "cni_plugins": {
+            "version": "v1.9.1",
+            "warehouse_dir": "warehouse/cluster/cni/v1.9.1/{arch}",
+            "cache_layout": "cni/plugins/v1.9.1/{arch}"
+          },
+          "helm": {
+            "version": "v3.13.3",
+            "warehouse_dir": "warehouse/cluster/helm/v3.13.3/{arch}",
+            "cache_layout": "helm/v3.13.3/{arch}"
+          },
+          "crictl": {
+            "version": "v1.30.0",
+            "warehouse_dir": "warehouse/cluster/crictl/v1.30.0/{arch}",
+            "cache_layout": "crictl/v1.30.0/{arch}"
+          },
+          "containerd": {
+            "version": "v2.2.6",
+            "warehouse_dir": "warehouse/cluster/containerd/v2.2.6/{arch}",
+            "cache_layout": "containerd/v2.2.6/{arch}"
+          },
+          "runc": {
+            "version": "v1.3.6",
+            "warehouse_dir": "warehouse/cluster/runc/v1.3.6/{arch}",
+            "cache_layout": "runc/v1.3.6/{arch}"
+          }
+        }
+      },
+      "v1.31.14": {
+        "recommended": false,
+        "note": "信创推荐线: 兼容 cgroup v1 与旧内核(iptables 模式)",
+        "cni_plugin": {
+          "type": "calico",
+          "version": "v3.30.7"
+        },
+        "cni_versions": {
+          "calico": "v3.30.7",
+          "cilium": "1.19.7",
+          "flannel": "v0.27.4",
+          "kubeovn": "v1.15.0"
+        },
+        "sandbox_image_tag": "3.10",
+        "components": {
+          "kube": {
+            "warehouse_dir": "warehouse/cluster/kube/v1.31.14/{arch}",
+            "cache_layout": "kube/v1.31.14/{arch}"
+          },
+          "etcd": {
+            "version": "v3.5.24",
+            "warehouse_dir": "warehouse/cluster/etcd/v3.5.24/{arch}",
+            "cache_layout": "etcd/v3.5.24/{arch}"
+          },
+          "cni_plugins": {
+            "version": "v1.9.1",
+            "warehouse_dir": "warehouse/cluster/cni/v1.9.1/{arch}",
+            "cache_layout": "cni/plugins/v1.9.1/{arch}"
+          },
+          "helm": {
+            "version": "v3.13.3",
+            "warehouse_dir": "warehouse/cluster/helm/v3.13.3/{arch}",
+            "cache_layout": "helm/v3.13.3/{arch}"
+          },
+          "crictl": {
+            "version": "v1.31.0",
+            "warehouse_dir": "warehouse/cluster/crictl/v1.31.0/{arch}",
+            "cache_layout": "crictl/v1.31.0/{arch}"
+          },
+          "containerd": {
+            "version": "v2.2.6",
+            "warehouse_dir": "warehouse/cluster/containerd/v2.2.6/{arch}",
+            "cache_layout": "containerd/v2.2.6/{arch}"
+          },
+          "runc": {
+            "version": "v1.3.6",
+            "warehouse_dir": "warehouse/cluster/runc/v1.3.6/{arch}",
+            "cache_layout": "runc/v1.3.6/{arch}"
+          }
+        }
+      },
+      "v1.32.13": {
+        "recommended": false,
+        "note": "信创推荐线: 兼容 cgroup v1 与旧内核(iptables 模式)",
+        "cni_plugin": {
+          "type": "calico",
+          "version": "v3.31.7"
+        },
+        "cni_versions": {
+          "calico": "v3.31.7",
+          "cilium": "1.19.7",
+          "flannel": "v0.27.4",
+          "kubeovn": "v1.15.0"
+        },
+        "sandbox_image_tag": "3.10",
+        "components": {
+          "kube": {
+            "warehouse_dir": "warehouse/cluster/kube/v1.32.13/{arch}",
+            "cache_layout": "kube/v1.32.13/{arch}"
+          },
+          "etcd": {
+            "version": "v3.5.24",
+            "warehouse_dir": "warehouse/cluster/etcd/v3.5.24/{arch}",
+            "cache_layout": "etcd/v3.5.24/{arch}"
+          },
+          "cni_plugins": {
+            "version": "v1.9.1",
+            "warehouse_dir": "warehouse/cluster/cni/v1.9.1/{arch}",
+            "cache_layout": "cni/plugins/v1.9.1/{arch}"
+          },
+          "helm": {
+            "version": "v3.14.3",
+            "warehouse_dir": "warehouse/cluster/helm/v3.14.3/{arch}",
+            "cache_layout": "helm/v3.14.3/{arch}"
+          },
+          "crictl": {
+            "version": "v1.32.0",
+            "warehouse_dir": "warehouse/cluster/crictl/v1.32.0/{arch}",
+            "cache_layout": "crictl/v1.32.0/{arch}"
+          },
+          "containerd": {
+            "version": "v2.2.6",
+            "warehouse_dir": "warehouse/cluster/containerd/v2.2.6/{arch}",
+            "cache_layout": "containerd/v2.2.6/{arch}"
+          },
+          "runc": {
+            "version": "v1.3.6",
+            "warehouse_dir": "warehouse/cluster/runc/v1.3.6/{arch}",
+            "cache_layout": "runc/v1.3.6/{arch}"
+          }
+        }
+      },
+      "v1.33.13": {
+        "recommended": false,
+        "note": "信创推荐线: 兼容 cgroup v1 与旧内核(iptables 模式)",
+        "cni_plugin": {
+          "type": "calico",
+          "version": "v3.31.7"
+        },
+        "cni_versions": {
+          "calico": "v3.31.7",
+          "cilium": "1.20.1",
+          "flannel": "v0.27.4",
+          "kubeovn": "v1.15.0"
+        },
+        "sandbox_image_tag": "3.10",
+        "components": {
+          "kube": {
+            "warehouse_dir": "warehouse/cluster/kube/v1.33.13/{arch}",
+            "cache_layout": "kube/v1.33.13/{arch}"
+          },
+          "etcd": {
+            "version": "v3.5.24",
+            "warehouse_dir": "warehouse/cluster/etcd/v3.5.24/{arch}",
+            "cache_layout": "etcd/v3.5.24/{arch}"
+          },
+          "cni_plugins": {
+            "version": "v1.9.1",
+            "warehouse_dir": "warehouse/cluster/cni/v1.9.1/{arch}",
+            "cache_layout": "cni/plugins/v1.9.1/{arch}"
+          },
+          "helm": {
+            "version": "v3.18.5",
+            "warehouse_dir": "warehouse/cluster/helm/v3.18.5/{arch}",
+            "cache_layout": "helm/v3.18.5/{arch}"
+          },
+          "crictl": {
+            "version": "v1.33.0",
+            "warehouse_dir": "warehouse/cluster/crictl/v1.33.0/{arch}",
+            "cache_layout": "crictl/v1.33.0/{arch}"
+          },
+          "containerd": {
+            "version": "v2.2.6",
+            "warehouse_dir": "warehouse/cluster/containerd/v2.2.6/{arch}",
+            "cache_layout": "containerd/v2.2.6/{arch}"
+          },
+          "runc": {
+            "version": "v1.3.6",
+            "warehouse_dir": "warehouse/cluster/runc/v1.3.6/{arch}",
+            "cache_layout": "runc/v1.3.6/{arch}"
+          }
+        }
+      },
+      "v1.34.11": {
+        "recommended": true,
+        "note": "信创推荐线: 兼容 cgroup v1 与旧内核(iptables 模式); v1.35+ 强制 cgroup v2",
+        "cni_plugin": {
+          "type": "calico",
+          "version": "v3.32.2"
+        },
+        "sandbox_image_tag": "3.10.1",
+        "components": {
+          "kube": {
+            "warehouse_dir": "warehouse/cluster/kube/v1.34.11/{arch}",
+            "cache_layout": "kube/v1.34.11/{arch}"
+          },
+          "etcd": {
+            "version": "v3.6.5",
+            "warehouse_dir": "warehouse/cluster/etcd/v3.6.5/{arch}",
+            "cache_layout": "etcd/v3.6.5/{arch}"
+          },
+          "cni_plugins": {
+            "version": "v1.9.1",
+            "warehouse_dir": "warehouse/cluster/cni/v1.9.1/{arch}",
+            "cache_layout": "cni/plugins/v1.9.1/{arch}"
+          },
+          "helm": {
+            "version": "v3.18.5",
+            "warehouse_dir": "warehouse/cluster/helm/v3.18.5/{arch}",
+            "cache_layout": "helm/v3.18.5/{arch}"
+          },
+          "crictl": {
+            "version": "v1.34.0",
+            "warehouse_dir": "warehouse/cluster/crictl/v1.34.0/{arch}",
+            "cache_layout": "crictl/v1.34.0/{arch}"
+          },
+          "containerd": {
+            "version": "v2.2.6",
+            "warehouse_dir": "warehouse/cluster/containerd/v2.2.6/{arch}",
+            "cache_layout": "containerd/v2.2.6/{arch}"
+          },
+          "runc": {
+            "version": "v1.3.6",
+            "warehouse_dir": "warehouse/cluster/runc/v1.3.6/{arch}",
+            "cache_layout": "runc/v1.3.6/{arch}"
+          }
+        },
+        "cni_versions": {
+          "calico": "v3.32.2",
+          "cilium": "1.20.1",
+          "flannel": "v0.27.4",
+          "kubeovn": "v1.15.0"
+        }
+      },
+      "v1.35.8": {
+        "recommended": false,
+        "note": "要求 cgroup v2 (K8s 1.35+ 移除 cgroup v1 支持)",
+        "cni_plugin": {
+          "type": "calico",
+          "version": "v3.32.2"
+        },
+        "cni_versions": {
+          "calico": "v3.32.2",
+          "cilium": "1.20.1",
+          "flannel": "v0.28.9",
+          "kubeovn": "v1.16.2"
+        },
+        "sandbox_image_tag": "3.10.1",
+        "components": {
+          "kube": {
+            "warehouse_dir": "warehouse/cluster/kube/v1.35.8/{arch}",
+            "cache_layout": "kube/v1.35.8/{arch}"
+          },
+          "etcd": {
+            "version": "v3.6.6",
+            "warehouse_dir": "warehouse/cluster/etcd/v3.6.6/{arch}",
+            "cache_layout": "etcd/v3.6.6/{arch}"
+          },
+          "cni_plugins": {
+            "version": "v1.9.1",
+            "warehouse_dir": "warehouse/cluster/cni/v1.9.1/{arch}",
+            "cache_layout": "cni/plugins/v1.9.1/{arch}"
+          },
+          "helm": {
+            "version": "v3.18.5",
+            "warehouse_dir": "warehouse/cluster/helm/v3.18.5/{arch}",
+            "cache_layout": "helm/v3.18.5/{arch}"
+          },
+          "crictl": {
+            "version": "v1.35.0",
+            "warehouse_dir": "warehouse/cluster/crictl/v1.35.0/{arch}",
+            "cache_layout": "crictl/v1.35.0/{arch}"
+          },
+          "containerd": {
+            "version": "v2.2.6",
+            "warehouse_dir": "warehouse/cluster/containerd/v2.2.6/{arch}",
+            "cache_layout": "containerd/v2.2.6/{arch}"
+          },
+          "runc": {
+            "version": "v1.3.6",
+            "warehouse_dir": "warehouse/cluster/runc/v1.3.6/{arch}",
+            "cache_layout": "runc/v1.3.6/{arch}"
+          }
+        }
+      },
+      "v1.36.4": {
+        "recommended": false,
+        "note": "要求 cgroup v2 (K8s 1.35+ 移除 cgroup v1 支持)",
+        "cni_plugin": {
+          "type": "calico",
+          "version": "v3.32.2"
+        },
+        "cni_versions": {
+          "calico": "v3.32.2",
+          "cilium": "1.20.1",
+          "flannel": "v0.28.9",
+          "kubeovn": "v1.16.2"
+        },
+        "sandbox_image_tag": "3.10.2",
+        "components": {
+          "kube": {
+            "warehouse_dir": "warehouse/cluster/kube/v1.36.4/{arch}",
+            "cache_layout": "kube/v1.36.4/{arch}"
+          },
+          "etcd": {
+            "version": "v3.6.8",
+            "warehouse_dir": "warehouse/cluster/etcd/v3.6.8/{arch}",
+            "cache_layout": "etcd/v3.6.8/{arch}"
+          },
+          "cni_plugins": {
+            "version": "v1.9.1",
+            "warehouse_dir": "warehouse/cluster/cni/v1.9.1/{arch}",
+            "cache_layout": "cni/plugins/v1.9.1/{arch}"
+          },
+          "helm": {
+            "version": "v3.18.5",
+            "warehouse_dir": "warehouse/cluster/helm/v3.18.5/{arch}",
+            "cache_layout": "helm/v3.18.5/{arch}"
+          },
+          "crictl": {
+            "version": "v1.36.0",
+            "warehouse_dir": "warehouse/cluster/crictl/v1.36.0/{arch}",
+            "cache_layout": "crictl/v1.36.0/{arch}"
+          },
+          "containerd": {
+            "version": "v2.3.3",
+            "warehouse_dir": "warehouse/cluster/containerd/v2.3.3/{arch}",
+            "cache_layout": "containerd/v2.3.3/{arch}"
+          },
+          "runc": {
+            "version": "v1.4.3",
+            "warehouse_dir": "warehouse/cluster/runc/v1.4.3/{arch}",
+            "cache_layout": "runc/v1.4.3/{arch}"
+          }
+        }
+      },
+      "v1.37.0": {
+        "recommended": false,
+        "note": "要求 cgroup v2 (K8s 1.35+ 移除 cgroup v1 支持)",
+        "cni_plugin": {
+          "type": "calico",
+          "version": "v3.32.2"
+        },
+        "cni_versions": {
+          "calico": "v3.32.2",
+          "cilium": "1.20.1",
+          "flannel": "v0.28.9",
+          "kubeovn": "v1.16.2"
+        },
+        "sandbox_image_tag": "3.10.2",
+        "components": {
+          "kube": {
+            "warehouse_dir": "warehouse/cluster/kube/v1.37.0/{arch}",
+            "cache_layout": "kube/v1.37.0/{arch}"
+          },
+          "etcd": {
+            "version": "v3.7.0",
+            "warehouse_dir": "warehouse/cluster/etcd/v3.7.0/{arch}",
+            "cache_layout": "etcd/v3.7.0/{arch}"
+          },
+          "cni_plugins": {
+            "version": "v1.9.1",
+            "warehouse_dir": "warehouse/cluster/cni/v1.9.1/{arch}",
+            "cache_layout": "cni/plugins/v1.9.1/{arch}"
+          },
+          "helm": {
+            "version": "v3.18.5",
+            "warehouse_dir": "warehouse/cluster/helm/v3.18.5/{arch}",
+            "cache_layout": "helm/v3.18.5/{arch}"
+          },
+          "crictl": {
+            "version": "v1.37.0",
+            "warehouse_dir": "warehouse/cluster/crictl/v1.37.0/{arch}",
+            "cache_layout": "crictl/v1.37.0/{arch}"
+          },
+          "containerd": {
+            "version": "v2.3.3",
+            "warehouse_dir": "warehouse/cluster/containerd/v2.3.3/{arch}",
+            "cache_layout": "containerd/v2.3.3/{arch}"
+          },
+          "runc": {
+            "version": "v1.4.3",
+            "warehouse_dir": "warehouse/cluster/runc/v1.4.3/{arch}",
+            "cache_layout": "runc/v1.4.3/{arch}"
+          }
+        }
+      }
+    },
+    "cni_matrix": {
+      "_comment": "CNI 主版本对 K8s minor 的兼容矩阵(源自 kk cluster_require)。flannel 全 minor 兼容不列",
+      "calico": {
+        "v3.29": [
+          "v1.28",
+          "v1.29",
+          "v1.30",
+          "v1.31",
+          "v1.32"
+        ],
+        "v3.30": [
+          "v1.28",
+          "v1.29",
+          "v1.30",
+          "v1.31",
+          "v1.32",
+          "v1.33"
+        ],
+        "v3.31": [
+          "v1.28",
+          "v1.29",
+          "v1.30",
+          "v1.31",
+          "v1.32",
+          "v1.33",
+          "v1.34",
+          "v1.35"
+        ],
+        "v3.32": [
+          "v1.34",
+          "v1.35",
+          "v1.36",
+          "v1.37"
+        ]
+      },
+      "cilium": {
+        "1.18": [
+          "v1.28",
+          "v1.29",
+          "v1.30",
+          "v1.31",
+          "v1.32",
+          "v1.33"
+        ],
+        "1.19": [
+          "v1.28",
+          "v1.29",
+          "v1.30",
+          "v1.31",
+          "v1.32",
+          "v1.33",
+          "v1.34"
+        ],
+        "1.20": [
+          "v1.33",
+          "v1.34",
+          "v1.35",
+          "v1.36",
+          "v1.37"
+        ]
+      },
+      "kubeovn": {
+        "v1.14": [
+          "v1.28",
+          "v1.29",
+          "v1.30",
+          "v1.31",
+          "v1.32",
+          "v1.33",
+          "v1.34",
+          "v1.35",
+          "v1.36"
+        ],
+        "v1.15": [
+          "v1.28",
+          "v1.29",
+          "v1.30",
+          "v1.31",
+          "v1.32",
+          "v1.33",
+          "v1.34",
+          "v1.35",
+          "v1.36",
+          "v1.37"
+        ],
+        "v1.16": [
+          "v1.29",
+          "v1.30",
+          "v1.31",
+          "v1.32",
+          "v1.33",
+          "v1.34",
+          "v1.35",
+          "v1.36",
+          "v1.37"
+        ]
+      }
+    },
+    "artifact": {
+      "warehouse_dir": "warehouse/cluster/artifact",
+      "filename_pattern": "kubekey-artifact-{kube_version}-{arch}.tar.gz"
+    },
+    "distros": {
+      "kylin": {
+        "label": "银河麒麟 V10",
+        "family": "rpm",
+        "open": false
+      },
+      "uos": {
+        "label": "统信 UOS 服务器版",
+        "family": "deb",
+        "open": false
+      },
+      "openEuler": {
+        "label": "openEuler",
+        "family": "rpm",
+        "open": true
+      },
+      "anolis": {
+        "label": "Anolis OS (龙蜥)",
+        "family": "rpm",
+        "open": true
+      },
+      "alinux": {
+        "label": "Alibaba Cloud Linux",
+        "family": "rpm",
+        "open": false
+      },
+      "rocky": {
+        "label": "Rocky Linux",
+        "family": "rpm",
+        "open": true
+      },
+      "centos": {
+        "label": "CentOS",
+        "family": "rpm",
+        "open": true
+      },
+      "ubuntu": {
+        "label": "Ubuntu",
+        "family": "deb",
+        "open": true
+      },
+      "debian": {
+        "label": "Debian",
+        "family": "deb",
+        "open": true
+      }
+    },
+    "os_packages_dir": "warehouse/cluster/os/{distro}/{arch}",
+    "os_package_names": {
+      "rpm": [
+        "socat",
+        "conntrack-tools",
+        "ipset",
+        "ebtables",
+        "chrony",
+        "ipvsadm",
+        "nfs-utils"
+      ],
+      "deb": [
+        "socat",
+        "conntrack",
+        "ipset",
+        "ebtables",
+        "chrony",
+        "ipvsadm",
+        "nfs-common"
+      ]
+    },
+    "download_mirrors": {
+      "_comment": "物料下载源自定义(可选)。github_mirrors: GitHub 资源镜像前缀列表(依次轮询); 删除或留空用内置默认。helm/kube 源为官方/华为云, 如需覆盖同样以列表形式加在对应组件 COMPONENT_SOURCES(备料脚本内)",
+      "github_mirrors": [
+        "https://gh-proxy.com/https://github.com",
+        "https://ghfast.top/https://github.com",
+        "https://ghproxy.net/https://github.com"
+      ]
+    }
+  },
   "docker": {
     "version": "29.8.0",
     "packages": {
@@ -305,8 +1263,8 @@
     "docker_data_root": "/data/docker",
     "tz": "Asia/Shanghai",
     "registry_mirrors": [
-      "https://docker.1ms.run",
       "https://docker.m.daocloud.io",
+      "https://docker.1ms.run",
       "https://docker.1panel.live",
       "https://docker.xuanyuan.me",
       "https://hub.rat.dev",
