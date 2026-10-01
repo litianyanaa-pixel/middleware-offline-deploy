@@ -64,6 +64,10 @@ kk 消费 artifact 的机制(源码验证): `download/tasks/main.yaml` 对 `down
 > - `--kk-build` 生成 kk 交叉编译脚本 `build-kk.bat`
 > 以下小节是各步骤的手工路径(等价, 供理解原理与排查)。
 
+> **免编译获取 kk**: 打过信创补丁的 kk 二进制已随 [Releases v1.2.0](https://github.com/litianyanaa-pixel/middleware-offline-deploy/releases/tag/v1.2.0)
+> 提供(amd64/arm64), 下载后放入 `warehouse/cluster/kk/v4.0.7-xc1/<arch>/kk` 即可,
+> 打包/部署全程不需要自行编译; 仅在更新信创补丁时才需要 `--kk-build` 重新构建。
+
 ### 2.1 打补丁的 kk 二进制(信创关键)
 
 官方 kk 二进制的发行版白名单不含 uos/openEuler/anolis/alinux, 必须自己构建。补丁点
