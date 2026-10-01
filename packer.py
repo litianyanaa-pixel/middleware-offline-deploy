@@ -1821,7 +1821,7 @@ def cluster_materials(cfg, catalog):
     if kk_path and kk_path.is_file():
         items.append(("cluster/kk", kk_path))
     else:
-        missing.append("kk 二进制(%s, 须为打过信创补丁的构建, 放置后重新打包即可): %s %s" % (arch, kk_rel, hint))
+        missing.append("kk 二进制(%s, 须为打过信创补丁的构建, 放置后重新打包即可): %s (维护机一条命令生成: python prepare_cluster.py --kk-build; 打包/部署全程不需要编译)" % (arch, kk_rel))
 
     if cl["mode"] == "artifact":
         fname = ccat["artifact"]["filename_pattern"].format(kube_version=cl["kube_version"], arch=arch)
