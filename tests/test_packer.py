@@ -474,14 +474,70 @@ def test_multihost_distribute_and_install_scripts(catalog):
     assert "GRANT REPLICATION SLAVE" in packer.gen_node_install_sh(cfg3, mst)
     rep_sh = packer.gen_node_install_sh(cfg3, rep)
     assert "CHANGE REPLICATION SOURCE TO" in rep_sh and "START REPLICA" in rep_sh
-    # POST_SQL 数组元素必须带单引号包裹
-    assert "POST_SQL=('mysql|" in rep_sh
+    # POST_SQL 数组元素必须带单引号包裹; 容器名按服务名(mysql8), 不再共用 "mysql"
+    assert "POST_SQL=('mysql8|" in rep_sh
     # 节点侧必须桥接 conf/<svc>/ -> <svc>/ (compose 挂载相对路径), 并预建数据目录
     assert "for d in ./conf/*/" in rep_sh
-    assert "mysql/data" in rep_sh and "mkdir -p" in rep_sh
+    assert "mysql8/data" in rep_sh and "mkdir -p" in rep_sh  # 数据目录按服务名隔离(mysql8/mysql57 同节点不共目录)
 
     # 节点安装脚本必须做镜像源前缀重打标(离线机 compose 按原生短名取镜像)
     assert "retag-mirrors.sh" in inst and "retag-mirrors.sh" in rep_sh
+
+
+def test_topology_custom_ports_preserved(catalog):
+    """用户自定义拓扑端口键(mysql8_replica 等)不得被 catalog 归一化丢弃(曾默认回落 13308)"""
+    cfg = _mh_cfg(["mysql8", "mysql57"], {"mysql8": "master-slave", "mysql57": "master-slave"},
+                  {"mysql8": {"enabled": True, "master": 0, "replicas": [1]},
+                   "mysql57": {"enabled": True, "master": 0, "replicas": [1]}},
+                  ports={"mysql8": 25330, "mysql8_replica": 25331, "mysql57": 25332, "mysql57_replica": 25333})
+    cfg, _ = packer.validate_config(cfg, catalog)
+    assert cfg["ports"]["mysql8_replica"] == 25331 and cfg["ports"]["mysql57_replica"] == 25333
+    nodes = packer.gen_nodes(cfg, catalog)
+    rep = next(n for n in nodes if any("#replica" in r for r in n["roles"]))
+    assert '"25331:3306"' in rep["compose"] and '"25333:3306"' in rep["compose"]
+    assert "SOURCE_PORT=25330" in packer.gen_node_install_sh(cfg, rep)
+    assert "MASTER_PORT=25332" in packer.gen_node_install_sh(cfg, rep)
+
+
+def test_multihost_dual_mysql_same_node(catalog):
+    """mysql8+mysql57 同时多机主从且主/从各落同节点: 两服务 compose 键与容器名必须互异,
+    健康等待/初始化 SQL 指向正确容器, 备份服务列表含全部主库, distribute 解到节点子目录"""
+    bash = _find_bash()
+    cfg = _mh_cfg(["mysql8", "mysql57"], {"mysql8": "master-slave", "mysql57": "master-slave"},
+                  {"mysql8": {"enabled": True, "master": 0, "replicas": [1]},
+                   "mysql57": {"enabled": True, "master": 0, "replicas": [1]}},
+                  backup={"engines": {"mysql": {"enabled": True, "keep": 7, "hour": 3, "days": [1, 4]}}})
+    cfg, _ = packer.validate_config(cfg, catalog)
+    nodes = packer.gen_nodes(cfg, catalog)
+    assert len(nodes) == 2
+    mst = next(n for n in nodes if any(r.endswith("#master") for r in n["roles"]))
+    rep = next(n for n in nodes if any("#replica" in r for r in n["roles"]))
+    # 双服务同节点: compose 服务键/容器名 = mysql8/mysql57, 不允许裸 "mysql"
+    for nd in (mst, rep):
+        assert "container_name: mysql\n" not in nd["compose"]
+        for svc in ("mysql8", "mysql57"):
+            assert "  %s:" % svc in nd["compose"] and "container_name: %s" % svc in nd["compose"]
+        s = packer.gen_node_install_sh(cfg, nd)
+        r = subprocess.run([bash, "-n"], input=s.encode(), capture_output=True)
+        assert r.returncode == 0, r.stderr.decode(errors="replace")
+        assert "mysql8" in s and "mysql57" in s
+    # 主库备份: MYSQL_SERVICES 覆盖同节点两个主库容器
+    assert mst["backup"] and "mysql8" in mst["backup"]["MYSQL_SERVICES"] and "mysql57" in mst["backup"]["MYSQL_SERVICES"]
+    # 从库复制 SQL 各指向本服务容器
+    rep_sh = packer.gen_node_install_sh(cfg, rep)
+    assert "POST_SQL=('mysql8|" in rep_sh and "' 'mysql57|" in rep_sh
+    assert "CHANGE REPLICATION SOURCE TO" in rep_sh and "CHANGE MASTER TO" in rep_sh
+    # 重跑幂等: 先停掉可能已运行的复制线程再重配(ERROR 3081)
+    assert "STOP REPLICA; RESET REPLICA ALL;" in rep_sh and "STOP SLAVE; RESET SLAVE ALL;" in rep_sh
+    # 从库写保护要覆盖 SUPER 用户(--read-only 拦不住 root, 必须 super_read_only)
+    assert rep_sh.count("SET GLOBAL super_read_only=1;") == 2
+    # distribute.sh: 节点包解到 $DEPLOY_DIR/nodes/$NAME 子目录(主部署机自身作为主库节点时不覆盖主包 compose/.env);
+    # 本机节点 is_local_ip 就地安装, 不走 tar 管道(环回传输边读边写同目录会报 "file changed")
+    dist = packer.gen_distribute_sh(cfg, nodes, catalog)
+    assert 'ND_SRC="$(pwd)/nodes/$NAME"' in dist and "cd '$ND_DST' &&" in dist
+    assert 'is_local_ip "$RIP"' in dist and "就地安装" in dist
+    r = subprocess.run([bash, "-n"], input=dist.encode(), capture_output=True)
+    assert r.returncode == 0, r.stderr.decode(errors="replace")
 
 
 def test_retag_mirrors_script(catalog, tmp_path):

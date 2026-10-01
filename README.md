@@ -124,6 +124,7 @@ xxx-offline/
 tar -xzf <项目名>-offline.tar.gz
 cd <项目名>-offline
 ./deploy.sh                 # root 执行, 全程零交互
+./distribute.sh             # 仅多机部署包需要: 分发安装其余节点(见「多机部署」)
 ```
 
 脚本行为（编号对应终端输出的【n/9】，全部幂等，可重复执行）：
@@ -259,6 +260,42 @@ cd /data/middleware
   部署后可在 `.env` 中扩展多用户（`KAFKA_CLIENT_USERS/KAFKA_CLIENT_PASSWORDS` 逗号分隔，数量一致）。
 - 注意：MySQL/Redis 的从库与主库**同批首次部署**时才自动全量同步；给已有数据的主库"补挂"从库需手工迁移数据。
 
+### 多机部署（跨服务器主从 / 集群）
+
+上面的形态可以进一步落到**多台服务器**（打包器强校验节点互异）：
+
+- **MySQL 8.0 / 5.7 主从**：1 主 + 1~2 从，跨机器 GTID 自动同步（5.7 从库自动切换
+  `CHANGE MASTER TO` 旧语法）；从库置 `super_read_only`，root 也只读
+- **Redis 哨兵**：1 主 + 2 从，共 3 台不同服务器（`sentinel monitor` 指向主库机 IP，
+  announce-ip 自动写本机地址）
+- **Kafka 集群**：3 或 5 台 broker，每节点同一组宿主端口（互联/控制器/SASL），各机独立不冲突
+
+勾选形态后在**多机分配**里为每个服务指定主库/从库落在服务器池的哪台机器。打包产物会多出
+`nodes/<节点名>/`（每节点自含安装包）与主目录的 `distribute.sh`。部署流程：
+
+```bash
+# ① 主部署机: 解包 → 部署本机服务(未多机化的中间件, 如 nginx/redis)
+tar -xzf <项目名>-offline.tar.gz && cd <项目名>-offline
+./deploy.sh                 # root 执行, 全程零交互
+
+# ② 分发安装其余节点(按主库优先顺序自动排序)
+./distribute.sh             # 全部节点; 服务器池填了密码需本机装 sshpass, 或先 ssh-copy-id 走免密
+./distribute.sh <节点名>    # 重装/补发单个节点(幂等, 复制关系自动重建)
+```
+
+行为要点（全部幂等，可重跑）：
+
+- 节点包解到目标机 `$DEPLOY_DIR/nodes/<节点名>/`，与主部署机目录互不干扰；**主库节点
+  是主部署机自身时自动就地安装**（免 ssh/tar 传输）
+- `install-node.sh` 自包含：配置桥接 → 加载镜像(含镜像源前缀重打标) → compose up →
+  健康等待 → 初始化 SQL（主库建 repl 账号；从库 `STOP+RESET` 后重建复制并启动，
+  重复执行不报错）→ 从库 `super_read_only` 写保护
+- 验证复制（部署目录的 nodes/<名>/ 下执行，或在从库节点上）：
+  `docker exec mysql8 mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -e "SHOW REPLICA STATUS\G"`
+  （5.7 为 `SHOW SLAVE STATUS\G`；关注 IO/SQL 线程 = Yes 与 Seconds_Behind = 0）
+- 卸载：主目录与各 `nodes/<名>/` 分别执行 `./uninstall.sh --purge-data --yes`
+- 端口：从库端口在打包页「端口与反代」随形态出现（默认 13308/13309，可改）
+
 示例（PostgreSQL）：
 
 ```
@@ -390,3 +427,16 @@ v1.28+flannel 实测 639MB，10 个镜像一次收齐）；CNI chart 从 GitHub 
 
 物料准备（打过补丁的 kk、离线产物、OS 依赖包）与信创适配矩阵：
 [docs/k8s-信创离线部署.md](docs/k8s-信创离线部署.md) · [docs/k8s-README.md](docs/k8s-README.md)
+
+## 📚 十、文档索引
+
+| 文档 | 内容 |
+|---|---|
+| [docs/k8s-信创离线部署.md](docs/k8s-信创离线部署.md) | K8s 纯离线/全在线两种模式与国内源链路 |
+| [docs/k8s-容器验证记录.md](docs/k8s-容器验证记录.md) | K8s 容器化端到端验证记录 |
+| [docs/问题修复全记录.md](docs/问题修复全记录.md) | **全项目异常总账**（用户反馈+自发现+环境问题 68 条, 按现象→原因→解决→验证组织） |
+| [docs/参考文献.md](docs/参考文献.md) | 全部参考过的文献/官方文档/开源社区索引 |
+| [docs/真机重建-进行时.md](docs/真机重建-进行时.md) | 真机验证时间线（k8s 双节点/中间件 20 服务/多机主从） |
+| [docs/e2e-docker-全流程测试报告.md](docs/e2e-docker-全流程测试报告.md) | 容器化多机 E2E 测试报告 |
+| [docs/kk-功能对照.md](docs/kk-功能对照.md) | 与 Ansible 的能力对照 |
+| [CHANGELOG.md](CHANGELOG.md) | 版本变更记录 |

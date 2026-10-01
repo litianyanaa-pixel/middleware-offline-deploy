@@ -2,6 +2,24 @@
 
 按时间倒序记录每次功能与修复。`docs/` 演示站随前端改动同步更新。
 
+## 2026-10-01（多机部署真机首验 + 异常总账整合）
+
+- **多机部署真机首验通过**：mysql8 + mysql57 双主从跨机（112 主部署机就地装双主库 +
+  113 SSH 分发双从库），deploy.sh → distribute.sh → install-node.sh 全链路真机跑通；
+  复制取证 IO/SQL 线程 Yes、延迟 0、主库写入端到端同步、从库 super_read_only 写保护、
+  幂等重跑通过；kafka 集群(3/5 台)与 redis 哨兵(3 台)需第三台真机，产物级由单测覆盖
+- **多机链路修复 9 个缺陷**（tests/test_packer 30 项回归）：
+  节点 MySQL 容器名/服务键按服务名生成（双 MySQL 同节点不再撞名）· 节点数据目录按服务名
+  隔离（同节点双实例不再共用 datadir）· distribute.sh 节点包解到 $DEPLOY_DIR/nodes/<名>/
+  子目录（主库节点为主部署机自身时不再覆盖主包 compose/.env）· 本机节点 is_local_ip
+  就地安装（免 tar 环回传输的 file changed 失败）· deploy.sh 6 处 cp 同文件 -ef 守卫
+  （包解进部署目录不再 set -e 中断）· 多机导表客户端镜像检查移入实际导表分支 ·
+  自定义拓扑端口(mysql*_replica 等)不再被静默丢弃 · 从库初始化 SQL 幂等化
+  （STOP+RESET 前缀，重跑不再 ERROR 3081）· 从库补 super_read_only（与单机主从行为一致）
+- **文档整理**：docs/问题修复全记录.md 成为全项目唯一异常总账（68 条，《测试环境问题记录》
+  并入为第四部分）；新增 docs/参考文献.md（全部参考过的文献/官方文档/开源社区索引）；
+  README 新增「多机部署」章节与「文档索引」
+
 ## 2026-09-29
 
 - **备份计划按数据库拆分**：MySQL / PostgreSQL / MongoDB 各自独立的启用开关、备份日、备份时间与保留份数,

@@ -605,7 +605,8 @@ def validate_config(cfg, catalog):
         norm_ports.pop("kafka_host", None)
     seen_topo = set(norm_ports.values())
     for key, label, default in topo_port_defs:
-        raw = (cfg.get("ports") or {}).get(key, default)
+        # 从用户原始 ports 取值(cfg["ports"] 已被目录归一化覆盖, 拓扑附加键不在 catalog 里会被丢掉)
+        raw = ports.get(key, default)
         try:
             v = int(raw)
         except (TypeError, ValueError):
@@ -2609,9 +2610,9 @@ def _node_mysql_block(cfg, catalog, svc, role, replica_no=1):
         repl_flags = ["--server-id=%d" % sid, "--log-bin=mysql-bin", "--gtid-mode=ON",
                       "--enforce-gtid-consistency=ON", "--read-only=ON"]
     return """
-  mysql:
+  %(cn)s:
     image: %(image)s
-    container_name: mysql
+    container_name: %(cn)s
     restart: always
     environment:
       TZ: ${TZ}
@@ -2619,9 +2620,9 @@ def _node_mysql_block(cfg, catalog, svc, role, replica_no=1):
     ports:
       - "%(host_port)d:3306"
     volumes:
-      - ./mysql/data:/var/lib/mysql
-      - ./mysql/log:/var/log/mysql%(init_vol)s
-      - ./mysql/my.cnf:/etc/mysql/conf.d/my.cnf:ro
+      - ./%(cn)s/data:/var/lib/mysql
+      - ./%(cn)s/log:/var/log/mysql%(init_vol)s
+      - ./%(cn)s/my.cnf:/etc/mysql/conf.d/my.cnf:ro
     command:
       - --log-error=/var/log/mysql/error.log
       - --character-set-server=utf8mb4
@@ -2636,8 +2637,9 @@ def _node_mysql_block(cfg, catalog, svc, role, replica_no=1):
     networks:
       - app-network""" % {
         "image": "%s:%s" % (meta["image"], meta["tag"]),
+        "cn": svc,
         "host_port": host_port,
-        "init_vol": "\n      - ./mysql/init:/docker-entrypoint-initdb.d" if role == "master" else "",
+        "init_vol": "\n      - ./%(cn)s/init:/docker-entrypoint-initdb.d" % {"cn": svc} if role == "master" else "",
         "repl_flags": "".join("      - %s\n" % f for f in repl_flags),
     }
 
@@ -2743,17 +2745,18 @@ mysql_variables={
 """ % (ver, pw, "\n".join(srv_lines), pw)
 
 
-def _node_backup_files(cfg):
-    """MySQL 主库节点的定时备份配置 (backup.sh 需要: BACKUP_DIR/MYSQL_ENABLED/MYSQL_SERVICES/MYSQL_KEEP/MYSQL_ROOT_PASSWORD)"""
+def _node_backup_files(cfg, svcs):
+    """MySQL 主库节点的定时备份配置 (backup.sh 需要: BACKUP_DIR/MYSQL_ENABLED/MYSQL_SERVICES/MYSQL_KEEP/MYSQL_ROOT_PASSWORD);
+    svcs 为该节点上的主库服务名(backup.sh 按容器名 docker exec, mysql8/mysql57 同节点都要备份)"""
     b = cfg.get("backup") or {}
     eng = ((b.get("engines") or {}).get("mysql") or {})
-    if not eng.get("enabled"):
+    if not eng.get("enabled") or not svcs:
         return None
     dow = ",".join(sorted(str(0 if d == 7 else d) for d in (eng.get("days") or [])))
     return {
         "BACKUP_DIR": bash_quote(b.get("dir") or "/data/backup/db"),
         "MYSQL_ENABLED": "1",
-        "MYSQL_SERVICES": '("mysql")',
+        "MYSQL_SERVICES": "(%s)" % " ".join(svcs),
         "MYSQL_KEEP": str(int(eng.get("keep", 7))),
         "MYSQL_ROOT_PASSWORD": bash_quote(cfg["secrets"].get("MYSQL_ROOT_PASSWORD", "")),
         "CRON": "0 %d * * %s" % (int(eng.get("hour", 3)), dow),
@@ -2811,18 +2814,19 @@ def gen_nodes(cfg, catalog):
         p["env_keys"].add("MYSQL_ROOT_PASSWORD")
         p["images"].append(("%s-%s.tar" % (s, cfg["arch"]), meta["images"][cfg["arch"]],
                             "%s:%s" % (meta["image"], meta["tag"])))
-        p["conf_files"]["conf/mysql/my.cnf"] = TPL_DIR / "mysql-my.cnf"
-        p["health_wait"].append("mysql")
-        p["data_dirs"] += ["mysql/data", "mysql/log"]
-        p["chown_dirs"].append("mysql/log")
+        p["conf_files"]["conf/%s/my.cnf" % s] = TPL_DIR / "mysql-my.cnf"
+        p["health_wait"].append(s)
+        p["data_dirs"] += ["%s/data" % s, "%s/log" % s]
+        p["chown_dirs"].append("%s/log" % s)
         p["port_checks"].append(ports[s])
         # 主库建 repl 账号 (幂等)
         pw = cfg["secrets"].get("MYSQL_ROOT_PASSWORD", "")
-        p["post_sql"].append(("mysql",
+        p["post_sql"].append((s,
             "CREATE USER IF NOT EXISTS 'repl'@'%%' IDENTIFIED BY '%s'; "
             "ALTER USER 'repl'@'%%' IDENTIFIED BY '%s'; "
             "GRANT REPLICATION SLAVE, REPLICATION CLIENT ON *.* TO 'repl'@'%%'; FLUSH PRIVILEGES;" % (pw, pw)))
-        p["backup"] = _node_backup_files(cfg)
+        # 备份按节点累积: mysql8/mysql57 主库可同节点, 逐一记录容器名
+        p.setdefault("backup_svcs", []).append(s)
         # 从库 (每台一个)
         for r, idx in enumerate(mh["replicas"]):
             rp = acc_of(idx)
@@ -2831,20 +2835,25 @@ def gen_nodes(cfg, catalog):
             rp["env_keys"].add("MYSQL_ROOT_PASSWORD")
             rp["images"].append(("%s-%s.tar" % (s, cfg["arch"]), meta["images"][cfg["arch"]],
                                  "%s:%s" % (meta["image"], meta["tag"])))
-            rp["conf_files"]["conf/mysql/my.cnf"] = TPL_DIR / "mysql-my.cnf"
-            rp["health_wait"].append("mysql")
-            rp["data_dirs"] += ["mysql/data", "mysql/log"]
-            rp["chown_dirs"].append("mysql/log")
+            rp["conf_files"]["conf/%s/my.cnf" % s] = TPL_DIR / "mysql-my.cnf"
+            rp["health_wait"].append(s)
+            rp["data_dirs"] += ["%s/data" % s, "%s/log" % s]
+            rp["chown_dirs"].append("%s/log" % s)
             rp["port_checks"].append(ports["%s_replica" % s])
             master_ip = servers[mh["master"]]["ip"]
             mport = ports[s]
+            # 幂等: install-node.sh 可重复执行, 重跑时复制线程可能已在运行(ERROR 3081), 先停再清再配
             if s == "mysql8":
-                sql = ("CHANGE REPLICATION SOURCE TO SOURCE_HOST='%s', SOURCE_PORT=%d, SOURCE_USER='repl', "
-                       "SOURCE_PASSWORD='%s', SOURCE_AUTO_POSITION=1, GET_MASTER_PUBLIC_KEY=1; START REPLICA;") % (master_ip, mport, pw)
+                sql = ("STOP REPLICA; RESET REPLICA ALL; "
+                       "CHANGE REPLICATION SOURCE TO SOURCE_HOST='%s', SOURCE_PORT=%d, SOURCE_USER='repl', "
+                       "SOURCE_PASSWORD='%s', SOURCE_AUTO_POSITION=1, GET_MASTER_PUBLIC_KEY=1; START REPLICA; "
+                       "SET GLOBAL read_only=1; SET GLOBAL super_read_only=1;") % (master_ip, mport, pw)
             else:
-                sql = ("CHANGE MASTER TO MASTER_HOST='%s', MASTER_PORT=%d, MASTER_USER='repl', "
-                       "MASTER_PASSWORD='%s', MASTER_AUTO_POSITION=1; START SLAVE;") % (master_ip, mport, pw)
-            rp["post_sql"].append(("mysql", sql))
+                sql = ("STOP SLAVE; RESET SLAVE ALL; "
+                       "CHANGE MASTER TO MASTER_HOST='%s', MASTER_PORT=%d, MASTER_USER='repl', "
+                       "MASTER_PASSWORD='%s', MASTER_AUTO_POSITION=1; START SLAVE; "
+                       "SET GLOBAL read_only=1; SET GLOBAL super_read_only=1;") % (master_ip, mport, pw)
+            rp["post_sql"].append((s, sql))
 
     # ---- Redis 哨兵节点 ----
     if is_multihost(cfg, "redis"):
@@ -2892,6 +2901,9 @@ def gen_nodes(cfg, catalog):
 
     for idx in sorted(acc, key=role_rank):
         p = acc[idx]
+        # 主库节点备份配置(该节点全部主库服务一次性生成, mysql8/mysql57 同节点都进 MYSQL_SERVICES)
+        if p.get("backup_svcs"):
+            p["backup"] = _node_backup_files(cfg, p["backup_svcs"])
         p["compose"] = ("# 由 packer.py 自动生成 (多机节点: %s)\nname: %s-%s\n\nservices:\n" % (
             p["name"], cfg["project"], p["name"])) + "\n".join(p["compose_parts"]) + \
             "\n\nnetworks:\n  app-network:\n    driver: bridge\n"
@@ -3062,6 +3074,14 @@ DEPLOY_DIR=%(deploy_dir)s
 COMPOSE_BIN="packages/%(pkg_sub)s/docker-compose-linux-%(pkg_sub)s"
 FAILED=()
 
+# 目标 IP 是否为本机地址(本机节点免 ssh/tar 管道: 环回传输边读边写同一目录, tar 报 "file changed")
+is_local_ip() {
+  [ "$1" = "127.0.0.1" ] && return 0
+  ip -o addr show 2>/dev/null | awk '{print $4}' | grep -q "^$1/" && return 0
+  hostname -I 2>/dev/null | grep -qw "$1" && return 0
+  return 1
+}
+
 log(){ printf '\\033[32m[distribute]\\033[0m %%s\\n' "$*"; }
 warn(){ printf '\\033[33m[distribute]\\033[0m %%s\\n' "$*"; }
 
@@ -3101,12 +3121,30 @@ for NODE in "${NODES[@]}"; do
       warn "[$NAME] compose 传输失败, 继续尝试安装"
     fi
   fi
-  log "[$NAME] 传输节点包 -> $DEPLOY_DIR ..."
-  "${SSHC[@]}" "$RUSER@$RIP" "mkdir -p '$DEPLOY_DIR'" || { FAILED+=("$NAME"); continue; }
-  tar czf - -C "nodes/$NAME" . | "${SSHC[@]}" "$RUSER@$RIP" "tar xzf - -C '$DEPLOY_DIR'" \\
-    || { warn "[$NAME] 传输失败"; FAILED+=("$NAME"); continue; }
+  ND_SRC="$(pwd)/nodes/$NAME"
+  ND_DST="$DEPLOY_DIR/nodes/$NAME"
+  if is_local_ip "$RIP"; then
+    # 本机节点: 包已解压在本机, 就地安装; 源==目标时原地用, 否则拷到部署目录子节点
+    log "[$NAME] 本机节点($RIP), 就地安装 (免传输)"
+    if [ ! "$ND_SRC" -ef "$ND_DST" ]; then
+      mkdir -p "$ND_DST" && cp -a "$ND_SRC/." "$ND_DST/" || { warn "[$NAME] 节点目录准备失败"; FAILED+=("$NAME"); continue; }
+    fi
+    if (cd "$ND_DST" && PATH="$HOME/.local/bin:$PATH" bash install-node.sh); then
+      log "[$NAME] 完成"
+    else
+      warn "[$NAME] 安装脚本执行失败, 请登录节点查看日志"
+      FAILED+=("$NAME")
+    fi
+    continue
+  fi
+  log "[$NAME] 传输节点包 -> $ND_DST ..."
+  "${SSHC[@]}" "$RUSER@$RIP" "mkdir -p '$ND_DST'" || { FAILED+=("$NAME"); continue; }
+  # 每节点独立子目录: 解到 $DEPLOY_DIR 根会覆盖主包 compose/.env
+  if ! tar czf - -C "nodes/$NAME" . | "${SSHC[@]}" "$RUSER@$RIP" "tar xzf - -C '$ND_DST'"; then
+    warn "[$NAME] 传输失败"; FAILED+=("$NAME"); continue
+  fi
   log "[$NAME] 执行节点安装..."
-  if "${SSHC[@]}" "$RUSER@$RIP" "cd '$DEPLOY_DIR' && PATH=\\$HOME/.local/bin:\\$PATH bash install-node.sh"; then
+  if "${SSHC[@]}" "$RUSER@$RIP" "cd '$ND_DST' && PATH=\\$HOME/.local/bin:\\$PATH bash install-node.sh"; then
     log "[$NAME] 完成"
   else
     warn "[$NAME] 安装脚本执行失败, 请登录节点查看日志"

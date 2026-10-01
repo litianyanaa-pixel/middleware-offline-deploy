@@ -438,6 +438,12 @@ apply_sysctl() {
   done
 }
 
+# cp -f 包装: 包直接解压进部署目录时(BASE_DIR == DEPLOY_DIR), 同文件 cp 会报错并因 set -e 中断
+cp_new() {
+  [ "$1" -ef "$2" ] && return 0
+  cp -f "$1" "$2"
+}
+
 #------------------------------- 5. 准备部署目录 -------------------------------
 prepare_deploy_dir() {
   hr; log "【5/9】准备部署目录: $DEPLOY_DIR"
@@ -446,8 +452,8 @@ prepare_deploy_dir() {
   guard_mysql_password
 
   mkdir -p "$DEPLOY_DIR"
-  cp -f "$BASE_DIR/docker-compose.yml" "$DEPLOY_DIR/docker-compose.yml"
-  cp -f "$BASE_DIR/.env"               "$DEPLOY_DIR/.env"
+  cp_new "$BASE_DIR/docker-compose.yml" "$DEPLOY_DIR/docker-compose.yml"
+  cp_new "$BASE_DIR/.env"               "$DEPLOY_DIR/.env"
   chmod 600 "$DEPLOY_DIR/.env"
 
   # Kafka 集群形态: 宿主机监听的广播地址默认 localhost, 部署时自动改写为服务器真实 IP,
@@ -509,14 +515,14 @@ prepare_deploy_dir() {
 
   # 备份恢复脚本(部署了本地 MySQL/PostgreSQL/MongoDB 才有恢复对象)
   if grep -qE '^  (mysql57|mysql8|postgres|mongodb):' "$BASE_DIR/docker-compose.yml" && [ -f "$BASE_DIR/restore.sh" ]; then
-    cp -f "$BASE_DIR/restore.sh" "$DEPLOY_DIR/restore.sh"
+    cp_new "$BASE_DIR/restore.sh" "$DEPLOY_DIR/restore.sh"
     chmod 700 "$DEPLOY_DIR/restore.sh"
     log "已安装备份恢复脚本: $DEPLOY_DIR/restore.sh (./restore.sh list 查看用法)"
   fi
 
   # 一键卸载脚本 (停容器→可选删数据→清 crontab→保留物料)
   if [ -f "$BASE_DIR/uninstall.sh" ]; then
-    cp -f "$BASE_DIR/uninstall.sh" "$DEPLOY_DIR/uninstall.sh"
+    cp_new "$BASE_DIR/uninstall.sh" "$DEPLOY_DIR/uninstall.sh"
     chmod 700 "$DEPLOY_DIR/uninstall.sh"
     log "已安装一键卸载脚本: $DEPLOY_DIR/uninstall.sh (默认保留数据, --purge-data 删除)"
   fi
@@ -541,8 +547,8 @@ prepare_deploy_dir() {
 install_backup() {
   if [ -n "${BACKUP_CRONS:-}" ]; then
     hr; log "【6/9】配置数据库定时备份"
-    cp -f "$BASE_DIR/backup.sh"   "$DEPLOY_DIR/backup.sh"
-    cp -f "$BASE_DIR/backup.conf" "$DEPLOY_DIR/backup.conf"
+    cp_new "$BASE_DIR/backup.sh"   "$DEPLOY_DIR/backup.sh"
+    cp_new "$BASE_DIR/backup.conf" "$DEPLOY_DIR/backup.conf"
     chmod 700 "$DEPLOY_DIR/backup.sh"
     chmod 600 "$DEPLOY_DIR/backup.conf"
     mkdir -p "$BACKUP_DIR"
@@ -667,9 +673,10 @@ import_sql_local() { # 本地库: 在 compose up 且 MySQL 健康之后兜底导
   log "初始化本地数据库(幂等, 已导入过自动跳过)"
 
   if [ "${MYSQL_MULTIHOST:-0}" = "1" ]; then
-    # 多机 MySQL: 主库在远端节点, 主部署机用客户端镜像走网络导入
-    [ -n "$MYSQL_CLIENT_IMG" ] || die "多机 MySQL 导表缺少 mysql 客户端镜像, 请重新打包"
+    # 多机 MySQL: 主库在远端节点, 主部署机用客户端镜像走网络导入;
+    # 没有任何导表任务时(db 不含 nacos/xxljob)不需要客户端镜像, 不应因此中断部署
     if [ "${NACOS_IMPORT:-0}" = "1" ] && [ "$NACOS_DB_MODE" = "local" ]; then
+      [ -n "$MYSQL_CLIENT_IMG" ] || die "多机 MySQL 导表缺少 mysql 客户端镜像, 请重新打包"
       R_HOST="$NACOS_DB_HOST_IMPORT"; R_PORT="$NACOS_DB_PORT"; R_USER="$NACOS_DB_USER"; R_PASS="$NACOS_DB_PASSWORD"
       sql="$BASE_DIR/$NACOS_SQL"; schema="$NACOS_SCHEMA"
       cnt=$(remote_query "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='$schema';" 2>/dev/null || echo 0)
@@ -681,6 +688,7 @@ import_sql_local() { # 本地库: 在 compose up 且 MySQL 健康之后兜底导
       fi
     fi
     if [ "${XXL_IMPORT:-0}" = "1" ] && [ "$XXL_DB_MODE" = "local" ]; then
+      [ -n "$MYSQL_CLIENT_IMG" ] || die "多机 MySQL 导表缺少 mysql 客户端镜像, 请重新打包"
       R_HOST="$XXL_DB_HOST_IMPORT"; R_PORT="$XXL_DB_PORT"; R_USER="$XXL_DB_USER"; R_PASS="$XXL_DB_PASSWORD"
       sql="$BASE_DIR/$XXL_SQL"; schema="$XXL_SCHEMA"
       cnt=$(remote_query "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='$schema';" 2>/dev/null || echo 0)

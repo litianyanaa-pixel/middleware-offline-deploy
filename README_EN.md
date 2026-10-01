@@ -231,6 +231,46 @@ With MySQL 8.0 (or 5.7) or Redis selected, a **deployment mode** chooser appears
 - **Redis Sentinel**: master `redis` + replica `redis-replica` (port 16380, `replicaof` pointing at the master) + 3 sentinel instances (`deploy.replicas: 3`, quorum 2). Applications should use the **sentinel protocol** (address `redis-sentinel:26379`, master name `mymaster`) for automatic failover.
 - Note: automatic full sync only happens when replica and primary are **first deployed in the same batch**; attaching a replica to an existing populated primary requires manual data migration.
 
+### Multi-Host Deployment (cross-server primary-replica / cluster)
+
+The modes above can also span **multiple servers** (the packer enforces distinct nodes):
+
+- **MySQL 8.0 / 5.7 primary-replica**: 1 primary + 1-2 replicas across machines, GTID auto-sync
+  (5.7 replicas automatically use the legacy `CHANGE MASTER TO` syntax); replicas get
+  `super_read_only` so even root cannot write
+- **Redis Sentinel**: 1 master + 2 replicas on 3 distinct servers (`sentinel monitor` points at
+  the master IP, `announce-ip` written automatically)
+- **Kafka cluster**: 3 or 5 brokers, same host port group on every node (inter-broker/controller/
+  SASL), no conflicts between machines
+
+After choosing a mode, assign primary/replica placement in the **multi-host** allocation UI.
+The bundle then also contains `nodes/<node>/` (self-contained per-node packages) and a
+`distribute.sh` in the bundle root. Deployment flow:
+
+```bash
+# 1) Main host: extract, deploy local services (middleware not multi-hosted, e.g. nginx/redis)
+tar -xzf <bundle>.tar.gz && cd <bundle>
+./deploy.sh                 # run as root, fully unattended
+
+# 2) Distribute & install remaining nodes (master nodes first, automatically ordered)
+./distribute.sh             # all nodes; password mode needs sshpass, or use ssh-copy-id
+./distribute.sh <node>      # re-install a single node (idempotent, replication rebuilt)
+```
+
+Key behaviours (all idempotent):
+
+- Node packages are extracted to `$DEPLOY_DIR/nodes/<node>/` on each target, never mixing with
+  the main deploy dir; when a master node IS the main host, it is installed **in place** (no
+  ssh/tar round-trip)
+- `install-node.sh` is self-contained: config bridging -> image load (with mirror-prefix
+  retagging) -> compose up -> health wait -> init SQL (repl account on masters; replicas run
+  `STOP+RESET` before re-configuring replication, safe to re-run) -> `super_read_only`
+  write protection on replicas
+- Verify replication: `docker exec mysql8 mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -e "SHOW REPLICA STATUS\G"`
+  (`SHOW SLAVE STATUS\G` on 5.7; look for IO/SQL threads = Yes and Seconds_Behind = 0)
+- Uninstall: run `./uninstall.sh --purge-data --yes` in the main dir and in each `nodes/<node>/`
+- Replica ports appear under "Ports" once a mode is chosen (defaults 13308/13309, changeable)
+
 Example (PostgreSQL):
 
 ```
@@ -362,3 +402,14 @@ Validated end-to-end with a containerized two-node cluster (Ubuntu 22.04 systemd
 Material preparation (patched kk, offline artifact, OS packages) and the Xinchuang
 compatibility matrix: [docs/k8s-信创离线部署.md](docs/k8s-信创离线部署.md) ·
 [docs/k8s-README.md](docs/k8s-README.md) (Chinese).
+
+## 📚 10. Documentation Index
+
+| Doc | Content |
+|---|---|
+| [docs/k8s-信创离线部署.md](docs/k8s-信创离线部署.md) | K8s offline/online modes & CN mirror chain (Chinese) |
+| [docs/问题修复全记录.md](docs/问题修复全记录.md) | **Single ledger of all project issues** (68 entries: user-reported + self-found + environment, Chinese) |
+| [docs/参考文献.md](docs/参考文献.md) | Index of all references: papers/docs/open-source communities (Chinese) |
+| [docs/真机重建-进行时.md](docs/真机重建-进行时.md) | Real-machine verification timeline (Chinese) |
+| [docs/e2e-docker-全流程测试报告.md](docs/e2e-docker-全流程测试报告.md) | Containerized multi-host E2E report (Chinese) |
+| [CHANGELOG.md](CHANGELOG.md) | Release notes |
