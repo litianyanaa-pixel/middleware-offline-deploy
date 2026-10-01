@@ -120,9 +120,24 @@ def test_manifest_sandbox_matches_catalog():
                        "cni_type": "flannel", "proxy_mode": "iptables", "ha_type": "local",
                        "pod_cidr": "", "service_cidr": "", "timezone": "Asia/Shanghai",
                        "os_distros": [], "nodes": [{"name": "m", "ip": "1.2.3.4", "role": "control-plane"}],
-                       "components": {}, "storage": {}, "upgrade_to": ""}}
+                       "components": {"etcd_dir": "/data1/etcd"},
+                       "kubelet": {"root_dir": "/data1/kubelet"},
+                       "storage": {}, "upgrade_to": ""}}
     m = packer.gen_manifest_sh(cfg, CATALOG, [], [])
     check("manifest CLUSTER_SANDBOX_IMAGE 与目录一致", expect in m)
+    check("manifest 导出 CLUSTER_ETCD_DATA_DIR(卸载兜底)", "CLUSTER_ETCD_DATA_DIR='/data1/etcd'" in m)
+    check("manifest 导出 CLUSTER_KUBELET_ROOT_DIR(卸载兜底)", "CLUSTER_KUBELET_ROOT_DIR='/data1/kubelet'" in m)
+    u = (BASE / "server" / "uninstall-cluster.sh").read_text(encoding="utf-8")
+    check("卸载脚本走 kk delete cluster --all", "delete cluster" in u and "--all" in u)
+    check("卸载脚本无 kk v4 不存在的 --yes 传参", 'kk delete cluster "${KK_ARGS[@]}"' in u)
+    check("卸载脚本清理证书续期 cron", "kk-certs-renew.sh" in u)
+    check("卸载脚本清理孤挂载(umount_tree)", "umount_tree" in u)
+    d = (BASE / "server" / "deploy-cluster.sh").read_text(encoding="utf-8")
+    check("deploy scp 端口用大写 -P(scp 语义)", "scp $SCP_OPTS" in d and "scp $SSH_OPTS" not in d)
+    check("deploy 补非登录 shell PATH", 'export PATH="/usr/local/bin:/usr/local/sbin:$PATH"' in d)
+    up = packer.gen_upgrade_sh(cfg)
+    check("upgrade scp 端口用大写 -P", "scp $SCP_OPTS" in up and "scp $SSH_OPTS" not in up)
+    check("upgrade 补非登录 shell PATH", 'export PATH="/usr/local/bin:/usr/local/sbin:$PATH"' in up)
 
 
 def main():

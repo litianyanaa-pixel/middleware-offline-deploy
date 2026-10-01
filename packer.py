@@ -306,7 +306,7 @@ def validate_config(cfg, catalog):
         srv_raw = cfg.get("servers") or []
         role_map = cluster_raw.get("roles") or {}
         empty_pw = [str((srv_raw[int(i)] or {}).get("name") or ("node%s" % (int(i) + 1)))
-                    for i in role_map if int(i) < len(srv_raw) and not ((srv_raw[int(i)] or {}).get("pass") or "").strip()]
+                    for i in role_map if int(i) < len(srv_raw) and not ((srv_raw[int(i)] or {}).get("password") or (srv_raw[int(i)] or {}).get("pass") or "").strip()]
         if empty_pw:
             warns.append("集群节点未填 SSH 密码: %s — 将按免密 SSH 连接, 部署前需在节点间预分发密钥; 否则请回填密码重新打包"
                          "|Cluster nodes without SSH password: %s — passwordless SSH assumed; distribute keys first or fill passwords and repack"
@@ -1940,6 +1940,8 @@ def gen_upgrade_sh(cfg):
 # 前提: 集群已通过 ./deploy.sh 部署完成; 纯离线升级(不在线拉取任何镜像)
 set -euo pipefail
 cd "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# ctr/kubectl 等装在 /usr/local/bin: cron/CI 等非登录 shell 的 PATH 不含它
+export PATH="/usr/local/bin:/usr/local/sbin:$PATH"
 [ -f manifest.sh ] || { echo "[FAIL] 缺少 manifest.sh"; exit 1; }
 source ./manifest.sh
 [ "${CLUSTER_ENABLED:-0}" = "1" ] || { echo "[FAIL] 本包未启用集群"; exit 1; }
@@ -1951,12 +1953,14 @@ SSH_PORT="$(sed -n 's/^        port: \([0-9][0-9]*\).*/\1/p' cluster/inventory.y
 SSH_USER="$(sed -n 's/^        user: \(.*\)$/\1/p' cluster/inventory.yaml | head -1 | tr -d '"')"; SSH_USER="${SSH_USER:-root}"
 PW="$(sed -n 's/^        password: \(.*\)$/\1/p' cluster/inventory.yaml | head -1 | tr -d '"')"
 SSH_OPTS="-o StrictHostKeyChecking=no -o ConnectTimeout=8 -p $SSH_PORT"
+# scp 的端口参数是大写 -P(-p 是保留时间戳), 不能与 ssh 共用一份 OPTS
+SCP_OPTS="-o StrictHostKeyChecking=no -o ConnectTimeout=8 -P $SSH_PORT"
 if [ -n "$PW" ] && command -v sshpass >/dev/null 2>&1; then
   RUN_SSH() { SSHPASS="$PW" sshpass -e ssh $SSH_OPTS "$@"; }
-  RUN_SCP() { SSHPASS="$PW" sshpass -e scp $SSH_OPTS "$@"; }
+  RUN_SCP() { SSHPASS="$PW" sshpass -e scp $SCP_OPTS "$@"; }
 else
   RUN_SSH() { ssh $SSH_OPTS -o BatchMode=yes "$@"; }
-  RUN_SCP() { scp $SSH_OPTS "$@"; }
+  RUN_SCP() { scp $SCP_OPTS "$@"; }
 fi
 
 import_one() {
@@ -2353,6 +2357,9 @@ def gen_manifest_sh(cfg, catalog, client_img, summary_lines, bundle_name=None):
             "CLUSTER_SANDBOX_IMAGE=%s" % bash_quote("registry.k8s.io/pause:%s"
                                                     % (catalog["cluster"]["versions"][cl["kube_version"]].get("sandbox_image_tag") or "3.9")),
             "CLUSTER_CONTAINERD_DATA_ROOT=%s" % bash_quote((cl.get("components") or {}).get("containerd_root") or ""),
+            # 卸载脚本用: 自定义 etcd/kubelet 数据目录(kk delete 只清默认路径, 这两个要兜底)
+            "CLUSTER_ETCD_DATA_DIR=%s" % bash_quote((cl.get("components") or {}).get("etcd_dir") or ""),
+            "CLUSTER_KUBELET_ROOT_DIR=%s" % bash_quote((cl.get("kubelet") or {}).get("root_dir") or ""),
             # 升级目标版本的 pause 镜像(与创建版本可能不同, 升级脚本需要改写 sandbox_image)
             "CLUSTER_UPGRADE_SANDBOX=%s" % bash_quote(
                 ("registry.k8s.io/pause:%s" % ((catalog["cluster"]["versions"].get(cl.get("upgrade_to") or "") or {})

@@ -38,6 +38,8 @@ KUBECONFIG_PATH=/etc/kubernetes/admin.conf
 # ---------------------------------------------------------------- 【集群 0】环境
 step 0 "部署机环境检查"
 [ "$(id -u)" = "0" ] || die "请用 root 执行"
+# kk/containerd/kubectl 等都装在 /usr/local/bin: cron/CI 等非登录 shell 的 PATH 不含它, 统一补上
+export PATH="/usr/local/bin:/usr/local/sbin:$PATH"
 UNAME_M="$(uname -m)"
 case "$UNAME_M" in
   x86_64)  THIS_ARCH=amd64 ;;
@@ -78,7 +80,7 @@ if [ -f "$KUBECONFIG_PATH" ]; then
   log "本机已有 Kubernetes 集群, 跳过重复部署 (幂等)"
   log "扩容: 改打包配置增加节点后重新打包, 在此执行: ./cluster/kk add nodes -i cluster/inventory.yaml -c cluster/config.yaml"
   log "升级: ./cluster/kk upgrade cluster -i cluster/inventory.yaml -c cluster/config.yaml --with-kubernetes <版本>"
-  log "卸载: ./cluster/kk delete cluster -i cluster/inventory.yaml -c cluster/config.yaml (危险操作)"
+  log "卸载: ./uninstall-cluster.sh (kk delete cluster --all 一键卸载, 危险操作)"
   exit 0
 fi
 
@@ -135,12 +137,14 @@ else
   SSH_USER="$(sed -n 's/^        user: \(.*\)$/\1/p' cluster/inventory.yaml | head -1 | tr -d '\"')"; SSH_USER="${SSH_USER:-root}"
   PW="$(sed -n 's/^        password: \(.*\)$/\1/p' cluster/inventory.yaml | head -1 | tr -d '\"')"
   SSH_OPTS="-o StrictHostKeyChecking=no -o ConnectTimeout=8 -p $SSH_PORT"
+  # 注意 scp 的端口参数是大写 -P(-p 是保留时间戳), 不能与 ssh 共用一份 OPTS
+  SCP_OPTS="-o StrictHostKeyChecking=no -o ConnectTimeout=8 -P $SSH_PORT"
   if [ -n "$PW" ] && command -v sshpass >/dev/null 2>&1; then
     RUN_SSH() { SSHPASS="$PW" sshpass -e ssh $SSH_OPTS "$@"; }
-    RUN_SCP() { SSHPASS="$PW" sshpass -e scp $SSH_OPTS "$@"; }
+    RUN_SCP() { SSHPASS="$PW" sshpass -e scp $SCP_OPTS "$@"; }
   else
     RUN_SSH() { ssh $SSH_OPTS -o BatchMode=yes "$@"; }
-    RUN_SCP() { scp $SSH_OPTS "$@"; }
+    RUN_SCP() { scp $SCP_OPTS "$@"; }
     [ -n "$PW" ] && warn "部署机未装 sshpass 且集群用密码登录: 节点预检需免密密钥, 或装 sshpass, 或 --skip-node-prep"
   fi
   # 始终预检每个节点: 连通性 / 架构 / sudo(kk 连接器依赖); OS 包仅在包内携带且匹配发行版时预装
@@ -201,8 +205,9 @@ if [ "${CLUSTER_MODE:-cache}" != "online" ] && ls cluster/images/*.tar >/dev/nul
   # SKIP_NODE_PREP=1 时 RUN_SSH/RUN_SCP 未定义, 这里补默认(密钥免密)
   if [ "$(type -t RUN_SSH)" != "function" ]; then
     SSH_OPTS="${SSH_OPTS:--o StrictHostKeyChecking=no -o ConnectTimeout=8}"
+    SCP_OPTS="${SCP_OPTS:--o StrictHostKeyChecking=no -o ConnectTimeout=8 -P 22}"
     RUN_SSH() { ssh $SSH_OPTS -o BatchMode=yes "$@"; }
-    RUN_SCP() { scp $SSH_OPTS "$@"; }
+    RUN_SCP() { scp $SCP_OPTS "$@"; }
   fi
   CT_TARBALL="$(ls cluster/cache/containerd/*/*/containerd*-linux-*.tar.gz 2>/dev/null | head -1 || true)"
   DATA_ROOT="${CLUSTER_CONTAINERD_DATA_ROOT:-/var/lib/containerd}"

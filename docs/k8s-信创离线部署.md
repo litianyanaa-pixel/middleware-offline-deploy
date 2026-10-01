@@ -163,7 +163,8 @@ export KUBECONFIG=/etc/kubernetes/admin.conf && kubectl get nodes
 # 扩容: 页面服务器池加节点并分配角色 → 重新打包 → 服务器(包根目录):
 ./cluster/kk add nodes -i cluster/inventory.yaml -c cluster/config.yaml
 # 升级: ./cluster/kk upgrade cluster -i cluster/inventory.yaml -c cluster/config.yaml --with-kubernetes v1.34.12
-# 卸载: ./cluster/kk delete cluster -i cluster/inventory.yaml -c cluster/config.yaml   (危险, 会清空集群)
+# 卸载: ./uninstall-cluster.sh   (kk delete cluster --all 一键卸载, 危险, 会清空集群)
+#       --keep-cri 保留节点 containerd 与镜像(重装更快); --yes 跳过交互确认
 ```
 
 deploy-cluster.sh 步骤(独立编号【集群 n】): 0 环境(架构/OS/信创提示) → 1 幂等(已有集群给指引退出)
