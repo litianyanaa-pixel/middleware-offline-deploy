@@ -413,3 +413,4 @@ compatibility matrix: [docs/k8s-信创离线部署.md](docs/k8s-信创离线部�
 | [docs/真机重建-进行时.md](docs/真机重建-进行时.md) | Real-machine verification timeline (Chinese) |
 | [docs/e2e-docker-全流程测试报告.md](docs/e2e-docker-全流程测试报告.md) | Containerized multi-host E2E report (Chinese) |
 | [CHANGELOG.md](CHANGELOG.md) | Release notes |
+| [Releases](https://github.com/litianyanaa-pixel/middleware-offline-deploy/releases) | Releases & notes; provides **pre-built kk binaries** (amd64/arm64) |

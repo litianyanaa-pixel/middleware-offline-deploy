@@ -440,3 +440,4 @@ v1.28+flannel 实测 639MB，10 个镜像一次收齐）；CNI chart 从 GitHub 
 | [docs/e2e-docker-全流程测试报告.md](docs/e2e-docker-全流程测试报告.md) | 容器化多机 E2E 测试报告 |
 | [docs/kk-功能对照.md](docs/kk-功能对照.md) | 与 Ansible 的能力对照 |
 | [CHANGELOG.md](CHANGELOG.md) | 版本变更记录 |
+| [Releases](https://github.com/litianyanaa-pixel/middleware-offline-deploy/releases) | 版本发布与更新说明; 提供**已编译的 kk 二进制**(amd64/arm64)下载 |
