@@ -396,6 +396,10 @@ load_images() {
     log "加载 $file ..."
     docker load -i "$f" >/dev/null
   done < "$BASE_DIR/images.txt"
+  # 镜像源前缀重打标(补料 crane 兜底产物仓库名带 docker.1ms.run/ 等前缀, 离线机拉不到)
+  if [ -f "$BASE_DIR/images/retag-mirrors.sh" ]; then
+    bash "$BASE_DIR/images/retag-mirrors.sh" "$BASE_DIR/images.txt"
+  fi
   while IFS='|' read -r file short; do
     case "$file" in ''|\#*) continue ;; esac
     [ -z "$short" ] && continue
@@ -1205,6 +1209,10 @@ setup_kafka_auth() {
 setup_kibana_user() {
   [ "${KIBANA_BOOTSTRAP:-0}" = "1" ] || return 0
   hr; log "启用 Elasticsearch kibana_system 服务账号..."
+  # ELASTIC_PASSWORD 只在 .env 里(manifest 不导出), set -u 下需显式兜底读取; 去引号
+  if [ -z "${ELASTIC_PASSWORD:-}" ] && [ -f "$BASE_DIR/.env" ]; then
+    ELASTIC_PASSWORD="$(grep -E '^ELASTIC_PASSWORD=' "$BASE_DIR/.env" | head -1 | cut -d= -f2- | tr -d '\"')"
+  fi
   local i code
   for i in $(seq 1 60); do
     code=$(curl -s -m 5 -o /dev/null -w '%{http_code}' -u "elastic:$ELASTIC_PASSWORD" -X PUT       "http://127.0.0.1:9200/_security/user/kibana_system/_password" -H 'Content-Type: application/json'       -d "{\"password\":\"$ELASTIC_PASSWORD\"}" 2>/dev/null || echo 000)

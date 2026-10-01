@@ -33,9 +33,16 @@
 | | mode=cache(纯离线, 推荐) | mode=online(在线) |
 |---|---|---|
 | 物料 | 二进制缓存 + **离线镜像包** + CNI chart, 全部随包 | 仅 kk 与配置, 无镜像物料 |
-| 镜像 | 打包时 docker pull(国内源)+docker save 按原生 tag 收集; 部署时 deploy-cluster.sh 在 kk create 前导入各节点本地 containerd, **全程不访问外网** | 节点直接联网拉取(zone=cn 走 hub 加速) |
+| 镜像 | 打包时 docker pull(国内源)+docker save 按原生 tag 收集; 部署时 deploy-cluster.sh 在 kk create 前导入各节点本地 containerd, **全程不访问外网** | 节点直接联网拉取; zone=cn 走国内源, **无需境外外网**(2026-10-01 双节点真机验证) |
 | 升级 | upgrade_to 连带收集目标版本镜像包与全套组件缓存(crictl/helm/etcd 等, kk upgrade --all 按目标版本 manifest 取件), upgrade-cluster.sh 导入镜像+铺缓存后再升级 | 联网拉取 |
 | kk 侧开关 | `download.fetch=false` + `cri.containerd.config_policy: overwrite`(kk 每次重写 containerd 配置) | `download.fetch=true` |
+
+**online+zone=cn 的国内源链路(真机验证通过)**: 二进制走 `kubekey.pek3b.qingstor.com`(青云,
+kube 三件套/crictl/helm/etcd/cni/containerd/runc 全有, 但**只同步非 static 版 containerd**,
+打包器对 online+cn 自动回退 static_binary=false 并告警); 镜像走 `hub.kubesphere.com.cn`
+(kk 内置 CN 映射: kube 三件套与 etcd/pause 在 `kubernetes/` 命名空间, CoreDNS 在
+`coredns/coredns`, flannel 在 `flannel-io/`)。打包器**不写** `registry.imageRepository`
+覆盖——裸域名会让 kubeadm 丢命名空间(hub 实测 400/404)。CentOS7 节点 yum 指向阿里源即可。
 
 镜像清单由 prepare_cluster.py 的 `k8s_image_specs` 按 k8s 版本精确推导(控制面/CoreDNS/
 NodeLocalDNS/etcd/CNI/HA/存储), 版本对照表在 versions.json(coredns_tag/nodelocaldns_tag/

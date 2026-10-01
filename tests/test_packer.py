@@ -479,3 +479,37 @@ def test_multihost_distribute_and_install_scripts(catalog):
     # 节点侧必须桥接 conf/<svc>/ -> <svc>/ (compose 挂载相对路径), 并预建数据目录
     assert "for d in ./conf/*/" in rep_sh
     assert "mysql/data" in rep_sh and "mkdir -p" in rep_sh
+
+    # 节点安装脚本必须做镜像源前缀重打标(离线机 compose 按原生短名取镜像)
+    assert "retag-mirrors.sh" in inst and "retag-mirrors.sh" in rep_sh
+
+
+def test_retag_mirrors_script(catalog, tmp_path):
+    """retag-mirrors.sh 随包脚本: 归一化规则覆盖四类仓库名形态 + bash -n 通过"""
+    s = packer.gen_retag_mirrors_sh()
+    # 与 deploy.sh normalize_image 同规则: 最后一段匹配 + tag 含架构后缀
+    assert "images.txt" in s
+    for marker in ('*/"$tail"', '"$tag-$ARCH"', "docker tag"):
+        assert marker in s
+    p = tmp_path / "retag-mirrors.sh"
+    p.write_text(s, encoding="utf-8", newline="\n")
+    r = subprocess.run([_find_bash(), "-n", str(p)], capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+
+
+def test_deploy_sh_retag_integration():
+    """主部署机 deploy.sh 加载镜像后必须调用 retag 脚本再归一化"""
+    sh = (Path(__file__).resolve().parent.parent / "server" / "deploy.sh").read_text(encoding="utf-8")
+    assert "retag-mirrors.sh" in sh
+    # 调用点必须在 load 循环之后、normalize 之前(顺序错则归一化找不到短名)
+    assert sh.index("retag-mirrors.sh") > sh.index("docker load -i")
+    assert sh.index("retag-mirrors.sh") < sh.index('normalize_image "$short"')
+
+
+def test_deploy_sh_retag_integration():
+    """主部署机 deploy.sh 加载镜像后必须调用 retag 脚本再归一化"""
+    sh = (Path(__file__).resolve().parent.parent / "server" / "deploy.sh").read_text(encoding="utf-8")
+    assert "retag-mirrors.sh" in sh
+    # 调用点必须在 load 循环之后、normalize 之前(顺序错则归一化找不到短名)
+    assert sh.index("retag-mirrors.sh") > sh.index("docker load -i")
+    assert sh.index("retag-mirrors.sh") < sh.index("normalize_image \"$short\"")

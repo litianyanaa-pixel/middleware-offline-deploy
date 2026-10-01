@@ -344,6 +344,13 @@ def validate_config(cfg, catalog):
         if components["containerd_version_override"] and not re.match(r"^v\d+\.\d+", components["containerd_version_override"]):
             raise PackError("containerd 版本覆盖不合法: %s|Invalid containerd version override: %s"
                             % (components["containerd_version_override"], components["containerd_version_override"]))
+        if mode == "online" and str(cluster_raw.get("zone") or "cn") == "cn" and components["static_binary"]:
+            # 在线+国内源: qingstor 镜像只同步非 static 版 containerd(static-*.tar.gz 404),
+            # 静态构建仅离线包/国际源(用户直连 GitHub)可信, 这里自动回退并提示
+            components["static_binary"] = False
+            warns.append("在线+国内源: 国内镜像未同步 static 版 containerd, 已自动改用非 static 构建"
+                         "(老系统兼容性由 containerd 官方发布包保证)|"
+                         "Online+cn: domestic mirror lacks static containerd builds, falling back to non-static")
         # kubelet 参数
         kubelet_raw = cluster_raw.get("kubelet") or {}
         kubelet = {}
@@ -1613,21 +1620,23 @@ def gen_cluster_config(cfg, catalog):
         "spec:",
         "  zone: %s" % _yq("cn" if zone_cn else ""),
     ]
-    if zone_cn:
-        # 仅在线+国区指定控制面镜像仓库加速; 纯离线模式的镜像在打包时收集、部署前导入节点本地
-        # containerd, 保持 registry.k8s.io 等原生 tag 即可本地命中, 不访问任何外网仓库
-        lines += [
-            "  registry:",
-            '    imageRepository: "hub.kubesphere.com.cn"',
-        ]
+    # zone=cn 仅由 spec.zone 生效: 在线+国区交给 kk 内置 CN 映射
+    # (hub.kubesphere.com.cn/{kubernetes,coredns,flannel-io}), 不显式覆盖 registry.imageRepository —
+    # 裸域名会让 etcd/coredns 丢掉命名空间(hub 实测 400/404)
     lines += [
         "  kubernetes:",
+    ]
+    if not zone_cn:
         # sandbox 三元组必须写全: kk containerd 配置模板用这三个键拼 sandbox 镜像,
-        # 缺 registry/repository 会渲染出非法值导致容器沙箱创建失败
-        "    sandbox_image:",
-        '      registry: "registry.k8s.io"',
-        '      repository: "pause"',
-        "      tag: %s" % _yq(ver.get("sandbox_image_tag") or "3.9"),
+        # 缺 registry/repository 会渲染出非法值导致容器沙箱创建失败;
+        # 在线+cn 不写, 由 kk 按 zone 渲染国内 sandbox(hub.kubesphere.com.cn/kubernetes/pause)
+        lines += [
+            "    sandbox_image:",
+            '      registry: "registry.k8s.io"',
+            '      repository: "pause"',
+            "      tag: %s" % _yq(ver.get("sandbox_image_tag") or "3.9"),
+        ]
+    lines += [
         "    kube_version: %s" % _yq(cl["kube_version"]),
         "    kube_proxy:",
         "      mode: %s" % _yq(cl["proxy_mode"]),
@@ -2978,6 +2987,10 @@ for tar in images/*.tar; do
   [ -f "$tar" ] || { log "无镜像文件"; break; }
   docker load -i "$tar" >/dev/null && log "  $(basename "$tar") 已加载"
 done
+# 镜像源前缀重打标(离线机 compose 按原生短名取镜像, 不重打标会触发联网拉取失败)
+if [ -f images/retag-mirrors.sh ]; then
+  bash images/retag-mirrors.sh images.txt
+fi
 
 log "启动容器..."
 if docker compose version >/dev/null 2>&1; then
@@ -3431,8 +3444,16 @@ def pack(cfg, catalog, out_dir=None, progress=None):
             ("%s/packages/%s/docker-compose-linux-%s" % (bundle_name, pkg_sub, pkg_sub),
              BASE_DIR / catalog["compose"]["packages"][arch]),
         ]
+    _mirror_tars = []
     for fname, rel, _ in gen_images_txt(cfg, catalog):
         big_files.append(("%s/images/%s" % (bundle_name, fname), BASE_DIR / rel))
+        if _tar_has_mirror_prefix(BASE_DIR / rel):
+            _mirror_tars.append(fname)
+    if _mirror_tars:
+        warns.append("镜像 tar 仓库名带国内镜像源前缀(补料时 crane 兜底产物): %s; 部署脚本会自动重打标为原生短名, "
+                     "建议空闲时重跑补料脚本让 tar 内为原生短名|"
+                     "Image tars carry mirror-prefixed refs: %s; deploy scripts retag automatically"
+                     % (", ".join(_mirror_tars), ", ".join(_mirror_tars)))
     for nd in nodes:   # 多机节点镜像(随节点分发)
         for fname, rel, _ in nd["images"]:
             big_files.append(("%s/nodes/%s/images/%s" % (bundle_name, nd["name"], fname), BASE_DIR / rel))
@@ -3637,6 +3658,7 @@ def pack(cfg, catalog, out_dir=None, progress=None):
             ("%s/docker-compose.yml" % bundle_name, compose_text.encode("utf-8"), 0o644),
             ("%s/.env" % bundle_name, env_text.encode("utf-8"), 0o600),
             ("%s/images.txt" % bundle_name, images_txt.encode("utf-8"), 0o644),
+            ("%s/images/retag-mirrors.sh" % bundle_name, gen_retag_mirrors_sh().encode("utf-8"), 0o755),
         ]
     for rel, content in cluster_small.items():
         mode = 0o755 if rel.endswith(".sh") else 0o644
@@ -3671,6 +3693,8 @@ def pack(cfg, catalog, out_dir=None, progress=None):
             small_files.append(("%s/images.txt" % base,
                                 ("# tar文件|统一短名\n" + "".join("%s|%s\n" % (f, s) for f, _, s in nd["images"])).encode("utf-8"),
                                 0o644))
+            small_files.append(("%s/images/retag-mirrors.sh" % base,
+                                gen_retag_mirrors_sh().encode("utf-8"), 0o755))
             small_files.append(("%s/uninstall.sh" % base,
                                 (TPL_DIR / "uninstall.sh").read_text(encoding="utf-8").encode("utf-8"), 0o755))
             for rel, src in nd["conf_files"].items():
@@ -3905,6 +3929,90 @@ def missing_materials(catalog, archs=("amd64", "arm64")):
         if cl and arch in cl.get("images", {}) and not (BASE_DIR / cl["images"][arch]).is_file():
             items.append(("%s:%s" % (cl["image"], cl["tag"]), cl["images"][arch], "linux/%s" % arch))
     return items
+
+
+def _tar_has_mirror_prefix(path):
+    """检查 docker save tar 的 manifest.json RepoTags 是否含镜像源前缀仓库"""
+    try:
+        with tarfile.open(path, "r:") as tf:
+            return _tar_repo_tags(tf)
+    except Exception:
+        pass
+    try:
+        with tarfile.open(path, "r:gz") as tf:
+            return _tar_repo_tags(tf)
+    except Exception:
+        pass
+    return False
+
+
+def _tar_repo_tags(tf):
+    """读取 docker save tar(旧式 manifest.json 或 OCI index.json)的仓库引用"""
+    names = set(tf.getnames())
+    tags = []
+    if "manifest.json" in names:
+        mf = tf.extractfile("manifest.json")
+        if mf:
+            for item in json.loads(mf.read().decode("utf-8", "replace")):
+                tags += (item.get("RepoTags") or [])
+    elif "index.json" in names:
+        idx = tf.extractfile("index.json")
+        if idx:
+            for e in json.loads(idx.read().decode("utf-8", "replace")).get("manifests") or []:
+                tags.append((e.get("annotations") or {}).get("org.opencontainers.image.ref.name", ""))
+    for t in tags:
+        if t and t.split("/")[0] in MIRROR_PREFIXES:
+            return True
+    return False
+
+
+MIRROR_PREFIXES = ("docker.1ms.run", "docker.1panel.live", "docker.xuanyuan.me")
+
+
+def gen_retag_mirrors_sh():
+    """生成 images/retag-mirrors.sh: 镜像仓库名归一化。
+
+    仓库镜像 tar 的仓库名有多种形态(补料走国内源/官方多级命名空间所致):
+      nginx:1.31.5-amd64(架构后缀) / docker.1ms.run/library/rabbitmq:4.3.5(镜像源+library)
+      / docker.1ms.run/apache/kafka:4.3.1(镜像源前缀) / docker.elastic.co/elasticsearch/elasticsearch:9.3.0(多级命名空间)
+    离线机 compose 按原生短名取镜像, 找不到会触发联网拉取失败。docker load 全部 tar
+    后执行本脚本, 与 deploy.sh normalize_image 同规则: 仓库名最后一段与短名一致且
+    tag 匹配(含 -amd64/-arm64 后缀)即重打标回原生短名。
+    """
+    lines = [
+        "#!/usr/bin/env bash",
+        "# 镜像重打标 (由打包器生成): 兼容镜像源前缀(docker.1ms.run/xxx)、library/ 前缀、",
+        "# 架构后缀(-amd64/-arm64)、多级命名空间(docker.elastic.co/ns/xxx) 四类仓库名,",
+        "# 统一 tag 回 images.txt 里的原生短名(与 deploy.sh normalize_image 同规则)。",
+        "# 用法: docker load 全部 tar 后执行  bash images/retag-mirrors.sh [images.txt] [arch]",
+        "set -u",
+        'cd "$(dirname "$0")/.."',
+        'TXT="${1:-images.txt}"',
+        'ARCH="${2:-}"; [ -n "$ARCH" ] || { case "$(uname -m)" in aarch64|arm64) ARCH=arm64 ;; *) ARCH=amd64 ;; esac; }',
+        '[ -f "$TXT" ] || exit 0',
+        'IMAGES="$(docker images --format \'{{.Repository}}:{{.Tag}}\' 2>/dev/null)"',
+        'while IFS="|" read -r file short; do',
+        '  case "$file" in ""|"#"*) continue ;; esac',
+        '  [ -n "$short" ] || continue',
+        '  case "$short" in *:*) ;; *) continue ;; esac',
+        '  docker image inspect "$short" >/dev/null 2>&1 && continue',
+        '  base="${short%%:*}"; tag="${short#*:}"; tail="${base##*/}"; found=""',
+        '  for rt in $IMAGES; do',
+        '    case "$rt" in *:*) ;; *) continue ;; esac',
+        '    case "${rt##*:}" in "$tag"|"$tag-$ARCH") ;; *) continue ;; esac',
+        '    [ "${rt%:*}" = "$base" ] && { found="$rt"; break; }',
+        '    [ "${rt%:*}" = "library/$base" ] && { found="$rt"; break; }',
+        '    case "${rt%:*}" in */"$tail") found="$rt"; break ;; esac',
+        '  done',
+        '  if [ -n "$found" ]; then',
+        '    docker tag "$found" "$short" && echo "[retag] $found -> $short"',
+        '  else',
+        '    echo "[WARN] $short 镜像缺失(tar 内无可归一化副本), 请重跑补料脚本"',
+        '  fi',
+        'done < "$TXT"',
+        "",
+    ]
+    return "\n".join(lines)
 
 
 def gen_pull_script(catalog, archs=("amd64", "arm64")):

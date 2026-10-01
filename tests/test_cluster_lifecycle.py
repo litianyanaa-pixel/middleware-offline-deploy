@@ -35,10 +35,33 @@ def _base_cluster(**over):
     cl = {"enabled": True, "kube_version": "v1.28.15", "mode": "cache", "zone": "",
           "cni_type": "flannel", "proxy_mode": "iptables", "ha_type": "local",
           "pod_cidr": "10.233.64.0/18", "service_cidr": "10.233.0.0/18",
-          "timezone": "Asia/Shanghai", "os_distros": [], "roles": {},
+          "timezone": "Asia/Shanghai", "os_distros": [],
+          "roles": {"0": "control-plane"},
           "components": {}, "storage": {}, "kubelet": {}, "ntp": {}}
     cl.update(over)
-    return {"project": "t", "arch": "amd64", "services": [], "cluster": cl}
+    return {"project": "t-online", "arch": "amd64", "services": [], "cluster": cl,
+            "servers": [{"name": "m1", "user": "root", "ip": "10.0.0.1", "ssh": 22}],
+            "ports": {}}
+
+
+def test_online_cn_static_fallback():
+    """online+zone=cn 必须自动回退非 static containerd(qingstor 镜像无 static-*, 404 实测),
+    offline/cache 与国际源保留 static"""
+    cfg = _base_cluster(mode="online", zone="cn", components={"static_binary": True})
+    out, _ = packer.validate_config(cfg, CATALOG)
+    check("online+cn 回退非 static", out["cluster"]["components"]["static_binary"] is False)
+    cfg2 = _base_cluster(mode="cache", components={"static_binary": True})
+    out2, _ = packer.validate_config(cfg2, CATALOG)
+    check("cache 模式保留 static", out2["cluster"]["components"]["static_binary"] is True)
+    cfg3 = _base_cluster(mode="online", zone="intl", components={"static_binary": True})
+    out3, _ = packer.validate_config(cfg3, CATALOG)
+    check("online 国际源保留 static", out3["cluster"]["components"]["static_binary"] is True)
+
+    y = packer.gen_cluster_config(_base_cluster(mode="online", zone="cn"), CATALOG)
+    check("online+cn 不写裸域名 imageRepository", "imageRepository" not in y)
+    check("online+cn 不覆盖 sandbox(交 kk 内置 CN 映射)", "sandbox_image:" not in y)
+    y2 = packer.gen_cluster_config(_base_cluster(mode="cache"), CATALOG)
+    check("offline 模式保留 sandbox 覆盖", 'registry: "registry.k8s.io"' in y2)
 
 
 def test_config_custom_dirs():
@@ -190,7 +213,7 @@ def test_scripts_bash_syntax():
 
 
 def main():
-    for fn in (test_config_custom_dirs, test_manifest_lifecycle_vars, test_uninstall_flag_matrix,
+    for fn in (test_online_cn_static_fallback, test_config_custom_dirs, test_manifest_lifecycle_vars, test_uninstall_flag_matrix,
                test_upgrade_sh_content, test_deploy_sh_branches, test_scripts_bash_syntax):
         print(fn.__name__ + ":")
         fn()
