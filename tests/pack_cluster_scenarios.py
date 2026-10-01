@@ -37,6 +37,22 @@ def put_upgrade_fake():
     if not up_img.is_file():
         up_img.parent.mkdir(parents=True, exist_ok=True)
         up_img.write_bytes(b"fake-up-images")
+    # upgrade --all 需要目标版本全套组件缓存: 仓库缺的组件放假物料(内容 fake 开头, 清理阶段回收)
+    ccat = packer.load_catalog()["cluster"]
+    for comp in ((ccat["versions"].get(UP_VER) or {}).get("components") or {}).values():
+        wd = comp.get("warehouse_dir") or ""
+        if not wd or not wd.startswith("warehouse/cluster/"):
+            continue
+        d = FAKE_ROOT / wd[len("warehouse/cluster/"):].replace("{arch}", ARCH)
+        d.mkdir(parents=True, exist_ok=True)
+        if not any(f.is_file() and f.stat().st_size > 0 for f in d.glob("*")):
+            (d / "fake-up-material.bin").write_bytes(b"fake-up-material")
+
+
+def upgrade_crictl_version():
+    """目标版本按 versions.json 映射的 crictl 版本(upgrade --all 会替换 crictl)"""
+    return (((packer.load_catalog()["cluster"]["versions"].get(UP_VER) or {})
+             .get("components") or {}).get("crictl") or {}).get("version") or ""
 
 
 def base_cfg(services=None, upgrade_to="", roles=None, servers=None, ha="local"):
@@ -105,8 +121,13 @@ def main():
         ns = names()
         check("目标版本三件套随包",
               all("cluster/upgrade/%s/%s/%s" % (UP_VER, ARCH, b) in ns for b in ("kubeadm", "kubelet", "kubectl")))
+        cr_ver = upgrade_crictl_version()
+        check("目标版本全套组件缓存随包(含 crictl=%s)" % cr_ver,
+              bool(cr_ver) and ("cluster/upgrade/cache/crictl/%s/%s/crictl-%s-linux-%s.tar.gz"
+                                % (cr_ver, ARCH, cr_ver, ARCH)) in ns)
         check("upgrade-cluster.sh 随包且指向 KK_HOME", "upgrade-cluster.sh" in ns
               and "KK_HOME" in read("upgrade-cluster.sh"))
+        check("upgrade-cluster.sh 会铺全套组件缓存", "cluster/upgrade/cache" in read("upgrade-cluster.sh"))
     finally:
         shutil.rmtree(bundle.parent, ignore_errors=True)
 

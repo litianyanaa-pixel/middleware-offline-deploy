@@ -34,7 +34,7 @@
 |---|---|---|
 | 物料 | 二进制缓存 + **离线镜像包** + CNI chart, 全部随包 | 仅 kk 与配置, 无镜像物料 |
 | 镜像 | 打包时 docker pull(国内源)+docker save 按原生 tag 收集; 部署时 deploy-cluster.sh 在 kk create 前导入各节点本地 containerd, **全程不访问外网** | 节点直接联网拉取(zone=cn 走 hub 加速) |
-| 升级 | upgrade_to 会连带收集目标版本镜像包, upgrade-cluster.sh 导入后再升级 | 联网拉取 |
+| 升级 | upgrade_to 连带收集目标版本镜像包与全套组件缓存(crictl/helm/etcd 等, kk upgrade --all 按目标版本 manifest 取件), upgrade-cluster.sh 导入镜像+铺缓存后再升级 | 联网拉取 |
 | kk 侧开关 | `download.fetch=false` + `cri.containerd.config_policy: overwrite`(kk 每次重写 containerd 配置) | `download.fetch=true` |
 
 镜像清单由 prepare_cluster.py 的 `k8s_image_specs` 按 k8s 版本精确推导(控制面/CoreDNS/

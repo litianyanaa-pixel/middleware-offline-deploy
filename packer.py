@@ -1916,6 +1916,23 @@ def cluster_materials(cfg, catalog):
                 items.append(("cluster/upgrade/images-%s.tar" % up_to, up_src))
             else:
                 missing.append("离线镜像包(升级 %s): %s (打包时自动收集)" % (up_to, up_src))
+            # kk upgrade --all 的二进制阶段按目标版本 manifest 取全套组件(kube/crictl/helm/
+            # etcd/cni/containerd/runc), 而基础包缓存是部署版本的组件(如 helm v3.12.1):
+            # 目标版本换了 minor 组件版本就对不上, 必须整套随包由 upgrade-cluster.sh 铺进
+            # kk 缓存(真机 v1.28.15->v1.29.15 首测先后踩坑 crictl v1.29.0 与 helm v3.13.3 缺失)
+            up_comps = ((ccat["versions"].get(up_to) or {}).get("components") or {})
+            for key, comp in up_comps.items():
+                if key == "kube":
+                    continue   # kube 三件套由 pack 侧 cluster/upgrade/<版本>/ 专门携带
+                wdir_rel = comp.get("warehouse_dir")
+                if not wdir_rel:
+                    continue
+                layout = comp.get("cache_layout") or ""
+                cw = BASE_DIR / wdir_rel.format(arch=arch)
+                if cw.is_dir() and any(f.is_file() for f in cw.glob("**/*")):
+                    items.append(("cluster/upgrade/cache/%s" % layout.format(arch=arch), cw))
+                else:
+                    missing.append("升级组件 %s(%s): %s (python prepare_cluster.py --download 可补)" % (key, up_to, cw))
     if not CLUSTER_SH.is_file():
         missing.append("集群部署脚本模板缺失: %s" % CLUSTER_SH)
 
@@ -1963,22 +1980,25 @@ else
   RUN_SCP() { scp $SCP_OPTS "$@"; }
 fi
 
+# 节点侧导入脚本: 写临时文件后 bash -s 下发(与 deploy-cluster.sh 的 IMP_SH 同一套路)。
+# 不能用 _script 变量 + bash -c 嵌套引号: sed 行的 \\" 转义经两层 shell 解析必炸(unexpected EOF)
+IMP_SH="$(mktemp /tmp/.kk-up-import.XXXXXX.sh)"
+cat > "$IMP_SH" <<UP_EOF
+for t in /tmp/.kk-up/*.tar; do
+  [ -f "\$t" ] || continue
+  ctr -n k8s.io images import --all-platforms "\$t" >/dev/null 2>&1 || echo "[WARN] \$(basename \$t) 导入部分报错(多为已存在)"
+done
+if [ -n "{sandbox}" ] && [ -s /etc/containerd/config.toml ]; then
+  # 新版本 pause 镜像可能变化, 改写 sandbox 后重启 containerd(磁盘存储不丢镜像)
+  sed -i "s#sandbox_image = \\"registry.k8s.io/pause:[^\\"]*\\"#sandbox_image = \\"{sandbox}\\"#" /etc/containerd/config.toml
+  systemctl restart containerd
+  sleep 2
+fi
+rm -rf /tmp/.kk-up
+UP_EOF
 import_one() {
-  # $1 = LOCAL 或 user@ip; 脚本文本在远端执行(单引号内的 $ 由远端 shell 展开)
-  _script='
-    for t in /tmp/.kk-up/*.tar; do
-      [ -f "$t" ] || continue
-      ctr -n k8s.io images import --all-platforms "$t" >/dev/null 2>&1 || echo "[WARN] $(basename $t) 导入部分报错(多为已存在)"
-    done
-    if [ -n "{sandbox}" ] && [ -s /etc/containerd/config.toml ]; then
-      # 新版本 pause 镜像可能变化, 改写 sandbox 后重启 containerd(磁盘存储不丢镜像)
-      sed -i "s#sandbox_image = \\"registry.k8s.io/pause:[^\\"]*\\"#sandbox_image = \\"{sandbox}\\"#" /etc/containerd/config.toml
-      systemctl restart containerd
-      sleep 2
-    fi
-    rm -rf /tmp/.kk-up
-  '
-  if [ "$1" = "LOCAL" ]; then bash -c "$_script"; else RUN_SSH "$1" "bash -c \"$_script\""; fi
+  # $1 = LOCAL 或 user@ip
+  if [ "$1" = "LOCAL" ]; then bash "$IMP_SH"; else RUN_SSH "$1" 'bash -s' < "$IMP_SH"; fi
 }
 
 echo "[INFO] 导入目标版本离线镜像 ({ver})"
@@ -1994,7 +2014,14 @@ for entry in ${CLUSTER_NODES[@]:-}; do
     import_one "${SSH_USER}@${IP}"
   fi
 done
+rm -f "$IMP_SH"
 
+# 0) 铺目标版本全套组件缓存到 kk 缓存(upgrade --all 的二进制阶段按目标版本 manifest
+#    取 crictl/helm/etcd/cni/containerd/runc 全套; 只带 kube 会连环缺 crictl/helm)
+if [ -d cluster/upgrade/cache ]; then
+  cp -a cluster/upgrade/cache/. "$KK_CACHE/"
+  echo "[INFO] 目标版本组件缓存已就位 ($KK_CACHE)"
+fi
 # 1) 铺目标版本 kube 三件套到 kk 缓存
 mkdir -p "$KK_CACHE/kube/{ver}/{arch}"
 cp -a cluster/upgrade/{ver}/{arch}/. "$KK_CACHE/kube/{ver}/{arch}/"
