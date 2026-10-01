@@ -46,6 +46,12 @@ def make_fake_materials():
     put(f"containerd/v2.2.6/{ARCH}/containerd-2.2.6-linux-{ARCH}.tar.gz", "fake", binary=True)
     put(f"runc/v1.3.6/{ARCH}/runc.{ARCH}", "fake", binary=True)
     put("os/ubuntu/amd64/socat_1.7.4.1-3ubuntu4_amd64.deb", "fake", binary=True)
+    # 纯离线新物料: 镜像包 + CNI chart(版本跟随 versions.json); cni_type 与冒烟配置同为 flannel
+    cni_ver = ((packer.load_catalog()["cluster"]["versions"][K8S_VER].get("cni_versions") or {})
+               .get("flannel", ""))
+    put(f"images/k8s-{K8S_VER.lstrip('v')}-flannel-{ARCH}-images.tar", b"fake", binary=True)
+    if cni_ver:
+        put(f"charts/flannel/flannel-{cni_ver}.tgz", b"fake", binary=True)
 
 
 def clean_fake_materials():
@@ -68,7 +74,7 @@ def main():
     cfg = {
         "project": "smokecluster", "arch": ARCH, "lang": "zh", "services": [],
         "cluster": {"enabled": True, "kube_version": K8S_VER, "mode": "cache",
-                    "cni_type": "calico", "proxy_mode": "iptables",
+                    "cni_type": "flannel", "proxy_mode": "iptables",
                     "pod_cidr": "10.233.64.0/18", "service_cidr": "10.233.0.0/18",
                     "timezone": "Asia/Shanghai", "os_distros": ["ubuntu"],
                     "ha_type": "local", "ha_vip": "", "upgrade_to": "",

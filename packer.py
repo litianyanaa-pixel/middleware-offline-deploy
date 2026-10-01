@@ -302,6 +302,15 @@ def validate_config(cfg, catalog):
     if cluster_on:
         if arch != "amd64":
             raise PackError("K8s 集群暂仅支持 amd64, arm64(鲲鹏/飞腾)后续开放|K8s cluster is amd64-only for now; arm64 support coming later")
+        # 集群节点 SSH 密码留空 = 按免密连接, 提醒运维预分发密钥
+        srv_raw = cfg.get("servers") or []
+        role_map = cluster_raw.get("roles") or {}
+        empty_pw = [str((srv_raw[int(i)] or {}).get("name") or ("node%s" % (int(i) + 1)))
+                    for i in role_map if int(i) < len(srv_raw) and not ((srv_raw[int(i)] or {}).get("pass") or "").strip()]
+        if empty_pw:
+            warns.append("集群节点未填 SSH 密码: %s — 将按免密 SSH 连接, 部署前需在节点间预分发密钥; 否则请回填密码重新打包"
+                         "|Cluster nodes without SSH password: %s — passwordless SSH assumed; distribute keys first or fill passwords and repack"
+                         % (", ".join(empty_pw), ", ".join(empty_pw)))
         ccat = catalog.get("cluster") or {}
         if not ccat:
             raise PackError("versions.json 缺少 cluster 物料目录|cluster catalog missing in versions.json")
@@ -328,7 +337,11 @@ def validate_config(cfg, catalog):
             "static_binary": bool(comps_raw.get("static_binary")),
             "containerd_version_override": str(comps_raw.get("containerd_version_override") or "").strip(),
         }
-        if components["containerd_version_override"] and not re.match(r"^v?\d+\.\d+", components["containerd_version_override"]):
+        if components["containerd_version_override"]:
+            # 统一补 v 前缀: 仓库目录/包内 cache 布局均按 vX.Y.Z 命名, 1.7.27 会生成不存在的目录
+            if not components["containerd_version_override"].startswith("v"):
+                components["containerd_version_override"] = "v" + components["containerd_version_override"]
+        if components["containerd_version_override"] and not re.match(r"^v\d+\.\d+", components["containerd_version_override"]):
             raise PackError("containerd 版本覆盖不合法: %s|Invalid containerd version override: %s"
                             % (components["containerd_version_override"], components["containerd_version_override"]))
         # kubelet 参数
@@ -1589,6 +1602,8 @@ def gen_cluster_config(cfg, catalog):
     imgreg = cl.get("image_registry") or {}
     ha_type = cl.get("ha_type") or "local"
 
+    # zone: cn 时在线模式的镜像/二进制自动走国内源(hub.kubesphere.com.cn 等); 离线模式保持为空
+    zone_cn = online and (cl.get("zone") or "cn") == "cn"
     lines = [
         "# 由 packer.py 生成, 勿手改; 变更请在打包页面修改后重新打包",
         "apiVersion: kubekey.kubesphere.io/v1",
@@ -1596,9 +1611,23 @@ def gen_cluster_config(cfg, catalog):
         "metadata:",
         '  name: "%s-cluster"' % cfg["project"],
         "spec:",
-        "  # zone: cn 时镜像/二进制自动走国内源(hub.kubesphere.com.cn 等); 离线模式保持为空",
-        "  zone: %s" % _yq("cn" if (online and (cl.get("zone") or "cn") == "cn") else ""),
+        "  zone: %s" % _yq("cn" if zone_cn else ""),
+    ]
+    if zone_cn:
+        # 仅在线+国区指定控制面镜像仓库加速; 纯离线模式的镜像在打包时收集、部署前导入节点本地
+        # containerd, 保持 registry.k8s.io 等原生 tag 即可本地命中, 不访问任何外网仓库
+        lines += [
+            "  registry:",
+            '    imageRepository: "hub.kubesphere.com.cn"',
+        ]
+    lines += [
         "  kubernetes:",
+        # sandbox 三元组必须写全: kk containerd 配置模板用这三个键拼 sandbox 镜像,
+        # 缺 registry/repository 会渲染出非法值导致容器沙箱创建失败
+        "    sandbox_image:",
+        '      registry: "registry.k8s.io"',
+        '      repository: "pause"',
+        "      tag: %s" % _yq(ver.get("sandbox_image_tag") or "3.9"),
         "    kube_version: %s" % _yq(cl["kube_version"]),
         "    kube_proxy:",
         "      mode: %s" % _yq(cl["proxy_mode"]),
@@ -1608,11 +1637,12 @@ def gen_cluster_config(cfg, catalog):
     if ha_type in ("kube-vip", "haproxy") and cl.get("ha_vip"):
         lines += ["      host: %s" % _yq(cl["ha_vip"])]
 
-    # kubelet 参数(可选覆盖); root_dir 通过 extra_args 的 --root-dir 生效
+    # kubelet 参数(可选覆盖); root_dir 通过 extra_args 的 root-dir 生效
+    # 注意: kk 会给每个 arg 自动加 "--" 前缀, 这里不能自带横杠(否则变成 ----root-dir)
     kubelet_lines = []
-    kubelet_args = list(kubelet.get("extra_args") or [])
+    kubelet_args = [a.lstrip("-") for a in (kubelet.get("extra_args") or [])]
     if kubelet.get("root_dir"):
-        kubelet_args.insert(0, "--root-dir=" + kubelet["root_dir"])
+        kubelet_args.insert(0, "root-dir=" + kubelet["root_dir"])
     if kubelet_args:
         kubelet_lines.append("      extra_args:")
         for a in kubelet_args:
@@ -1631,17 +1661,27 @@ def gen_cluster_config(cfg, catalog):
         lines += ["    kubelet:"] + kubelet_lines
 
     # CRI: containerd 数据目录/静态构建(glibc 老系统)/版本覆盖 + docker data-root + registry mirrors
-    # kk config 结构: cri.containerd.{static_binary, containerd_version, config.root}, cri.docker.data_root, cri.registry.mirrors
+    # kk config 结构: cri.containerd_version(直属 cri!) + cri.containerd.{static_binary, data_root},
+    #                 cri.docker.data_root, cri.registry.mirrors — containerd_version 写错层级会被 kk 忽略
+    # data_root 是 kk containerd 模板认的键(模板里 set $config "root" data_root), 不能写 config.root
     cd_lines = []
-    if comp.get("static_binary"):
-        cd_lines.append("      static_binary: true")
     if comp.get("containerd_version_override"):
-        cd_lines.append("      containerd_version: %s" % _yq(comp["containerd_version_override"]))
+        cd_lines.append("    containerd_version: %s" % _yq(comp["containerd_version_override"]))
+    cd_sub = []
+    if comp.get("static_binary"):
+        cd_sub.append("      static_binary: true")
     if comp.get("containerd_root"):
-        cd_lines += ["      config:", "        root: %s" % _yq(comp["containerd_root"])]
+        cd_sub.append("      data_root: %s" % _yq(comp["containerd_root"]))
+    if not online:
+        # 纯离线: 部署脚本先预装 containerd 并导入镜像, config_policy=overwrite 让 kk 每次都重写
+        # 配置并重启(镜像落在 data_root 磁盘存储, 重启不丢); 否则版本一致时 kk 跳过配置,
+        # 节点会带着部署脚本的精简配置或默认配置进入 kubeadm(sandbox 镜像不对)
+        cd_sub.append("      config_policy: overwrite")
     cri_lines = []
     if cd_lines:
-        cri_lines += ["    containerd:"] + cd_lines
+        cri_lines += cd_lines
+    if cd_sub:
+        cri_lines += ["    containerd:"] + cd_sub
     if comp.get("docker_root"):
         cri_lines += ["    docker:", "      data_root: %s" % _yq(comp["docker_root"])]
     if cl.get("registry_mirrors"):
@@ -1649,9 +1689,14 @@ def gen_cluster_config(cfg, catalog):
     if cri_lines:
         lines += ["  cri:"] + cri_lines
 
-    # etcd 数据目录
+    # etcd: 堆叠内部署 + 数据目录 + 版本(不写 deployment_type 时 kk 可能按外置集群处理)
+    etcd_lines = ['    deployment_type: "internal"']
+    etcd_ver = ((ver.get("components") or {}).get("etcd") or {}).get("version")
+    if etcd_ver:
+        etcd_lines.append("    etcd_version: %s" % _yq(etcd_ver))
     if comp.get("etcd_dir"):
-        lines += ["  etcd:", "    data_dir: %s" % _yq(comp["etcd_dir"])]
+        etcd_lines.append("    data_dir: %s" % _yq(comp["etcd_dir"]))
+    lines += ["  etcd:"] + etcd_lines
 
     lines += [
         "  cni:",
@@ -1670,27 +1715,26 @@ def gen_cluster_config(cfg, catalog):
         if imgreg.get("vip"):
             lines.append("    ha_vip: %s" % _yq(imgreg["vip"]))
 
-    # 存储配置(localpv / nfs storageclass)
-    if storage.get("localpv_enabled") or storage.get("nfs_enabled"):
-        lines.append("  storage_class:")
-        if storage.get("localpv_enabled"):
-            lines += [
-                "    local:",
-                "      enabled: true",
-                "      default: %s" % _yq(not storage.get("nfs_enabled")),
-            ]
-            if storage.get("localpv_path"):
-                lines.append("      path: %s" % _yq(storage["localpv_path"]))
-        if storage.get("nfs_enabled"):
-            lines += [
-                "    nfs:",
-                "      enabled: true",
-                "      default: %s" % _yq(bool(storage.get("nfs_default"))),
-            ]
-            if storage.get("nfs_server"):
-                lines.append("      server: %s" % _yq(storage["nfs_server"]))
-            if storage.get("nfs_path"):
-                lines.append("      path: %s" % _yq(storage["nfs_path"]))
+    # 存储配置(localpv / nfs storageclass): 必须显式写出 — kk 默认启用 localpv(enabled+default),
+    # 不写会被静默当成已启用, 离线包没带 localpv chart/镜像时部署会折在存储类这一步
+    lines += [
+        "  storage_class:",
+        "    local:",
+        "      enabled: %s" % ("true" if storage.get("localpv_enabled") else "false"),
+        "      default: %s" % ("true" if (storage.get("localpv_enabled") and not storage.get("nfs_enabled")) else "false"),
+    ]
+    if storage.get("localpv_enabled") and storage.get("localpv_path"):
+        lines.append("      path: %s" % _yq(storage["localpv_path"]))
+    if storage.get("nfs_enabled"):
+        lines += [
+            "    nfs:",
+            "      enabled: true",
+            "      default: %s" % _yq(bool(storage.get("nfs_default"))),
+        ]
+        if storage.get("nfs_server"):
+            lines.append("      server: %s" % _yq(storage["nfs_server"]))
+        if storage.get("nfs_path"):
+            lines.append("      path: %s" % _yq(storage["nfs_path"]))
 
     lines += [
         "  native:",
@@ -1729,6 +1773,21 @@ def gen_cluster_config(cfg, catalog):
     return "\n".join([ln for ln in lines if ln is not None]) + "\n"
 
 
+_PREPARE = None
+
+
+def _prepare_module():
+    """惰性加载 prepare_cluster 模块(离线镜像清单/收集函数的单一来源, 打包与备料两处共用)"""
+    global _PREPARE
+    if _PREPARE is None:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("kk_prepare", BASE_DIR / "prepare_cluster.py")
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        _PREPARE = mod
+    return _PREPARE
+
+
 def _tar_valid(path):
     """tar.gz/tgz 完整性快速校验(损坏返回 False)"""
     try:
@@ -1764,7 +1823,13 @@ def cluster_materials(cfg, catalog):
     elif cl["mode"] == "online":
         pass   # 在线安装: 组件与镜像部署时联网下载(zone=cn 走国内源), 无本地物料
     else:
-        comps = ccat["versions"][cl["kube_version"]].get("components") or {}
+        ver = ccat["versions"][cl["kube_version"]]
+        comps = ver.get("components") or {}
+        cni_type = cl["cni_type"]
+        cni_version = (ver.get("cni_versions") or {}).get(cni_type) or ver.get("cni_plugin", {}).get("version", "")
+        # containerd 版本覆盖: 老内核节点(如 CentOS7 3.10 不受 containerd 2.x 支持)降级 1.7.x,
+        # 仓库目录与包内 cache 布局同步切换到覆盖版本
+        ct_ver_override = ((cl.get("components") or {}).get("containerd_version_override") or "").strip()
         cache_map = {"kube": "kube", "etcd": "etcd", "cni_plugins": "cni/plugins",
                      "helm": "helm", "crictl": "crictl", "containerd": "containerd", "runc": "runc"}
         for key, cache_sub in cache_map.items():
@@ -1772,9 +1837,11 @@ def cluster_materials(cfg, catalog):
             wdir_rel = comp.get("warehouse_dir")
             if not wdir_rel:
                 continue
-            wdir = BASE_DIR / wdir_rel.format(arch=arch)
-            # bundle 内布局与 kk binary_dir 严格一致(含 arch 层), 取自 cache_layout
             layout = comp.get("cache_layout") or ("%s/{arch}" % cache_sub)
+            if key == "containerd" and ct_ver_override:
+                wdir_rel = re.sub(r"(containerd/)v[^/]+(/)", r"\g<1>%s\g<2>" % ct_ver_override, wdir_rel)
+                layout = re.sub(r"(containerd/)v[^/]+(/)", r"\g<1>%s\g<2>" % ct_ver_override, layout)
+            wdir = BASE_DIR / wdir_rel.format(arch=arch)
             sub = layout.format(arch=arch)
             # 排除断点续传/临时文件(xxx.p0 / xxx.part2 / xxx.tmp), 避免残缺物料混进包里;
             # tar.gz/tgz 额外做完整性校验(防中断残留的半截文件带病进包)
@@ -1793,6 +1860,62 @@ def cluster_materials(cfg, catalog):
                     for b in ("kubeadm", "kubelet", "kubectl"):
                         if not (wdir / b).is_file():
                             missing.append("缺 %s: 应位于 %s/%s" % (b, wdir, b))
+        # 纯离线镜像: 打包时收集(docker pull+save, 原生 tag), 部署前由 deploy-cluster.sh
+        # 导入节点本地 containerd; 缺失时先记 missing, 打包流程会尝试自动收集
+        img_src = BASE_DIR / "warehouse" / "cluster" / "images" / \
+            _prepare_module().cluster_images_tar_name(cl["kube_version"], cl["cni_type"], arch)
+        if img_src.is_file():
+            items.append(("cluster/images/" + img_src.name, img_src))
+        else:
+            missing.append("k8s 离线镜像包: %s (需 Docker Desktop 自动收集)" % img_src)
+
+        # CNI chart(+calicoctl): kk 部署 CNI 时 helm install binary_dir 下的固定路径 chart,
+        # bundle 内放在 cluster/cache/cni/<type>/ 随缓存整体铺到 binary_dir 即命中
+        chart_dir = BASE_DIR / "warehouse" / "cluster" / "charts" / cni_type
+        chart_map = {"flannel": ["flannel-%s.tgz" % cni_version],
+                     "calico": ["tigera-operator-%s.tgz" % cni_version],
+                     "cilium": ["cilium-%s.tgz" % cni_version],
+                     "kubeovn": ["kube-ovn-%s.tgz" % cni_version]}
+        expect_charts = chart_map.get(cni_type) or []
+        if expect_charts:
+            miss_charts = [f for f in expect_charts if not (chart_dir / f).is_file()]
+            if miss_charts:
+                missing.append("CNI chart 物料: %s (应位于 %s/)" % (", ".join(miss_charts), chart_dir))
+            else:
+                items.append(("cluster/cache/cni/%s" % cni_type, chart_dir))
+            if cni_type == "calico" and not miss_charts:
+                ctl = chart_dir / cni_version / arch / ("calicoctl-linux-%s" % arch)
+                if not ctl.is_file():
+                    missing.append("calicoctl 二进制: %s" % ctl)
+
+        # 存储 chart(localpv/nfs provisioner)
+        storage = cl.get("storage") or {}
+        if storage.get("localpv_enabled"):
+            lp = ((ver.get("components") or {}).get("localpv") or {}).get("version") or "4.4.0"
+            lp_chart = BASE_DIR / "warehouse" / "cluster" / "charts" / "localpv" / ("localpv-provisioner-%s.tgz" % lp)
+            if lp_chart.is_file():
+                items.append(("cluster/cache/storageclass/local", lp_chart.parent))
+            else:
+                missing.append("localpv chart: %s" % lp_chart)
+        if storage.get("nfs_enabled"):
+            nf = ((ver.get("components") or {}).get("nfs") or {}).get("version") or "v4.0.18"
+            nf_chart = BASE_DIR / "warehouse" / "cluster" / "charts" / "nfs" / ("nfs-subdir-external-provisioner-%s.tgz" % nf)
+            if nf_chart.is_file():
+                items.append(("cluster/cache/storageclass/nfs", nf_chart.parent))
+            else:
+                missing.append("nfs provisioner chart: %s" % nf_chart)
+
+        # 升级目标版本的离线镜像包: 升级只会替换 kube 三件套, 新版本控制面/CoreDNS 镜像
+        # 需随包携带并由 upgrade-cluster.sh 导入, 否则 air-gapped 升级会联网拉镜像失败
+        up_to = ((cl.get("upgrade_to") or "")).strip()
+        if up_to:
+            pm = _prepare_module()
+            up_src = BASE_DIR / "warehouse" / "cluster" / "images" / \
+                pm.cluster_images_tar_name(up_to, cni_type, arch)
+            if up_src.is_file():
+                items.append(("cluster/upgrade/images-%s.tar" % up_to, up_src))
+            else:
+                missing.append("离线镜像包(升级 %s): %s (打包时自动收集)" % (up_to, up_src))
     if not CLUSTER_SH.is_file():
         missing.append("集群部署脚本模板缺失: %s" % CLUSTER_SH)
 
@@ -1806,20 +1929,69 @@ def cluster_materials(cfg, catalog):
 
 
 def gen_upgrade_sh(cfg):
-    """一键集群升级脚本: 铺目标版本 kube 三件套到 kk 缓存后执行 kk upgrade cluster"""
+    """一键集群升级脚本: 导入目标版本离线镜像 → 铺三件套到 kk 缓存 → kk upgrade cluster"""
     cl = cfg["cluster"]
     up_to = cl["upgrade_to"]
-    return """#!/usr/bin/env bash
+    catalog = load_catalog()
+    sandbox = "registry.k8s.io/pause:%s" % (((catalog["cluster"]["versions"].get(up_to) or {})
+                                             .get("sandbox_image_tag") or ""))
+    return r"""#!/usr/bin/env bash
 # 一键集群升级脚本 (由 packer.py 生成; 目标版本: {ver})
-# 前提: 集群已通过 ./deploy.sh 部署完成
+# 前提: 集群已通过 ./deploy.sh 部署完成; 纯离线升级(不在线拉取任何镜像)
 set -euo pipefail
-cd "$(cd "$(dirname "${{BASH_SOURCE[0]}}")" && pwd)"
-[ -f manifest.sh ] || {{ echo "[FAIL] 缺少 manifest.sh"; exit 1; }}
+cd "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+[ -f manifest.sh ] || { echo "[FAIL] 缺少 manifest.sh"; exit 1; }
 source ./manifest.sh
-[ "${{CLUSTER_ENABLED:-0}}" = "1" ] || {{ echo "[FAIL] 本包未启用集群"; exit 1; }}
+[ "${CLUSTER_ENABLED:-0}" = "1" ] || { echo "[FAIL] 本包未启用集群"; exit 1; }
 
 KK_HOME="$PWD/kubekey"; KK_CACHE="$KK_HOME/kubekey"
-# 1) 铺目标版本二进制到 kk 缓存
+
+# SSH 包装(与 deploy-cluster.sh 同源): 凭据取 cluster/inventory.yaml
+SSH_PORT="$(sed -n 's/^        port: \([0-9][0-9]*\).*/\1/p' cluster/inventory.yaml | head -1)"; SSH_PORT="${SSH_PORT:-22}"
+SSH_USER="$(sed -n 's/^        user: \(.*\)$/\1/p' cluster/inventory.yaml | head -1 | tr -d '"')"; SSH_USER="${SSH_USER:-root}"
+PW="$(sed -n 's/^        password: \(.*\)$/\1/p' cluster/inventory.yaml | head -1 | tr -d '"')"
+SSH_OPTS="-o StrictHostKeyChecking=no -o ConnectTimeout=8 -p $SSH_PORT"
+if [ -n "$PW" ] && command -v sshpass >/dev/null 2>&1; then
+  RUN_SSH() { SSHPASS="$PW" sshpass -e ssh $SSH_OPTS "$@"; }
+  RUN_SCP() { SSHPASS="$PW" sshpass -e scp $SSH_OPTS "$@"; }
+else
+  RUN_SSH() { ssh $SSH_OPTS -o BatchMode=yes "$@"; }
+  RUN_SCP() { scp $SSH_OPTS "$@"; }
+fi
+
+import_one() {
+  # $1 = LOCAL 或 user@ip; 脚本文本在远端执行(单引号内的 $ 由远端 shell 展开)
+  _script='
+    for t in /tmp/.kk-up/*.tar; do
+      [ -f "$t" ] || continue
+      ctr -n k8s.io images import --all-platforms "$t" >/dev/null 2>&1 || echo "[WARN] $(basename $t) 导入部分报错(多为已存在)"
+    done
+    if [ -n "{sandbox}" ] && [ -s /etc/containerd/config.toml ]; then
+      # 新版本 pause 镜像可能变化, 改写 sandbox 后重启 containerd(磁盘存储不丢镜像)
+      sed -i "s#sandbox_image = \\"registry.k8s.io/pause:[^\\"]*\\"#sandbox_image = \\"{sandbox}\\"#" /etc/containerd/config.toml
+      systemctl restart containerd
+      sleep 2
+    fi
+    rm -rf /tmp/.kk-up
+  '
+  if [ "$1" = "LOCAL" ]; then bash -c "$_script"; else RUN_SSH "$1" "bash -c \"$_script\""; fi
+}
+
+echo "[INFO] 导入目标版本离线镜像 ({ver})"
+LOCAL_IPS="$(hostname -I 2>/dev/null || true)"
+for entry in ${CLUSTER_NODES[@]:-}; do
+  IP="$(echo "$entry" | cut -d'|' -f2)"
+  if echo "$LOCAL_IPS" | grep -qw "$IP"; then
+    mkdir -p /tmp/.kk-up && cp -a cluster/upgrade/images-*.tar /tmp/.kk-up/ 2>/dev/null || true
+    import_one LOCAL
+  else
+    RUN_SSH "${SSH_USER}@${IP}" "mkdir -p /tmp/.kk-up" || { echo "[FAIL] 节点 $IP 不可达"; exit 1; }
+    RUN_SCP -q cluster/upgrade/images-*.tar "${SSH_USER}@${IP}:/tmp/.kk-up/" || { echo "[FAIL] 节点 $IP 镜像分发失败"; exit 1; }
+    import_one "${SSH_USER}@${IP}"
+  fi
+done
+
+# 1) 铺目标版本 kube 三件套到 kk 缓存
 mkdir -p "$KK_CACHE/kube/{ver}/{arch}"
 cp -a cluster/upgrade/{ver}/{arch}/. "$KK_CACHE/kube/{ver}/{arch}/"
 chmod +x "$KK_CACHE/kube/{ver}/{arch}/"*
@@ -1831,7 +2003,7 @@ echo "[INFO] 开始升级: $CLUSTER_KUBE_VERSION -> {ver} (耗时较长, 请勿�
   --with-kubernetes {ver} --all
 echo "[INFO] 升级完成, 验证:"
 KUBECONFIG=/etc/kubernetes/admin.conf kubectl get nodes -o wide
-""".replace("{ver}", up_to).replace("{arch}", cfg["arch"])
+""".replace("{ver}", up_to).replace("{arch}", cfg["arch"]).replace("{sandbox}", sandbox)
 
 
 def _auto_download_cluster_materials(cfg, catalog, cl_missing, prog):
@@ -1844,35 +2016,32 @@ def _auto_download_cluster_materials(cfg, catalog, cl_missing, prog):
     needs_kk = any("kk 二进制" in m for m in cl_missing)
     needs_artifact = any("artifact 产物" in m for m in cl_missing)
     needs_cache = any("二进制缓存目录" in m or "缺 kubeadm" in m or "缺 kubelet" in m or "缺 kubectl" in m for m in cl_missing)
+    needs_images = any("离线镜像包" in m for m in cl_missing)
+    needs_charts = any("chart" in m or "calicoctl" in m for m in cl_missing)
     if needs_kk:
         res["warnings"].append("缺 kk 二进制: 运行 python prepare_cluster.py --kk-build 生成构建脚本"
                                "|Missing kk binary: run prepare_cluster.py --kk-build")
     if needs_artifact:
         res["warnings"].append("缺 artifact 产物: 打包时自动构建(需 Docker Desktop), 或运行 python prepare_cluster.py --artifact-export 后执行生成的 .bat"
                                "|Missing artifact: auto-built at pack time (Docker Desktop), or run prepare_cluster.py --artifact-export then the generated .bat")
-    if not needs_cache:
+    if not needs_cache and not needs_images and not needs_charts:
         return res
 
     pm_path = BASE_DIR / "prepare_cluster.py"
     if not pm_path.is_file():
         res["warnings"].append("缺 prepare_cluster.py, 无法自动下载")
         return res
-    import importlib.util
-    spec = importlib.util.spec_from_file_location("kk_prepare", pm_path)
-    pm = importlib.util.module_from_spec(spec)
     try:
-        spec.loader.exec_module(pm)
+        pm = _prepare_module()
     except Exception as e:
         res["warnings"].append("备料脚本加载失败: %s" % e)
         return res
 
     up_to = (cl.get("upgrade_to") or "").strip()
     if up_to:
-        # 打包时缺升级物料同样自动下载
+        # 打包时缺升级物料同样自动下载; 升级三件套已在仓库则无需再下
         kube_dir = BASE_DIR / ("warehouse/cluster/kube/%s/%s" % (up_to, arch))
-        if not all((kube_dir / b).is_file() for b in ("kubeadm", "kubelet", "kubectl")):
-            up_to = up_to
-        else:
+        if all((kube_dir / b).is_file() for b in ("kubeadm", "kubelet", "kubectl")):
             up_to = ""
     prog.stage("下载缺失集群物料")
     prog._downloads.clear()
@@ -1889,10 +2058,37 @@ def _auto_download_cluster_materials(cfg, catalog, cl_missing, prog):
             prog._downloads.pop(name, None)
 
     try:
-        downloaded, failed = pm.ensure_materials(catalog["cluster"], cl["kube_version"], arch, up_to, progress_cb=cb)
-        res["downloaded_mb"] = downloaded / 1048576
-        if failed:
-            res["warnings"].append("自动下载失败: %s (网络恢复后重跑或 python prepare_cluster.py --download)" % ", ".join(failed))
+        if needs_cache:
+            downloaded, failed = pm.ensure_materials(catalog["cluster"], cl["kube_version"], arch, up_to, progress_cb=cb)
+            res["downloaded_mb"] += downloaded / 1048576
+            if failed:
+                res["warnings"].append("自动下载失败: %s (网络恢复后重跑或 python prepare_cluster.py --download)" % ", ".join(failed))
+        if needs_images:
+            # 不接 cb: ensure_images 的事件单位是镜像个数, 与进度条的字节模型不兼容;
+            # docker pull 本身无字节回调, 阶段提示即可
+            prog.stage("收集离线镜像包(docker, 需数分钟)")
+            cl = cfg["cluster"]
+            versions = [cl["kube_version"]]
+            if (cl.get("upgrade_to") or "").strip():
+                versions.append(cl["upgrade_to"].strip())   # 升级目标版本的镜像同样随包携带
+            for v in versions:
+                img_dl, img_failed = pm.ensure_images(ccat, v, arch,
+                                                      pm.k8s_image_specs(ccat, v, cl["cni_type"],
+                                                                         ha_type=cl.get("ha_type") or "local",
+                                                                         storage=cl.get("storage") or {}, arch=arch),
+                                                      cl["cni_type"])
+                res["downloaded_mb"] += img_dl   # ensure_images 返回值已是 MB
+                if img_failed:
+                    res["warnings"].append("离线镜像收集失败(%s): %s (需 Docker Desktop 运行中)" % (v, ", ".join(img_failed)))
+        if needs_charts:
+            prog.stage("下载 CNI/存储 chart")
+            cl = cfg["cluster"]
+            ch_dl, ch_failed = pm.ensure_charts(ccat, cl["kube_version"], cl["cni_type"], arch,
+                                                storage=cl.get("storage") or {})
+            res["downloaded_mb"] += ch_dl
+            if ch_failed:
+                res["warnings"].append("chart 下载失败: %s (检查网络或手工放置到 warehouse/cluster/charts/)"
+                                       % ", ".join(ch_failed))
     except Exception as e:
         res["warnings"].append("自动下载异常: %s" % e)
     prog._downloads.clear()
@@ -1902,6 +2098,7 @@ def _auto_download_cluster_materials(cfg, catalog, cl_missing, prog):
 def _auto_build_artifact(cfg, catalog, prog):
     """打包时自动构建 kk artifact 产物(打包机需 Docker Desktop + 外网)。
     镜像清单由 kk 按 kube_version+CNI 自动聚合; 返回 (ok, 失败日志尾部)。"""
+    import shutil
     import subprocess
     arch = cfg["arch"]
     ver = cfg["cluster"]["kube_version"]
@@ -1939,7 +2136,8 @@ def _auto_build_artifact(cfg, catalog, prog):
              "&& apt-get update -qq >/dev/null 2>&1 && apt-get install -y -qq ca-certificates >/dev/null 2>&1 "
              "&& %s && %s artifact export -c /work/warehouse/cluster/artifact/%s --workdir /work/kkstage"
              % (shim, kk_in, cfg_name))
-    cmd = ["docker", "run", "--rm", "-v", BASE_DIR.resolve().as_posix() + ":/work", "-w", "/work",
+    cmd = ["docker", "run", "--rm", "--name", "kk-artifact-build",
+           "-v", BASE_DIR.resolve().as_posix() + ":/work", "-w", "/work",
            "ubuntu:22.04", "bash", "-c", inner]
     prog.stage("构建 kk artifact 产物(拉取全量镜像, 约 5~20 分钟; 需 Docker Desktop)")
     prog._downloads["artifact 构建"] = [0, 1]
@@ -1959,12 +2157,15 @@ def _auto_build_artifact(cfg, catalog, prog):
         prog._downloads["artifact 构建"] = [min(len(tail) + 1, 60), 60]
         if prog._cancelled:
             proc.kill()
+            # docker CLI 被杀后容器仍会运行, 强制清理, 避免孤儿容器占用挂载
+            subprocess.run(["docker", "rm", "-f", "kk-artifact-build"],
+                           capture_output=True, timeout=30)
             prog._downloads.clear()
+            shutil.rmtree(BASE_DIR / "kkstage", ignore_errors=True)
             raise PackError("已取消|Cancelled")
     proc.wait()
     prog._downloads.clear()
     # kk 固定把产物写到 {workdir}/artifact/kubekey-artifact.tgz; 搬到仓库目录并改名
-    import shutil
     stage_tgz = BASE_DIR / "kkstage" / "artifact" / "kubekey-artifact.tgz"
     ok = proc.returncode == 0 and stage_tgz.is_file()
     if ok:
@@ -2148,6 +2349,14 @@ def gen_manifest_sh(cfg, catalog, client_img, summary_lines, bundle_name=None):
             "CLUSTER_OS_DISTROS=(%s)" % " ".join(bash_quote(d) for d in cl["os_distros"]),
             "CLUSTER_NODES=(%s)" % " ".join(bash_quote("%s|%s|%s" % (n["name"], n["ip"], n["role"])) for n in cl["nodes"]),
             "CLUSTER_ONLY=%d" % (0 if services else 1),
+            # 纯离线镜像导入参数(deploy-cluster.sh 用): sandbox 镜像与 containerd 数据目录
+            "CLUSTER_SANDBOX_IMAGE=%s" % bash_quote("registry.k8s.io/pause:%s"
+                                                    % (catalog["cluster"]["versions"][cl["kube_version"]].get("sandbox_image_tag") or "3.9")),
+            "CLUSTER_CONTAINERD_DATA_ROOT=%s" % bash_quote((cl.get("components") or {}).get("containerd_root") or ""),
+            # 升级目标版本的 pause 镜像(与创建版本可能不同, 升级脚本需要改写 sandbox_image)
+            "CLUSTER_UPGRADE_SANDBOX=%s" % bash_quote(
+                ("registry.k8s.io/pause:%s" % ((catalog["cluster"]["versions"].get(cl.get("upgrade_to") or "") or {})
+                                               .get("sandbox_image_tag") or "")) if cl.get("upgrade_to") else ""),
         ]
     b = cfg.get("backup") or {}
     lines += [
@@ -3210,6 +3419,7 @@ def pack(cfg, catalog, out_dir=None, progress=None):
                 warns.append("已自动下载缺失集群物料 %.0f MB (打包机需可达 dl.k8s.io / 华为云镜像 / GitHub 镜像)"
                              "|Auto-downloaded %.0f MB of missing cluster materials" % (auto["downloaded_mb"], auto["downloaded_mb"]))
             cl_missing, cl_items = cluster_materials(cfg, catalog)
+            art_detail = ""   # artifact 构建失败详情(供最终报错引用)
             if cl_missing and cfg["cluster"]["mode"] == "artifact" and any("artifact 产物" in m for m in cl_missing):
                 # artifact 产物可在打包机构建(需 Docker Desktop): 自动执行 kk artifact export
                 art_ok, art_detail = _auto_build_artifact(cfg, catalog, prog)
@@ -3219,9 +3429,11 @@ def pack(cfg, catalog, out_dir=None, progress=None):
                     cl_missing, cl_items = cluster_materials(cfg, catalog)
                 elif art_detail:
                     warns.append("artifact 自动构建失败: %s|artifact auto-build failed: %s" % (art_detail, art_detail))
+                    print("[WARN] artifact 自动构建失败: %s" % art_detail)
             if cl_missing:
                 hints = [m for m in cl_missing]
                 raise PackError("集群物料不全(自动补齐后仍缺):\n" + "\n".join("  - %s" % m for m in hints) +
+                                ("\nartifact 自动构建失败详情: %s" % art_detail if art_detail else "") +
                                 "\n二进制组件可用 python prepare_cluster.py --download 自动下载;"
                                 "\nartifact 产物已尝试自动构建(需 Docker Desktop), 也可手动: python prepare_cluster.py --artifact-export 后执行生成的 .bat"
                                 "|Incomplete cluster materials after auto-download; see docs")
@@ -3631,6 +3843,10 @@ def catalog_response(catalog):
                         if f.is_file() and not re.search(r"\.(p\d+|part\d*|tmp)$", f.name))):
                     all_ok = False
             present["cluster_cache_ready_%s" % ver] = all_ok
+            # 纯离线镜像包就绪状态(值为已收集的 CNI 列表, 页面按选中 CNI 精确校验)
+            img_dir = BASE_DIR / "warehouse" / "cluster" / "images"
+            cnis = sorted({t.name.split("-")[2] for t in img_dir.glob("k8s-%s-*-amd64-images.tar" % ver.lstrip("v"))})                 if img_dir.is_dir() else []
+            present["cluster_images_%s_amd64" % ver] = cnis
         # OS 依赖包就绪状态(按发行版×amd64; arm64 暂不开放集群)
         for distro in (ccat.get("distros") or {}):
             d_dir = BASE_DIR / ccat["os_packages_dir"].format(distro=distro, arch="amd64")

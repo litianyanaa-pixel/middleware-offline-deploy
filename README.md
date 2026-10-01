@@ -349,9 +349,7 @@ warehouse/images/postgres/15.19/arm64.tar   ← postgres-15.19-arm64.tar 放这�
 │   ├── packages/x86_64/       #   docker-29.8.0.tgz, docker-compose-linux-x86_64
 │   ├── packages/aarch64/      #   docker-29.8.0.tgz, docker-compose-linux-aarch64
 │   ├── images/<中间件>/<版本>/ #   amd64.tar / arm64.tar
-│   └── cluster/               #   K8s 物料(kk/二进制/artifact/信创 OS 包), 见 k8s/README.md
-├── k8s/                       # ★ K8s 集群部署模块(KubeKey · 信创, 已集成进打包页面)
-│   └── server/deploy-cluster.sh # 集群部署脚本(随包分发, deploy.sh 的【0.5/9】调用)
+│   └── cluster/               #   K8s 物料(kk/二进制/离线镜像包/chart/信创 OS 包)
 ├── dist/                      # 打包产物输出目录(不进 git)
 └── legacy/deploy.sh           # 旧交互式脚本存档(已被新方案取代)
 ```
@@ -366,8 +364,9 @@ warehouse/images/postgres/15.19/arm64.tar   ← postgres-15.19-arm64.tar 放这�
 
 ![Kubernetes 集群卡片](docs/images/ui-cluster-card.png)
 
-集群参数（版本/CNI/CIDR/kube-proxy 模式等双列表单）、离线物料模式（artifact / 二进制
-缓存）、按发行版的 OS 依赖包勾选（麒麟/统信UOS/openEuler/龙蜥/阿里云Linux 等 9 种）
+集群参数（版本/CNI/CIDR/kube-proxy 模式等双列表单）、部署模式（**纯离线**：二进制+镜像
+全本地，镜像按原生 tag 打包收集、部署前导入节点 containerd，全程不访问外网 / **在线**：节点
+联网拉取）、按发行版的 OS 依赖包勾选（麒麟/统信UOS/openEuler/龙蜥/阿里云Linux 等 9 种）
 与节点角色分配，全部在与 MySQL/Redis/Kafka 多机形态同一处的「部署形态」区完成；
 服务器池里改别名/IP，下方角色分配的节点标签实时联动：
 
@@ -379,8 +378,9 @@ inventory.yaml / config.yaml：
 ![K8s 预览标签页](docs/images/ui-cluster-preview.png)
 
 物料缺失**打包时自动补齐**：二进制组件从国内可达源自动下载（带每组件进度）；
-artifact 产物自动调用 Docker Desktop 执行 `kk artifact export` 构建（zone=cn 国内源，
-本机实测约 3~5 分钟）；仅无法自动补齐的物料才会提示放置路径：
+离线镜像包用 Docker Desktop 按原生 tag 自动收集（`docker pull` 国内镜像源 → `docker save`，
+v1.28+flannel 实测 639MB，10 个镜像一次收齐）；CNI chart 从 GitHub 镜像源自动下载；
+仅无法自动补齐的物料才会提示放置路径：
 
 ![打包完成与历史产物](docs/images/ui-cluster-packdone.png)
 

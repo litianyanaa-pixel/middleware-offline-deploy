@@ -299,7 +299,229 @@ def ensure_materials(ccat, kube_ver, arch=ARCH, upgrade_to="", progress_cb=None,
     return downloaded, failed
 
 
+# ------------------------------------------------------------------ 离线镜像收集(docker)
+
+# 打包机经国内镜像源拉取各 registry 的候选前缀(依次尝试, 命中即用; 空串=直连)
+IMAGE_MIRROR_PREFIXES = {
+    "registry.k8s.io": ["m.daocloud.io/registry.k8s.io/"],
+    "quay.io":         ["m.daocloud.io/quay.io/"],
+    "ghcr.io":         ["m.daocloud.io/ghcr.io/"],
+    "docker.io":       ["docker.m.daocloud.io/", "m.daocloud.io/docker.io/"],
+}
+
+# CNI 附加镜像: flannel chart 只覆写 repository(kk values: ghcrio_registry), tag 跟随 chart 版本
+FLANNEL_CNI_PLUGIN = {"v0.27.4": "v1.8.0-flannel1"}
+CALICO_IMAGES = ("node", "cni", "kube-controllers", "typha", "pod2daemon-flexvol")
+
+
+def cluster_images_tar_name(kube_version, cni_type, arch=ARCH):
+    """纯离线镜像包在 warehouse 与 bundle 内的文件名(kube版本-cni-架构)"""
+    return "k8s-%s-%s-%s-images.tar" % (kube_version.lstrip("v"), cni_type, arch)
+
+
+def k8s_image_specs(ccat, kube_version, cni_type, ha_type="local", storage=None, arch=ARCH):
+    """纯离线模式所需镜像清单(原生 registry tag, 部署前导入节点 containerd)。
+    覆盖: 控制面+CoreDNS+NodeLocalDNS+etcd+CNI(+HA 端点+存储类)。
+    与 kk 各角色模板实际引用的镜像严格一致; 版本号取自 versions.json(对齐 kk per-minor vars)。"""
+    ver = ccat["versions"][kube_version]
+    comps = ver.get("components") or {}
+    images = [
+        "registry.k8s.io/kube-apiserver:%s" % kube_version,
+        "registry.k8s.io/kube-controller-manager:%s" % kube_version,
+        "registry.k8s.io/kube-scheduler:%s" % kube_version,
+        "registry.k8s.io/kube-proxy:%s" % kube_version,
+        "registry.k8s.io/pause:%s" % (ver.get("sandbox_image_tag") or "3.9"),
+        "registry.k8s.io/coredns/coredns:%s" % (ver.get("coredns_tag") or ""),
+        # NodeLocalDNS 默认启用(kk 05-dns defaults), kubelet clusterDNS 指向 169.254.25.10
+        "registry.k8s.io/dns/k8s-dns-node-cache:%s" % (ver.get("nodelocaldns_tag") or ""),
+        # docker.io 单路径镜像必须写 library 全称: containerd 会把 docker.io/etcd 规范化成
+        # docker.io/library/etcd 再查本地, tag 少了 library 会 miss 后转在线拉取
+        "docker.io/library/etcd:%s" % ((comps.get("etcd") or {}).get("version") or ""),
+    ]
+    cni_ver = (ver.get("cni_versions") or {}).get(cni_type) or ver.get("cni_plugin", {}).get("version", "")
+    if cni_type == "flannel":
+        # flannel chart 的镜像在 ghcr.io(kk values 仅覆写 repository 前缀, tag 跟随 chart)
+        images += ["ghcr.io/flannel-io/flannel:%s" % cni_ver,
+                   "ghcr.io/flannel-io/flannel-cni-plugin:%s" % FLANNEL_CNI_PLUGIN.get(cni_ver, "v1.8.0-flannel1")]
+    elif cni_type == "calico":
+        images += ["quay.io/calico/%s:%s" % (n, cni_ver) for n in CALICO_IMAGES]
+    if ha_type == "kube-vip":
+        images.append("docker.io/plndr/kube-vip:v0.7.2")
+    elif ha_type == "haproxy":
+        images.append("docker.io/library/haproxy:2.9.6-alpine")
+    storage = storage or {}
+    if storage.get("localpv_enabled"):
+        lp = (comps.get("localpv") or {}).get("version") or "4.4.0"
+        images += ["docker.io/openebs/dynamic-localpv-provisioner:%s" % lp,
+                   "docker.io/openebs/linux-utils:%s" % lp]
+    if storage.get("nfs_enabled"):
+        nf = (comps.get("nfs") or {}).get("version") or "v4.0.18"
+        images.append("registry.k8s.io/sig-storage/nfs-subdir-external-provisioner:%s" % nf)
+    # 剔除缺版本号的条目(目录数据缺失时宁可打包报缺, 也不生成非法 tag)
+    return [i for i in images if not i.endswith(":")]
+
+
+def _pull_candidates(ref):
+    """一个原生镜像引用的拉取源候选(完整引用, 依次尝试, 官方源兜底)。
+    约定: 镜像源前缀 + "去掉默认 registry 的引用" = 完整引用
+    (registry.k8s.io/pause:3.9 -> m.daocloud.io/registry.k8s.io/pause:3.9)"""
+    registry, _, path = ref.partition("/")
+    if registry not in IMAGE_MIRROR_PREFIXES:   # 不带 registry 前缀 = docker hub
+        registry, path = "docker.io", ref
+    srcs = [p + path for p in IMAGE_MIRROR_PREFIXES[registry]]
+    if registry == "docker.io":
+        # daocloud 对 docker.io 有白名单限制(如 etcd 不在列), hub.kubesphere 实测可达, 作兜底;
+        # hub 路径不带 docker.io 与 library/ 前缀: docker.io/library/etcd -> hub.kubesphere.com.cn/etcd
+        srcs.append("hub.kubesphere.com.cn/" + path.replace("library/", "", 1))
+        if ref.startswith("docker.io/library/etcd:"):
+            # etcd 官方在 quay.io 同源发布(coreos/etcd), 是 docker.io/etcd 拉不到时的最后兜底
+            srcs.append("quay.io/coreos/etcd:" + ref.split(":", 1)[1])
+    srcs.append(ref)   # 官方源兜底(离线/被墙环境会超时, 放最后)
+    return srcs
+
+
+def _docker(*args, timeout=3600):
+    return subprocess.run(["docker", *args], capture_output=True, text=True, timeout=timeout)
+
+
+def ensure_images(ccat, kube_ver, arch, image_specs, cni_type="", progress_cb=None):
+    """收集纯离线镜像包: docker pull(国内源逐个尝试) -> retag 原生 -> docker save 单 tar。
+    可被 packer 导入调用。返回 (downloaded_mb, failed_refs)"""
+    out = BASE_DIR / "warehouse" / "cluster" / "images" / cluster_images_tar_name(kube_ver, cni_type, arch)
+    if out.is_file() and out.stat().st_size > 1_000_000:
+        if progress_cb:
+            progress_cb("skip", out.name, 1, 1)
+        return 0.0, []
+    if shutil.which("docker") is None:
+        return 0.0, ["docker 不可用(需 Docker Desktop 运行中)"]
+    # 已存在的本地镜像不重复拉
+    to_pull = []
+    for ref in image_specs:
+        if _docker("image", "inspect", ref).returncode != 0:
+            to_pull.append(ref)
+    if progress_cb:
+        progress_cb("start", "images", 0, len(image_specs))
+    failed = []
+    for i, ref in enumerate(to_pull):
+        ok = False
+        for src in _pull_candidates(ref):
+            r = _docker("pull", src, timeout=1800)
+            if r.returncode == 0:
+                _docker("tag", src, ref)
+                ok = True
+                break
+            warn(f"拉取 {src} 失败, 换下一源")
+        if not ok:
+            failed.append(ref)
+            continue
+        if progress_cb:
+            progress_cb("dl", ref, i + 1, len(to_pull))
+    if progress_cb:
+        progress_cb("done", "images", 1, 1)
+    if failed:
+        return 0.0, failed
+    out.parent.mkdir(parents=True, exist_ok=True)
+    r = _docker("save", "-o", str(out), *image_specs, timeout=3600)
+    if r.returncode != 0:
+        return 0.0, ["docker save 失败: %s" % (r.stderr or "").strip()[-200:]]
+    return out.stat().st_size / 1048576, []
+
+
+def chart_jobs(ccat, kube_ver, cni_type, arch=ARCH, storage=None):
+    """按 CNI/存储选择推导 chart(+calicoctl) 下载任务, 布局与 kk binary_dir 约定一致:
+    charts/<cni>/<cni>-<ver>.tgz; calico 另含 tigera-operator chart 与 calicoctl 二进制"""
+    ver = (ccat.get("versions") or {}).get(kube_ver) or {}
+    cni_ver = (ver.get("cni_versions") or {}).get(cni_type) or ver.get("cni_plugin", {}).get("version", "")
+    cdir = BASE_DIR / "warehouse" / "cluster" / "charts" / cni_type
+    jobs = []
+    if cni_type == "flannel" and cni_ver:
+        jobs.append((cdir / ("flannel-%s.tgz" % cni_ver),
+                     expand_urls("GH/flannel-io/flannel/releases/download/%s/flannel.tgz" % cni_ver),
+                     is_tar_valid, "flannel chart"))
+    elif cni_type == "calico" and cni_ver:
+        jobs.append((cdir / ("tigera-operator-%s.tgz" % cni_ver),
+                     expand_urls("GH/projectcalico/calico/releases/download/%s/tigera-operator-%s.tgz" % (cni_ver, cni_ver)),
+                     is_tar_valid, "calico tigera-operator chart"))
+        ctl = cdir / cni_ver / arch / ("calicoctl-linux-%s" % arch)
+        jobs.append((ctl,
+                     expand_urls("GH/projectcalico/calico/releases/download/%s/calicoctl-linux-%s" % (cni_ver, arch)),
+                     lambda p: p.is_file() and p.stat().st_size > 1_000_000, "calicoctl"))
+        # v3.32+ 把 CRD 拆成独立 chart(部署时先装)
+        try:
+            minor = tuple(int(x) for x in cni_ver.lstrip("v").split(".")[:2])
+        except ValueError:
+            minor = (0, 0)
+        if minor >= (3, 32):
+            jobs.append((cdir / ("crd.projectcalico.org.v1-%s.tgz" % cni_ver),
+                         expand_urls("GH/projectcalico/calico/releases/download/%s/crd.projectcalico.org.v1-%s.tgz" % (cni_ver, cni_ver)),
+                         is_tar_valid, "calico crd chart"))
+    elif cni_type == "cilium" and cni_ver:
+        jobs.append((cdir / ("cilium-%s.tgz" % cni_ver),
+                     ["https://helm.cilium.io/cilium-%s.tgz" % cni_ver], is_tar_valid, "cilium chart"))
+    elif cni_type == "kubeovn" and cni_ver:
+        jobs.append((cdir / ("kube-ovn-%s.tgz" % cni_ver),
+                     ["https://kubeovn.github.io/kube-ovn/kube-ovn-%s.tgz" % cni_ver], is_tar_valid, "kube-ovn chart"))
+    storage = storage or {}
+    if storage.get("localpv_enabled"):
+        lp = ((ver.get("components") or {}).get("localpv") or {}).get("version") or "4.4.0"
+        jobs.append((BASE_DIR / "warehouse/cluster/charts/localpv" / ("localpv-provisioner-%s.tgz" % lp),
+                     ["https://openebs.github.io/dynamic-localpv-provisioner/localpv-provisioner-%s.tgz" % lp],
+                     is_tar_valid, "localpv chart"))
+    if storage.get("nfs_enabled"):
+        nf = ((ver.get("components") or {}).get("nfs") or {}).get("version") or "v4.0.18"
+        jobs.append((BASE_DIR / "warehouse/cluster/charts/nfs" / ("nfs-subdir-external-provisioner-%s.tgz" % nf),
+                     expand_urls("GH/kubernetes-sigs/nfs-subdir-external-provisioner/releases/download/nfs-subdir-external-provisioner-%s/nfs-subdir-external-provisioner-%s.tgz" % (nf, nf)),
+                     is_tar_valid, "nfs provisioner chart"))
+    return jobs
+
+
+def ensure_charts(ccat, kube_ver, cni_type, arch=ARCH, storage=None, progress_cb=None):
+    """补齐 CNI/存储 chart 物料(可被 packer 导入)。返回 (downloaded_mb, failed_names)"""
+    jobs = chart_jobs(ccat, kube_ver, cni_type, arch, storage)
+    to_do = [(o, u, c, d) for o, u, c, d in jobs if not (o.is_file() and c(o))]
+    if not to_do:
+        for _, _, _, d in jobs:
+            if progress_cb:
+                progress_cb("skip", d, 1, 1)
+        return 0.0, []
+    downloaded = 0
+    failed = []
+    for out, urls, check, disp in to_do:
+        ok = False
+        for url in urls:
+            ok = fetch_simple(url, out)
+            if ok and check(out):
+                break
+            if out.exists():
+                out.unlink()
+            ok = False
+        if ok:
+            downloaded += out.stat().st_size
+            if progress_cb:
+                progress_cb("done", disp, 1, 1)
+        else:
+            failed.append(disp)
+    return downloaded / 1048576, failed
+
+
 # ------------------------------------------------------------------ CLI commands
+
+def cmd_images(ccat, kube_version="", cni_type="flannel"):
+    """收集纯离线镜像包(docker; 规格=控制面+DNS+etcd+CNI, 原生 tag 单 tar)"""
+    ver = cluster_kube_version(ccat, kube_version)
+    out = BASE_DIR / "warehouse" / "cluster" / "images" / cluster_images_tar_name(ver, cni_type, ARCH)
+    if out.is_file() and out.stat().st_size > 1_000_000:
+        info(f"镜像包已存在: {out} ({out.stat().st_size / 1048576:.0f} MB)")
+        return
+    specs = k8s_image_specs(ccat, ver, cni_type, arch=ARCH)
+    info(f"收集离线镜像 {len(specs)} 个 -> {out}")
+    for s in specs:
+        print(f"  - {s}")
+    mb, failed = ensure_images(ccat, ver, ARCH, specs, cni_type)
+    if failed:
+        die("镜像收集失败: " + ", ".join(failed))
+    info(f"完成 ({mb:.0f} MB): {out}")
+
 
 def cmd_check(ccat, kube_version=""):
     ver = cluster_kube_version(ccat, kube_version)
@@ -463,6 +685,8 @@ def main():
     ap.add_argument("--upgrade-to", metavar="VER", default="", help="同时下载升级目标版本的 kube 三件套")
     ap.add_argument("--os-packages", nargs="*", metavar="DISTRO",
                     help="容器提取 OS 依赖包(如: ubuntu kylin; 需 Docker Desktop)")
+    ap.add_argument("--images", nargs="?", const="flannel", default="", metavar="CNI",
+                    help="收集纯离线镜像包(控制面+DNS+etcd+CNI; 需 Docker Desktop; 默认 CNI=flannel)")
     ap.add_argument("--artifact-export", action="store_true", help="生成 kk artifact 导出配置 + 一键 .bat")
     ap.add_argument("--kk-build", action="store_true", help="生成 kk 构建 .bat")
     ap.add_argument("--all", action="store_true", help="check + download + artifact-export + kk-build")
@@ -483,6 +707,8 @@ def main():
         cmd_download(ccat, args.kube_version, args.upgrade_to)
     if args.os_packages:
         cmd_os_packages(ccat, args.os_packages or ["ubuntu"])
+    if args.images:
+        cmd_images(ccat, args.kube_version, args.images)
     if args.artifact_export:
         cmd_artifact_export(ccat, args.kube_version)
     if args.kk_build:

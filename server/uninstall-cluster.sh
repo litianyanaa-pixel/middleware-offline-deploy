@@ -28,4 +28,6 @@ fi
     echo "[FAIL] 卸载失败, 可重跑本脚本重试"; exit 1
   }
 echo "[INFO] 集群已卸载。残留数据目录(如需彻底清理请手工删除):"
-echo "  /etc/kubernetes /var/lib/kubelet /var/lib/etcd /root/kubekey"
+echo "  /etc/kubernetes /var/lib/kubelet /var/lib/etcd /root/kubekey /etc/cni /opt/cni /etc/containerd"
+[ -n "${CLUSTER_CONTAINERD_DATA_ROOT:-}" ] && echo "  $CLUSTER_CONTAINERD_DATA_ROOT (containerd 数据目录, 含离线导入的集群镜像; 确认无用后可删)"
+echo "  各节点 kubelet/etcd 数据若自定义过 root-dir/data_dir, 也在对应数据盘目录下"

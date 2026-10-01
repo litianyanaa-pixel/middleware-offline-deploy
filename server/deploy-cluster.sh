@@ -191,6 +191,108 @@ else
   warn "cache 模式但包内无 cluster/cache/, kk 将尝试联网下载(离线环境会失败)"
 fi
 
+# ---------------------------------------------------------------- 【集群 3.5】镜像导入(纯离线)
+# 纯离线模式的镜像不在线拉取: 打包时已按原生 registry tag 收集为 tar, 这里在 kk create 之前
+# 导入各节点本地 containerd。containerd 未安装的节点先用包内归档预装(精简配置, 数据目录与
+# config.yaml 一致); kk 侧 config_policy=overwrite 会在建集群时重写配置并重启, 镜像落在
+# 数据目录的磁盘存储里, 重启不丢。
+if [ "${CLUSTER_MODE:-cache}" != "online" ] && ls cluster/images/*.tar >/dev/null 2>&1; then
+  step "3.5" "节点离线镜像导入(纯离线, 不在线拉取)"
+  # SKIP_NODE_PREP=1 时 RUN_SSH/RUN_SCP 未定义, 这里补默认(密钥免密)
+  if [ "$(type -t RUN_SSH)" != "function" ]; then
+    SSH_OPTS="${SSH_OPTS:--o StrictHostKeyChecking=no -o ConnectTimeout=8}"
+    RUN_SSH() { ssh $SSH_OPTS -o BatchMode=yes "$@"; }
+    RUN_SCP() { scp $SSH_OPTS "$@"; }
+  fi
+  CT_TARBALL="$(ls cluster/cache/containerd/*/*/containerd*-linux-*.tar.gz 2>/dev/null | head -1 || true)"
+  DATA_ROOT="${CLUSTER_CONTAINERD_DATA_ROOT:-/var/lib/containerd}"
+  SANDBOX="${CLUSTER_SANDBOX_IMAGE:-registry.k8s.io/pause:3.9}"
+  IMP_SH="$(mktemp /tmp/.kk-oi-import.XXXXXX.sh)"
+  cat > "$IMP_SH" <<IMP_EOF
+set -e
+# 残留 kubelet unit 守卫: 上次失败部署遗留的 loaded+inactive unit 会让 kk precheck 卡死
+if systemctl list-unit-files 2>/dev/null | awk '{print \$1}' | grep -qx 'kubelet.service' \\
+   && [ "\$(systemctl is-active kubelet 2>/dev/null || true)" != "active" ] \\
+   && [ ! -f /etc/kubernetes/admin.conf ]; then
+  echo "[INFO] 清理残留 kubelet unit"
+  systemctl stop kubelet 2>/dev/null || true
+  rm -f /etc/systemd/system/kubelet.service /usr/lib/systemd/system/kubelet.service /lib/systemd/system/kubelet.service
+  rm -rf /etc/systemd/system/kubelet.service.d
+  systemctl daemon-reload
+fi
+mkdir -p /etc/containerd '$DATA_ROOT'
+if ! command -v containerd >/dev/null 2>&1; then
+  echo "[INFO] 预装 containerd (来自离线包)"
+  [ -f /tmp/.kk-oi/@CT_TARBALL_NAME@ ] || { echo "[FAIL] 包内缺 containerd 归档且节点未装 containerd"; exit 1; }
+  tar -xzf /tmp/.kk-oi/@CT_TARBALL_NAME@ --strip-components=1 -C /usr/local/bin/
+fi
+if [ ! -s /etc/containerd/config.toml ]; then
+  containerd config default > /etc/containerd/config.toml
+fi
+# root/sandbox 与约定不一致时改写: 节点已有旧配置指向别处时, 镜像会导错数据目录,
+# 随后 kk(config_policy=overwrite) 改 root 重启 containerd 会"丢"镜像
+sed -i "s#^root = .*#root = \\"$DATA_ROOT\\"#" /etc/containerd/config.toml
+sed -i "s#sandbox_image = \\"registry.k8s.io/pause:[^\"]*\\"#sandbox_image = \\"$SANDBOX\\"#" /etc/containerd/config.toml
+cat > /etc/systemd/system/containerd.service <<'UNIT'
+[Unit]
+Description=containerd container runtime
+Documentation=https://containerd.io
+After=network.target local-fs.target
+
+[Service]
+ExecStartPre=-/sbin/modprobe overlay
+ExecStart=/usr/local/bin/containerd
+
+Type=notify
+Delegate=yes
+KillMode=process
+Restart=always
+RestartSec=5
+LimitNPROC=infinity
+LimitCORE=infinity
+TasksMax=infinity
+OOMScoreAdjust=-999
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+systemctl daemon-reload
+systemctl enable --now containerd >/dev/null 2>&1 || true
+sleep 2
+for t in /tmp/.kk-oi/*.tar; do
+  [ -f "\$t" ] || continue
+  ctr -n k8s.io images import --all-platforms "\$t" >/dev/null 2>&1 || echo "[WARN] \$(basename \$t) 导入部分报错(多为镜像已存在, 忽略)"
+done
+N=\$(ctr -n k8s.io images ls -q 2>/dev/null | wc -l)
+echo "[INFO] 节点镜像数: \$N"
+rm -rf /tmp/.kk-oi
+[ "\$N" -ge 1 ] || { echo "[FAIL] 镜像导入后 containerd 仍为空"; exit 1; }
+IMP_EOF
+  sed -i "s|@CT_TARBALL_NAME@|$(basename "$CT_TARBALL")|" "$IMP_SH"
+  LOCAL_IPS="$(hostname -I 2>/dev/null || true)"
+  for entry in ${CLUSTER_NODES[@]:-}; do
+    IP="$(echo "$entry" | cut -d'|' -f2)"
+    if echo "$LOCAL_IPS" | grep -qw "$IP"; then
+      mkdir -p /tmp/.kk-oi
+      cp -a cluster/images/*.tar /tmp/.kk-oi/
+      [ -n "$CT_TARBALL" ] && cp -a "$CT_TARBALL" /tmp/.kk-oi/
+      bash "$IMP_SH" || die "本机($IP)离线镜像导入失败"
+    else
+      RUN_SSH "${SSH_USER:-root}@${IP}" "mkdir -p /tmp/.kk-oi" || die "节点 $IP SSH 不可达(镜像导入阶段)"
+      RUN_SCP -q cluster/images/*.tar "${SSH_USER:-root}@${IP}:/tmp/.kk-oi/" || die "节点 $IP 镜像包分发失败"
+      if [ -n "$CT_TARBALL" ]; then
+        RUN_SCP -q "$CT_TARBALL" "${SSH_USER:-root}@${IP}:/tmp/.kk-oi/" || die "节点 $IP containerd 归档分发失败"
+      fi
+      RUN_SSH "${SSH_USER:-root}@${IP}" 'bash -s' < "$IMP_SH" || die "节点 $IP 离线镜像导入失败"
+    fi
+  done
+  rm -f "$IMP_SH"
+  log "全部节点离线镜像导入完成"
+elif [ "${CLUSTER_MODE:-cache}" != "online" ] && [ "${CLUSTER_MODE:-}" != "artifact" ]; then
+  # artifact 模式镜像内置于 artifact tar 由 kk 解出, 不适用本告警
+  warn "离线模式但包内无 cluster/images/*.tar, 部署时会在线拉取镜像(非纯离线); 请用带 Docker Desktop 的打包机重新打包"
+fi
+
 # ---------------------------------------------------------------- 【集群 4】部署
 step 4 "执行 kk create cluster (多节点 SSH, 耗时较长)"
 # shellcheck disable=SC2086

@@ -28,15 +28,20 @@
 为什么用 KubeKey 而不是 kubeadm 裸装: kk 自带 SSH 编排(密码/密钥)、离线产物机制、
 国产 OS 适配点集中在少数几个 YAML 角色里(我们已打过补丁), 且扩容/升级/卸载同一条工具链。
 
-### 两种离线模式
+### 两种部署模式(镜像只做纯离线或全在线, 不做混合)
 
-| | mode=artifact(推荐) | mode=cache |
+| | mode=cache(纯离线, 推荐) | mode=online(在线) |
 |---|---|---|
-| 物料 | 有网机器跑 `kk artifact export` 生成一个大 tar.gz | 手工按 kk 缓存布局放置二进制 |
-| 包内 | kk + artifact.tar.gz + 配置 | kk + cache/ 目录 + 配置 |
-| 镜像 | artifact 内置(离线拉起即用) | 需内网镜像仓库或另行导入 |
-| OS 包 | artifact 可含(或用本包 os/ 目录) | 用本包 os/ 目录预装 |
-| kk 侧开关 | `download.artifact_file/md5`(部署脚本注入) | `download.fetch=false` |
+| 物料 | 二进制缓存 + **离线镜像包** + CNI chart, 全部随包 | 仅 kk 与配置, 无镜像物料 |
+| 镜像 | 打包时 docker pull(国内源)+docker save 按原生 tag 收集; 部署时 deploy-cluster.sh 在 kk create 前导入各节点本地 containerd, **全程不访问外网** | 节点直接联网拉取(zone=cn 走 hub 加速) |
+| 升级 | upgrade_to 会连带收集目标版本镜像包, upgrade-cluster.sh 导入后再升级 | 联网拉取 |
+| kk 侧开关 | `download.fetch=false` + `cri.containerd.config_policy: overwrite`(kk 每次重写 containerd 配置) | `download.fetch=true` |
+
+镜像清单由 prepare_cluster.py 的 `k8s_image_specs` 按 k8s 版本精确推导(控制面/CoreDNS/
+NodeLocalDNS/etcd/CNI/HA/存储), 版本对照表在 versions.json(coredns_tag/nodelocaldns_tag/
+sandbox_image_tag)。注意两个坑: docker.io 单路径镜像必须写 `docker.io/library/` 全称
+(containerd 会规范化); flannel chart 镜像在 ghcr.io。手工收集入口:
+`python prepare_cluster.py --images flannel --kube-version v1.28.15`
 
 kk 消费 artifact 的机制(源码验证): `download/tasks/main.yaml` 对 `download.artifact_file`
 直接 `tar -zxvf -C binary_dir`, 布局由 kk 自己保证; cache 模式则因 `download.fetch=false`
@@ -89,7 +94,7 @@ GOARCH=arm64 GOOS=linux go build -tags builtin -o kk-arm64 ./cmd/kk   # 鲲鹏/�
 
 ### 2.3 cache 模式物料(备选)
 
-按 kk 下载缓存布局放置(版本对应 k8s/versions.json, 路径已实测核对):
+按 kk 下载缓存布局放置(版本对应仓库根 versions.json, 路径已实测核对):
 
 ```
 cache/
@@ -143,7 +148,7 @@ kk/k8s 二进制/镜像全部有 arm64 版本)。混架构集群不支持, 部�
 # 打包(全部在 Web 页面完成: python packer.py 打开)
 #   基础设置 → 勾选 [⎈ Kubernetes 集群] (+任意中间件) → 部署形态区:
 #     · K8s 版本 / CNI / Pod+Service CIDR / kube-proxy 模式 / 时区
-#     · 离线模式: artifact(推荐, 含镜像) 或 二进制缓存
+#     · 部署模式: 纯离线(二进制+镜像全本地, 推荐) 或 在线安装(联网)
 #     · OS 依赖包: 按节点发行版勾选(麒麟/UOS/openEuler/龙蜥/阿里云Linux/Rocky/CentOS/Ubuntu/Debian)
 #     · 集群角色分配: 服务器池中每台节点选 控制面/工作节点/镜像仓库
 #   → 生成预览(多一个「K8s 集群」tab 展示 inventory/config) → 开始打包

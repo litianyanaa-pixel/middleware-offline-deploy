@@ -32,6 +32,11 @@ def put_upgrade_fake():
         if not (p.is_file() and p.stat().st_size > 0):
             p.parent.mkdir(parents=True, exist_ok=True)
             p.write_bytes(b"fake-up-" + b.encode())
+    # 升级目标版本的离线镜像包(cluster_materials 会校验)
+    up_img = FAKE_ROOT / ("images/k8s-%s-flannel-%s-images.tar" % (UP_VER.lstrip('v'), ARCH))
+    if not up_img.is_file():
+        up_img.parent.mkdir(parents=True, exist_ok=True)
+        up_img.write_bytes(b"fake-up-images")
 
 
 def base_cfg(services=None, upgrade_to="", roles=None, servers=None, ha="local"):
@@ -39,7 +44,7 @@ def base_cfg(services=None, upgrade_to="", roles=None, servers=None, ha="local")
         "project": "scen", "arch": ARCH, "lang": "zh",
         "services": services or [],
         "cluster": {"enabled": True, "kube_version": K8S_VER, "mode": "cache",
-                    "cni_type": "calico", "proxy_mode": "iptables",
+                    "cni_type": "flannel", "proxy_mode": "iptables",
                     "pod_cidr": "10.233.64.0/18", "service_cidr": "10.233.0.0/18",
                     "timezone": "Asia/Shanghai", "os_distros": ["ubuntu"],
                     "ha_type": ha, "ha_vip": "10.233.255.100" if ha != "local" else "",

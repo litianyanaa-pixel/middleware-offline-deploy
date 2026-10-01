@@ -588,7 +588,7 @@ let CATALOG = null;
 const selected = new Set();
 const state = { ports: {}, secrets: {}, db: {}, extra: {}, backup: null, proxies: [], topology: { mysql8: 'single', mysql57: 'single', redis: 'single', kafka: 'single' }, svcFilter: 'all',
   servers: [],
-  cluster: { enabled: false, kube_version: '', mode: 'artifact', cni_type: 'calico', proxy_mode: 'iptables',
+  cluster: { enabled: false, kube_version: '', mode: 'cache', cni_type: 'calico', proxy_mode: 'iptables',
              pod_cidr: '10.233.64.0/18', service_cidr: '10.233.0.0/18', timezone: 'Asia/Shanghai', os_distros: [], roles: {},
              ha_type: 'local', ha_vip: '', upgrade_to: '', k8s_image_registry: '' },
   mh: { kafka: { enabled:false, count:3, brokers:[null,null,null] },
@@ -736,6 +736,8 @@ const EN_DICT = {
   "NFS 服务器地址(必填)": "NFS server (required)", "导出路径": "export path", "HA VIP(可选)": "HA VIP (optional)",
   "artifact 产物 (离线含镜像, 推荐)": "artifact bundle (offline with images, recommended)",
   "二进制缓存 (离线)": "binary cache (offline)", "在线安装 (联网)": "online install (needs internet)",
+  "纯离线 (二进制+镜像全本地)": "Fully offline (binaries + images local)",
+  "镜像打包时按原生 tag 收集, 部署前导入节点本地 containerd, 全程不访问外网": "Images are collected with native tags at pack time and imported into node containerd before deploy; no internet access at all",
   "不生成 (默认)": "none (default)", "(推荐)": "(recommended)",
   "银河麒麟 V10": "Kylin V10", "统信 UOS 服务器版": "UOS Server", "Anolis OS (龙蜥)": "Anolis OS",
   "Alibaba Cloud Linux": "Alibaba Cloud Linux",
@@ -1116,6 +1118,10 @@ function clusterMaterialStatus(){
     if (!fp['cluster_artifact_' + kv + '_' + arch]) return { ok: false, missing: 'artifact 产物(' + kv + ')' };
   } else if (fp['cluster_cache_ready_' + kv] === false){
     return { ok: false, missing: '部分二进制缓存' };
+  } else if (state.cluster.mode !== 'online'){
+    const imgs = fp['cluster_images_' + kv + '_' + arch] || [];
+    if (!imgs.includes(state.cluster.cni_type))
+      return { ok: false, missing: '离线镜像包(k8s-'+kv.replace(/^v/,'')+'-'+(state.cluster.cni_type||'')+', 打包时自动收集)' };
   }
   return { ok: true, missing: '' };
 }
@@ -1144,7 +1150,7 @@ function renderClusterCard(){
     '<div class="foot"><span class="size" style="white-space:nowrap;text-align:center;line-height:1.5">'+(arch==='amd64'?'x86':'ARM')+'<br>'+fmtGB(size)+'</span>'+
     '<span>使用开源应用 kubekey 部署, 支持信创环境, 独立于中间件以外</span></div>'+
     '<div class="warnline">'+(armBlock?'ARM64 暂未开放, 请切回 x86_64 打集群包':'')+'</div></div></div>'+
-    '<div class="hint" style="margin-top:6px">物料缺失时: python prepare_cluster.py --download 自动补齐二进制; artifact 产物生成见 docs/k8s-信创离线部署.md</div>';
+    '<div class="hint" style="margin-top:6px">物料缺失时打包自动补齐: 二进制走国内源下载, 离线镜像包用 Docker Desktop 收集(或 python prepare_cluster.py --images flannel), chart 走 GitHub 镜像源</div>';
   $('#k8sSvcCard').onclick = () => {
     if (armBlock){ toast('K8s 集群暂仅支持 x86_64, ARM64 后续开放|K8s cluster is x86_64-only for now'); return; }
     state.cluster.enabled = !state.cluster.enabled;
@@ -1215,12 +1221,12 @@ function renderInfraTopology(){
       '<option value="kube-vip" '+(haType==='kube-vip'?'selected':'')+'>kube-vip (推荐)</option>'+
       '<option value="haproxy" '+(haType==='haproxy'?'selected':'')+'>haproxy</option></select>'
     : '<input type="text" value="local (单控制面)" disabled>';
+  const modeShown = cl.mode === 'artifact' ? 'cache' : cl.mode;   // 旧配置的 artifact 模式并入纯离线展示
   const modeOpts = [
-    ['artifact', 'artifact 产物 (离线含镜像, 推荐)', '有网机器 kk artifact export 产物, 部署零公网'],
-    ['cache', '二进制缓存 (离线)', '仅二进制离线, 镜像走内网仓库'],
+    ['cache', '纯离线 (二进制+镜像全本地)', '镜像打包时按原生 tag 收集, 部署前导入节点本地 containerd, 全程不访问外网'],
     ['online', '在线安装 (联网)', '节点直接联网下载; 国区自动 zone=cn 走国内源'],
   ].map(function(t) {
-    return '<label class="kcheck" title="'+esc(t[2])+'"><input type="radio" name="cmode" value="'+t[0]+'" '+(cl.mode===t[0]?'checked':'')+'><span>'+esc(t[1])+'</span></label>';
+    return '<label class="kcheck" title="'+esc(t[2])+'"><input type="radio" name="cmode" value="'+t[0]+'" '+(modeShown===t[0]?'checked':'')+'><span>'+esc(t[1])+'</span></label>';
   }).join('');
   const distroChips = Object.entries(cc.distros || {}).map(function(e) {
     const d = e[0], m = e[1];
@@ -2244,10 +2250,12 @@ function applyConfig(cfg){
   };
   state.replicas = Object.assign({ mysql8: 1, mysql57: 1 }, cfg.replicas || {});
   state.features = Object.assign({ proxysql: false }, cfg.features || {});
-  state.cluster = Object.assign({ enabled: false, kube_version: '', mode: 'artifact', cni_type: 'calico',
+  state.cluster = Object.assign({ enabled: false, kube_version: '', mode: 'cache', cni_type: 'calico',
     proxy_mode: 'iptables', pod_cidr: '10.233.64.0/18', service_cidr: '10.233.0.0/18',
     timezone: 'Asia/Shanghai', os_distros: [], roles: {}, ha_type: 'local', ha_vip: '', upgrade_to: '',
     k8s_image_registry: '' }, cfg.cluster || {});
+  // artifact 模式已下线(界面只留 纯离线/在线), 旧配置归一为纯离线, 避免页面勾选与实际打包不符
+  if (state.cluster.mode === 'artifact') state.cluster.mode = 'cache';
   const bd = cfg.backup || {};
   state.backup = bd;   // normBackup() 在 renderBackup 时统一归一化(兼容旧版单一计划)
   state.proxies = (cfg.proxies || []).map(p => Object.assign(pxDefaultSite(), p, {
@@ -2434,6 +2442,9 @@ function renderWarehouse(){
           '打包可选; 构建: python prepare_cluster.py --artifact-export 后执行生成的 .bat');
       k8sRow('K8s '+ver+' 二进制缓存', p['cluster_cache_ready_'+ver] !== false,
           '缺失不影响打包: 点「开始打包」时自动从国内源下载 ('+compNames+')');
+      k8sRow('K8s '+ver+' 离线镜像包', p['cluster_images_'+ver+'_amd64'] !== false,
+          '纯离线模式必需: 打包时按原生 tag 自动收集 (docker pull+save), 或 python prepare_cluster.py --images '+
+          (vm.cni_versions ? 'flannel' : ''));
     }
     for (const [d, m] of Object.entries(cc.distros || {})){
       const closed = m.open === false;

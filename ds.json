@@ -1,0 +1,643 @@
+{
+    "apiVersion": "apps/v1",
+    "kind": "DaemonSet",
+    "metadata": {
+        "annotations": {
+            "deprecated.daemonset.template.generation": "7"
+        },
+        "creationTimestamp": "2026-09-30T21:11:02Z",
+        "generation": 7,
+        "labels": {
+            "app.kubernetes.io/component": "Installation.operator.tigera.io",
+            "app.kubernetes.io/instance": "default",
+            "app.kubernetes.io/managed-by": "tigera-operator",
+            "app.kubernetes.io/name": "calico-node",
+            "app.kubernetes.io/part-of": "Calico",
+            "k8s-app": "calico-node"
+        },
+        "name": "calico-node",
+        "namespace": "calico-system",
+        "ownerReferences": [
+            {
+                "apiVersion": "operator.tigera.io/v1",
+                "blockOwnerDeletion": true,
+                "controller": true,
+                "kind": "Installation",
+                "name": "default",
+                "uid": "caf1f42b-5c41-434a-90c9-6c9ad40db0be"
+            }
+        ],
+        "resourceVersion": "20475",
+        "uid": "18671f60-f0f9-4321-99be-0667e47c1e85"
+    },
+    "spec": {
+        "revisionHistoryLimit": 10,
+        "selector": {
+            "matchLabels": {
+                "k8s-app": "calico-node"
+            }
+        },
+        "template": {
+            "metadata": {
+                "annotations": {
+                    "hash.operator.tigera.io/cni-config": "3d68d15c58c88cd04eafa26a0da3237b955c5203",
+                    "hash.operator.tigera.io/system": "a2b3ae7b7509401f9abc2a7569b58c1aa08cb0ca",
+                    "kubectl.kubernetes.io/restartedAt": "2026-10-01T06:31:32+08:00",
+                    "tigera-operator.hash.operator.tigera.io/tigera-ca-private": "e7203fd0086032ccc6c41094ceb610983aa9a1fa"
+                },
+                "labels": {
+                    "app.kubernetes.io/component": "Installation.operator.tigera.io",
+                    "app.kubernetes.io/instance": "default",
+                    "app.kubernetes.io/managed-by": "tigera-operator",
+                    "app.kubernetes.io/name": "calico-node",
+                    "app.kubernetes.io/part-of": "Calico",
+                    "k8s-app": "calico-node"
+                }
+            },
+            "spec": {
+                "containers": [
+                    {
+                        "env": [
+                            {
+                                "name": "DATASTORE_TYPE",
+                                "value": "kubernetes"
+                            },
+                            {
+                                "name": "WAIT_FOR_DATASTORE",
+                                "value": "true"
+                            },
+                            {
+                                "name": "CLUSTER_TYPE",
+                                "value": "k8s,operator,bgp"
+                            },
+                            {
+                                "name": "CALICO_DISABLE_FILE_LOGGING",
+                                "value": "false"
+                            },
+                            {
+                                "name": "FELIX_DEFAULTENDPOINTTOHOSTACTION",
+                                "value": "ACCEPT"
+                            },
+                            {
+                                "name": "FELIX_HEALTHENABLED",
+                                "value": "true"
+                            },
+                            {
+                                "name": "FELIX_HEALTHPORT",
+                                "value": "9099"
+                            },
+                            {
+                                "name": "NODENAME",
+                                "valueFrom": {
+                                    "fieldRef": {
+                                        "apiVersion": "v1",
+                                        "fieldPath": "spec.nodeName"
+                                    }
+                                }
+                            },
+                            {
+                                "name": "NAMESPACE",
+                                "valueFrom": {
+                                    "fieldRef": {
+                                        "apiVersion": "v1",
+                                        "fieldPath": "metadata.namespace"
+                                    }
+                                }
+                            },
+                            {
+                                "name": "FELIX_TYPHAK8SNAMESPACE",
+                                "value": "calico-system"
+                            },
+                            {
+                                "name": "FELIX_TYPHAK8SSERVICENAME",
+                                "value": "calico-typha"
+                            },
+                            {
+                                "name": "FELIX_TYPHACAFILE",
+                                "value": "/etc/pki/tls/certs/tigera-ca-bundle.crt"
+                            },
+                            {
+                                "name": "FELIX_TYPHACERTFILE",
+                                "value": "/node-certs/tls.crt"
+                            },
+                            {
+                                "name": "FELIX_TYPHAKEYFILE",
+                                "value": "/node-certs/tls.key"
+                            },
+                            {
+                                "name": "NO_DEFAULT_POOLS",
+                                "value": "true"
+                            },
+                            {
+                                "name": "FELIX_FLOWLOGSGOLDMANESERVER",
+                                "value": "goldmane.calico-system.svc:7443"
+                            },
+                            {
+                                "name": "FELIX_FLOWLOGSFLUSHINTERVAL",
+                                "value": "15"
+                            },
+                            {
+                                "name": "FELIX_TYPHACN",
+                                "value": "typha-server"
+                            },
+                            {
+                                "name": "CALICO_MANAGE_CNI",
+                                "value": "true"
+                            },
+                            {
+                                "name": "CALICO_NETWORKING_BACKEND",
+                                "value": "bird"
+                            },
+                            {
+                                "name": "IP",
+                                "value": "autodetect"
+                            },
+                            {
+                                "name": "IP_AUTODETECTION_METHOD",
+                                "value": "first-found"
+                            },
+                            {
+                                "name": "IP6",
+                                "value": "none"
+                            },
+                            {
+                                "name": "FELIX_IPV6SUPPORT",
+                                "value": "false"
+                            },
+                            {
+                                "name": "KUBERNETES_SERVICE_HOST",
+                                "value": "10.233.0.1"
+                            },
+                            {
+                                "name": "KUBERNETES_SERVICE_PORT",
+                                "value": "443"
+                            },
+                            {
+                                "name": "FELIX_IPTABLESMODE",
+                                "value": "Legacy"
+                            },
+                            {
+                                "name": "FELIX_NFTABLESMODE",
+                                "value": "Legacy"
+                            }
+                        ],
+                        "image": "docker.io/calico/node:v3.32.2",
+                        "imagePullPolicy": "IfNotPresent",
+                        "lifecycle": {
+                            "preStop": {
+                                "exec": {
+                                    "command": [
+                                        "/bin/calico-node",
+                                        "-shutdown"
+                                    ]
+                                }
+                            }
+                        },
+                        "livenessProbe": {
+                            "failureThreshold": 3,
+                            "httpGet": {
+                                "host": "localhost",
+                                "path": "/liveness",
+                                "port": 9099,
+                                "scheme": "HTTP"
+                            },
+                            "periodSeconds": 60,
+                            "successThreshold": 1,
+                            "timeoutSeconds": 10
+                        },
+                        "name": "calico-node",
+                        "readinessProbe": {
+                            "exec": {
+                                "command": [
+                                    "/bin/calico-node",
+                                    "-bird-ready",
+                                    "-felix-ready"
+                                ]
+                            },
+                            "failureThreshold": 3,
+                            "periodSeconds": 30,
+                            "successThreshold": 1,
+                            "timeoutSeconds": 10
+                        },
+                        "resources": {},
+                        "securityContext": {
+                            "allowPrivilegeEscalation": true,
+                            "capabilities": {
+                                "drop": [
+                                    "ALL"
+                                ]
+                            },
+                            "privileged": true,
+                            "runAsGroup": 0,
+                            "runAsNonRoot": false,
+                            "runAsUser": 0,
+                            "seccompProfile": {
+                                "type": "RuntimeDefault"
+                            }
+                        },
+                        "startupProbe": {
+                            "exec": {
+                                "command": [
+                                    "/bin/calico-node",
+                                    "-bird-ready",
+                                    "-felix-ready"
+                                ]
+                            },
+                            "failureThreshold": 150,
+                            "periodSeconds": 2,
+                            "successThreshold": 1,
+                            "timeoutSeconds": 10
+                        },
+                        "terminationMessagePath": "/dev/termination-log",
+                        "terminationMessagePolicy": "File",
+                        "volumeMounts": [
+                            {
+                                "mountPath": "/sys/fs/bpf",
+                                "name": "bpffs"
+                            },
+                            {
+                                "mountPath": "/var/log/calico/cni",
+                                "name": "cni-log-dir"
+                            },
+                            {
+                                "mountPath": "/host/etc/cni/net.d",
+                                "name": "cni-net-dir"
+                            },
+                            {
+                                "mountPath": "/lib/modules",
+                                "name": "lib-modules",
+                                "readOnly": true
+                            },
+                            {
+                                "mountPath": "/node-certs",
+                                "name": "node-certs",
+                                "readOnly": true
+                            },
+                            {
+                                "mountPath": "/var/run/nodeagent",
+                                "name": "policysync"
+                            },
+                            {
+                                "mountPath": "/sys/kernel/security",
+                                "name": "sys-kernel-security",
+                                "readOnly": true
+                            },
+                            {
+                                "mountPath": "/etc/pki/tls/certs",
+                                "name": "tigera-ca-bundle",
+                                "readOnly": true
+                            },
+                            {
+                                "mountPath": "/etc/pki/tls/cert.pem",
+                                "name": "tigera-ca-bundle",
+                                "readOnly": true,
+                                "subPath": "ca-bundle.crt"
+                            },
+                            {
+                                "mountPath": "/var/lib/calico",
+                                "name": "var-lib-calico"
+                            },
+                            {
+                                "mountPath": "/var/run/calico",
+                                "name": "var-run-calico"
+                            },
+                            {
+                                "mountPath": "/run/xtables.lock",
+                                "name": "xtables-lock"
+                            }
+                        ]
+                    }
+                ],
+                "dnsPolicy": "ClusterFirstWithHostNet",
+                "hostAliases": [
+                    {
+                        "hostnames": [
+                            "goldmane.calico-system.svc"
+                        ],
+                        "ip": "10.233.36.178"
+                    }
+                ],
+                "hostNetwork": true,
+                "initContainers": [
+                    {
+                        "env": [
+                            {
+                                "name": "FELIX_IPTABLESMODE",
+                                "value": "Legacy"
+                            },
+                            {
+                                "name": "FELIX_NFTABLESMODE",
+                                "value": "Legacy"
+                            }
+                        ],
+                        "image": "docker.io/calico/pod2daemon-flexvol:v3.32.2",
+                        "imagePullPolicy": "IfNotPresent",
+                        "name": "flexvol-driver",
+                        "resources": {},
+                        "securityContext": {
+                            "allowPrivilegeEscalation": true,
+                            "capabilities": {
+                                "drop": [
+                                    "ALL"
+                                ]
+                            },
+                            "privileged": true,
+                            "runAsGroup": 0,
+                            "runAsNonRoot": false,
+                            "runAsUser": 0,
+                            "seccompProfile": {
+                                "type": "RuntimeDefault"
+                            }
+                        },
+                        "terminationMessagePath": "/dev/termination-log",
+                        "terminationMessagePolicy": "File",
+                        "volumeMounts": [
+                            {
+                                "mountPath": "/host/driver",
+                                "name": "flexvol-driver-host"
+                            }
+                        ]
+                    },
+                    {
+                        "command": [
+                            "calico-node",
+                            "-init",
+                            "-best-effort"
+                        ],
+                        "env": [
+                            {
+                                "name": "FELIX_IPTABLESMODE",
+                                "value": "Legacy"
+                            },
+                            {
+                                "name": "FELIX_NFTABLESMODE",
+                                "value": "Legacy"
+                            }
+                        ],
+                        "image": "docker.io/calico/node:v3.32.2",
+                        "imagePullPolicy": "IfNotPresent",
+                        "name": "ebpf-bootstrap",
+                        "resources": {},
+                        "securityContext": {
+                            "allowPrivilegeEscalation": true,
+                            "capabilities": {
+                                "drop": [
+                                    "ALL"
+                                ]
+                            },
+                            "privileged": true,
+                            "runAsGroup": 0,
+                            "runAsNonRoot": false,
+                            "runAsUser": 0,
+                            "seccompProfile": {
+                                "type": "RuntimeDefault"
+                            }
+                        },
+                        "terminationMessagePath": "/dev/termination-log",
+                        "terminationMessagePolicy": "File",
+                        "volumeMounts": [
+                            {
+                                "mountPath": "/sys/fs",
+                                "mountPropagation": "Bidirectional",
+                                "name": "sys-fs"
+                            },
+                            {
+                                "mountPath": "/var/run/calico",
+                                "mountPropagation": "Bidirectional",
+                                "name": "var-run-calico"
+                            },
+                            {
+                                "mountPath": "/nodeproc",
+                                "name": "nodeproc",
+                                "readOnly": true
+                            }
+                        ]
+                    },
+                    {
+                        "command": [
+                            "/opt/cni/bin/install"
+                        ],
+                        "env": [
+                            {
+                                "name": "CNI_CONF_NAME",
+                                "value": "10-calico.conflist"
+                            },
+                            {
+                                "name": "SLEEP",
+                                "value": "false"
+                            },
+                            {
+                                "name": "CNI_NET_DIR",
+                                "value": "/etc/cni/net.d"
+                            },
+                            {
+                                "name": "CNI_NETWORK_CONFIG",
+                                "valueFrom": {
+                                    "configMapKeyRef": {
+                                        "key": "config",
+                                        "name": "cni-config"
+                                    }
+                                }
+                            },
+                            {
+                                "name": "KUBERNETES_SERVICE_HOST",
+                                "value": "10.233.0.1"
+                            },
+                            {
+                                "name": "KUBERNETES_SERVICE_PORT",
+                                "value": "443"
+                            },
+                            {
+                                "name": "FELIX_IPTABLESMODE",
+                                "value": "Legacy"
+                            },
+                            {
+                                "name": "FELIX_NFTABLESMODE",
+                                "value": "Legacy"
+                            }
+                        ],
+                        "image": "docker.io/calico/cni:v3.32.2",
+                        "imagePullPolicy": "IfNotPresent",
+                        "name": "install-cni",
+                        "resources": {},
+                        "securityContext": {
+                            "allowPrivilegeEscalation": true,
+                            "capabilities": {
+                                "drop": [
+                                    "ALL"
+                                ]
+                            },
+                            "privileged": true,
+                            "runAsGroup": 0,
+                            "runAsNonRoot": false,
+                            "runAsUser": 0,
+                            "seccompProfile": {
+                                "type": "RuntimeDefault"
+                            }
+                        },
+                        "terminationMessagePath": "/dev/termination-log",
+                        "terminationMessagePolicy": "File",
+                        "volumeMounts": [
+                            {
+                                "mountPath": "/host/opt/cni/bin",
+                                "name": "cni-bin-dir"
+                            },
+                            {
+                                "mountPath": "/host/etc/cni/net.d",
+                                "name": "cni-net-dir"
+                            }
+                        ]
+                    }
+                ],
+                "nodeSelector": {
+                    "kubernetes.io/os": "linux"
+                },
+                "priorityClassName": "system-node-critical",
+                "restartPolicy": "Always",
+                "schedulerName": "default-scheduler",
+                "securityContext": {},
+                "serviceAccount": "calico-node",
+                "serviceAccountName": "calico-node",
+                "terminationGracePeriodSeconds": 5,
+                "tolerations": [
+                    {
+                        "key": "CriticalAddonsOnly",
+                        "operator": "Exists"
+                    },
+                    {
+                        "effect": "NoSchedule",
+                        "operator": "Exists"
+                    },
+                    {
+                        "effect": "NoExecute",
+                        "operator": "Exists"
+                    }
+                ],
+                "volumes": [
+                    {
+                        "hostPath": {
+                            "path": "/sys/fs/bpf",
+                            "type": "Directory"
+                        },
+                        "name": "bpffs"
+                    },
+                    {
+                        "hostPath": {
+                            "path": "/opt/cni/bin",
+                            "type": "DirectoryOrCreate"
+                        },
+                        "name": "cni-bin-dir"
+                    },
+                    {
+                        "hostPath": {
+                            "path": "/var/log/calico/cni",
+                            "type": ""
+                        },
+                        "name": "cni-log-dir"
+                    },
+                    {
+                        "hostPath": {
+                            "path": "/etc/cni/net.d",
+                            "type": ""
+                        },
+                        "name": "cni-net-dir"
+                    },
+                    {
+                        "hostPath": {
+                            "path": "/usr/libexec/kubernetes/kubelet-plugins/volume/exec/nodeagent~uds",
+                            "type": "DirectoryOrCreate"
+                        },
+                        "name": "flexvol-driver-host"
+                    },
+                    {
+                        "hostPath": {
+                            "path": "/lib/modules",
+                            "type": ""
+                        },
+                        "name": "lib-modules"
+                    },
+                    {
+                        "name": "node-certs",
+                        "secret": {
+                            "defaultMode": 420,
+                            "secretName": "node-certs"
+                        }
+                    },
+                    {
+                        "hostPath": {
+                            "path": "/proc",
+                            "type": ""
+                        },
+                        "name": "nodeproc"
+                    },
+                    {
+                        "hostPath": {
+                            "path": "/var/run/nodeagent",
+                            "type": "DirectoryOrCreate"
+                        },
+                        "name": "policysync"
+                    },
+                    {
+                        "hostPath": {
+                            "path": "/sys/fs",
+                            "type": "DirectoryOrCreate"
+                        },
+                        "name": "sys-fs"
+                    },
+                    {
+                        "hostPath": {
+                            "path": "/sys/kernel/security",
+                            "type": ""
+                        },
+                        "name": "sys-kernel-security"
+                    },
+                    {
+                        "configMap": {
+                            "defaultMode": 420,
+                            "name": "tigera-ca-bundle"
+                        },
+                        "name": "tigera-ca-bundle"
+                    },
+                    {
+                        "hostPath": {
+                            "path": "/var/lib/calico",
+                            "type": "DirectoryOrCreate"
+                        },
+                        "name": "var-lib-calico"
+                    },
+                    {
+                        "hostPath": {
+                            "path": "/var/run/calico",
+                            "type": "DirectoryOrCreate"
+                        },
+                        "name": "var-run-calico"
+                    },
+                    {
+                        "hostPath": {
+                            "path": "/run/xtables.lock",
+                            "type": "FileOrCreate"
+                        },
+                        "name": "xtables-lock"
+                    }
+                ]
+            }
+        },
+        "updateStrategy": {
+            "rollingUpdate": {
+                "maxSurge": 0,
+                "maxUnavailable": 1
+            },
+            "type": "RollingUpdate"
+        }
+    },
+    "status": {
+        "currentNumberScheduled": 2,
+        "desiredNumberScheduled": 2,
+        "numberMisscheduled": 0,
+        "numberReady": 0,
+        "numberUnavailable": 2,
+        "observedGeneration": 7,
+        "updatedNumberScheduled": 2
+    }
+}
+
