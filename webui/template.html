@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>离线交付打包器</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%23007aff' d='M12 2 2 7v10l10 5 10-5V7L12 2zm0 2.2L19.5 8 12 11.8 4.5 8 12 4.2z'/%3E%3C/svg%3E">
+<style>
+/*__INLINE:style.css__*/
+</style>
+</head>
+<body>
+<div class="app">
+  <main class="main">
+    <div class="topbar">
+      <div class="brand-inline">
+        <div class="mark">
+          <svg width="18" height="18" viewBox="0 0 24 24"><path fill="#fff" d="M12 2 2 7v10l10 5 10-5V7L12 2zm0 2.2L19.5 8 12 11.8 4.5 8 12 4.2z"/></svg>
+        </div>
+        <b>离线交付打包器</b>
+      </div>
+      <span class="crumb">基础设施与中间件 → 生成编排 → 按需打包 → 服务器零交互部署</span>
+      <span class="sp"></span>
+      <button class="tbtn" id="btnLang" title="切换语言 / Switch language">EN</button>
+      <button class="tbtn" id="btnExport">保存配置</button>
+      <button class="tbtn" id="btnImport">导入配置</button>
+      <button class="tbtn" id="btnWh">物料仓库<b class="wbadge" id="badgeWh"></b></button>
+      <button class="tbtn" id="btnOut">历史产物</button>
+      <input type="file" id="importFile" accept=".json" class="hidden">
+    </div>
+    <div class="wiz-steps" id="wizSteps">
+      <span class="wiz-pill" id="wizPill"></span>
+      <button class="wtab on" data-v="1"><i>1</i>基础设施</button>
+      <button class="wtab" data-v="2"><i>2</i>选择中间件<b class="wbadge" id="badge2"></b></button>
+      <button class="wtab" data-v="3"><i>3</i>端口与反代<b class="wbadge" id="badge3"></b></button>
+      <button class="wtab" data-v="4"><i>4</i>账号与数据<b class="wbadge warn" id="badge4"></b></button>
+      <button class="wtab" data-v="5"><i>5</i>预览打包</button>
+    </div>
+    <div class="dw-wrap hidden" id="dw-wh">
+      <div class="dw-mask" data-dwclose></div>
+      <aside class="dw">
+        <div class="dw-head"><b>物料仓库</b><span class="hint">缺失项放入 wares/ 后重新检查</span>
+          <button class="mini" id="btnPullScript" title="生成缺失物料的镜像拉取脚本|Generate a pull script for missing materials">补料脚本</button>
+          <button class="mini" id="btnRecheck">重新检查</button>
+          <button class="dw-x" data-dwclose title="关闭 (Esc)">×</button></div>
+        <div class="dw-body">
+          <div class="fbar">
+            <span class="flabel">类型</span>
+            <div class="fgroup" id="fKind">
+              <button data-k="all" class="on">全部</button>
+              <button data-k="pkg">安装包</button>
+              <button data-k="img">镜像</button>
+            </div>
+            <span class="flabel">架构</span>
+            <div class="fgroup" id="fArch">
+              <button data-a="all" class="on">全部</button>
+              <button data-a="amd64">x86_64</button>
+              <button data-a="arm64">aarch64</button>
+            </div>
+          </div>
+          <table>
+            <thead><tr><th style="width:32%">物料</th><th>架构</th><th>状态</th><th>体积</th><th>说明</th></tr></thead>
+            <tbody id="whBody"></tbody>
+          </table>
+        </div>
+      </aside>
+    </div>
+
+    <div class="dw-wrap hidden" id="dw-out">
+      <div class="dw-mask" data-dwclose></div>
+      <aside class="dw">
+        <div class="dw-head"><b>历史产物</b><span class="hint">dist/ 目录 · 传输后可用 .sha256 校验完整性</span>
+          <button class="dw-x" data-dwclose title="关闭 (Esc)">×</button></div>
+        <div class="dw-body">
+          <table>
+            <thead><tr><th>文件</th><th>大小</th><th>生成时间</th><th>SHA256</th></tr></thead>
+            <tbody id="outBody"><tr><td colspan="4" class="hint">暂无产物</td></tr></tbody>
+          </table>
+        </div>
+      </aside>
+    </div>
+
+    <div class="content">
+
+      <div class="wstep on" data-step="1">
+      <!-- 部署服务器池: 最底层的节点清单, 置顶 -->
+      <div class="card" id="sec-pool">
+        <h2><span class="num">1</span>部署服务器池 <span class="hint">所有部署的节点清单 — K8s 集群与中间件多机部署从这里选择</span></h2>
+        <div class="body"><div id="poolBox"></div></div>
+      </div>
+
+      <div class="card" id="sec-basic">
+        <h2><span class="num">2</span>中间件底座 <span class="hint">Docker/Compose 离线安装, 为 Kubernetes 与中间件提供运行底座</span></h2>
+        <div class="body">
+          <div class="row">
+            <div><label>项目名 <span class="hint">compose 项目名与包名</span></label>
+              <input type="text" id="project" value="demo"></div>
+            <div><label>目标服务器架构</label>
+              <select id="arch">
+                <option value="amd64">x86_64 (amd64)</option>
+                <option value="arm64">ARM (aarch64)</option>
+              </select></div>
+          </div>
+          <div class="row" style="margin-top:12px">
+            <div><label>部署目录 <span class="hint">compose / .env / 数据 / 日志 / 配置都在这里</span></label>
+              <input type="text" id="deploy_dir" value="/data/middleware"></div>
+            <div><label>Docker 数据目录 data-root</label>
+              <input type="text" id="data_root" value="/data/docker"></div>
+          </div>
+          <div class="hint" style="margin-top:6px">中间件默认部署在交付包所在服务器(运行 deploy.sh 的机器); 跨服务器部署请在中间件卡片配置多机拓扑</div>
+          <div style="margin-top:12px">
+            <label>镜像加速器 <span class="hint">写入 daemon.json; <span id="mirrorNote"></span></span></label>
+            <textarea id="mirrors" rows="3" placeholder="https://... 每行一个"></textarea>
+            <div style="margin-top:8px"><button class="mini" id="btnFillMirrors">一键填入实测可用源</button></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 基础平台: K8s 集群 -->
+      <div class="card" id="sec-cluster">
+        <h2><span class="num">3</span>Kubernetes 集群 <span class="hint">使用开源应用 kubekey 部署, 支持信创环境, 独立于中间件以外</span></h2>
+        <div class="body">
+          <div id="clusterBox"></div>
+          <div id="topoInfraBox" style="margin-top:8px"></div>
+        </div>
+      </div>
+
+      </div>
+
+      <div class="wstep" data-step="2">
+      <div class="card" id="sec-svc">
+        <h2><span class="num">1</span>选择中间件 <span class="hint">只打包勾选项, 也可接入 plugins/ 插件扩展</span></h2>
+        <div class="body">
+          <div id="suiteBox"></div>
+          <div id="catChips"></div>
+          <div id="svcCats"></div>
+          <div id="topoBox" style="margin-top:16px"></div>
+        </div>
+      </div>
+
+      </div>
+
+      <div class="wstep" data-step="3">
+      <div class="card" id="step3Empty"><div class="body hint">请先在「选择中间件」步骤勾选组件, 这里会出现端口与反代配置。</div></div>
+      <div class="card" id="sec-port" style="display:none">
+        <h2><span class="num">1</span>端口映射 <span class="hint">左侧宿主机端口, 箭头后为容器内端口; 支持追加自定义映射</span></h2>
+        <div class="body" id="portBox"></div>
+      </div>
+
+      <div class="card" id="sec-proxy" style="display:none">
+        <h2><span class="num">2</span>反向代理向导 <span class="hint">域名 / 前后端转发 / 真实IP / WebSocket, 自动生成 nginx 站点配置</span></h2>
+        <div class="body" id="proxyBox"></div>
+      </div>
+
+      </div>
+
+      <div class="wstep" data-step="4">
+      <div class="card" id="step4Empty"><div class="body hint">当前选择不需要账号密码 / 数据库配置。</div></div>
+      <div class="card" id="sec-pwd" style="display:none">
+        <h2><span class="num">1</span>账号密码 <span class="hint">禁止空格与 $ ` " ' \ ; | ; 部署后存于 .env (600)</span></h2>
+        <div class="body">
+          <div id="pwdBox"></div>
+        </div>
+      </div>
+
+      <div class="card" id="sec-db" style="display:none">
+        <h2><span class="num">2</span>数据库来源 <span class="hint">Nacos / XXL-Job 的建库连库方式</span></h2>
+        <div class="body" id="dbBox"></div>
+      </div>
+
+      <div class="card" id="sec-backup" style="display:none">
+        <h2><span class="num">3</span>数据库备份 <span class="hint">crontab + 容器内原生工具导出, 按库分文件压缩|crontab + in-container native dump, per-DB compressed</span></h2>
+        <div class="body" id="backupBox"></div>
+      </div>
+
+      </div>
+      <div class="wstep" data-step="5">
+      <div class="card" id="step5Empty"><div class="body hint">勾选组件后, 点击下方「生成预览」查看 docker-compose / .env / manifest 最终内容; 确认无误后「开始打包」。</div></div>
+      <div class="card" id="previewCard" style="display:none">
+        <div class="tabs">
+          <button class="tab on" data-t="compose">docker-compose.yml</button>
+          <button class="tab" data-t="env">.env</button>
+          <button class="tab" data-t="manifest">manifest.sh</button>
+          <button class="tab" data-t="nodes" id="tabKafkaNodes" style="display:none">节点分发预览</button>
+          <button class="tab" data-t="clusterInv" id="tabClusterInv" style="display:none">集群 inventory</button>
+          <button class="tab" data-t="clusterCfg" id="tabClusterCfg" style="display:none">集群 config</button>
+          <span style="flex:1"></span>
+          <button class="mini" id="btnCopy" style="align-self:center;margin-bottom:9px">复制当前内容</button>
+        </div>
+        <pre id="previewPre"></pre>
+      </div>
+
+      <div id="msg"></div>
+      </div>
+
+    </div>
+
+    <div class="actionbar">
+      <span class="stat" id="statLine">未选择组件</span>
+      <span class="sp"></span>
+      <button class="btn ghost" id="btnPrev">上一步</button>
+      <button class="btn ghost" id="btnNext">下一步</button>
+      <button class="btn ghost" id="btnPreview">生成预览</button>
+      <button class="btn" id="btnPack">开始打包</button>
+    </div>
+  </main>
+</div>
+
+<div class="overlay hidden" id="modal">
+  <div class="modal">
+    <h3 id="mTitle"><span class="spin"></span>正在打包</h3>
+    <div class="bar"><div id="mBar"></div></div>
+    <div class="mrow big" id="mPct">0% · 0 MB / 0 MB</div>
+    <div class="mrow" id="mFile"></div>
+    <div id="mDownloads" style="margin:10px 0 2px;display:none"></div>
+    <div class="mrow" id="mStat"></div>
+    <div class="mbtns">
+      <button class="btn red" id="mCancel">取消打包</button>
+      <button class="btn hidden" id="mClose">完成</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script src="logos.js"></script>
+<script>
+//__INLINE:app.js__
+</script>
+</body>
+</html>

@@ -372,17 +372,30 @@ warehouse/images/postgres/15.19/arm64.tar   ← postgres-15.19-arm64.tar 放这�
 ## 📁 八、目录结构
 
 ```
-├── packer.py                  # 本地打包器(Web + CLI 双模式, 纯标准库)
-├── packer.html                # Web 界面(侧边栏控制台)
+├── packer.py                  # 打包器入口(Web + CLI 双模式): 兼容薄壳, 实现在 packerlib/
+├── packerlib/                 # ★ 打包器实现包(按功能分模块, 见各模块 docstring)
+│   ├── validate.py            #   配置校验(单机/多机/K8s/物料齐套)
+│   ├── compose.py             #   docker-compose.yml / .env / 备份配置生成
+│   ├── cluster.py             #   K8s 集群 inventory/config 生成与离线物料收集
+│   ├── multinode.py           #   多机部署每节点产物(compose 片段/安装脚本/分发脚本)
+│   ├── builder.py             #   打包主流程(校验→生成→物料收集→tar.gz, 含补料脚本)
+│   ├── manifest.py            #   manifest.sh / 部署摘要 / images.txt
+│   ├── catalog.py             #   versions.json + plugins/ 插件合并加载
+│   └── web.py / cli.py ...    #   本地 Web 界面 / CLI 入口 / 通用工具 / 进度回调
+├── packer.html                # Web 界面(单文件交付形态, 由 webui/ 构建生成)
+├── webui/                     # ★ UI 源文件: template.html(结构) / style.css / app.js
+├── build_webui.py             # UI 构建: 改 webui/ 后运行, 同步 packer.html 与 docs/ 副本
+├── prepare_cluster.py         # K8s 离线镜像清单/收集(packer 按需动态加载)
 ├── packer_logos.js            # 中间件品牌 logo(data URI 内嵌)
 ├── versions.json              # ★ 物料目录: 版本/镜像路径/端口/密码字段 全部定义在这
 ├── plugins/                   # ★ 可插拔中间件插件目录(_template.py 为模板)
 │   └── README.md              #   插件接口契约
 ├── server/
-│   └── deploy.sh              # 服务器端部署脚本(打进每个离线包, 零交互/幂等)
+│   ├── deploy.sh              # 服务器端部署脚本(打进每个离线包, 零交互/幂等)
+│   └── deploy-cluster.sh      # K8s 集群部署脚本(打进集群离线包)
 ├── templates/                 # nginx.conf / default.conf / redis.conf / index.html
 ├── sql/xxl-job.sql            # XXL-Job 建表脚本
-├── tests/                     # 回归测试(镜像匹配模拟 / 冒烟打包配置)
+├── tests/                     # 回归测试(pytest 单测 / 冒烟打包 / 集群场景矩阵)
 │   └── normalize_sim_test.sh
 ├── tools/update_pages.py      # 同步 GitHub Pages 演示站(docs/)
 ├── docs/                      # Pages 站点源目录(落地页 + packer 前端副本 + 截图)
@@ -395,6 +408,10 @@ warehouse/images/postgres/15.19/arm64.tar   ← postgres-15.19-arm64.tar 放这�
 ├── dist/                      # 打包产物输出目录(不进 git)
 └── legacy/deploy.sh           # 旧交互式脚本存档(已被新方案取代)
 ```
+
+> 开发提示：改打包逻辑 → 定位 packerlib/ 对应模块；改 UI → 改 `webui/` 源文件后运行
+> `python build_webui.py`（测试会拦截"改了源忘构建"）；`packer.py` 与 `packer.html`
+> 分别是两者的交付形态，不要直接改 `packer.html`。
 
 ## ☸ 九、Kubernetes 集群离线部署（信创）
 

@@ -23,8 +23,9 @@ import packer  # noqa: E402
 @pytest.fixture(autouse=True)
 def _no_warehouse_check(monkeypatch):
     """CI 中 warehouse/ 被 gitignore 不入库, 跳过物料存在性检查。
-    物料补齐脚本逻辑由 test_pull_script_missing_branch 直接覆盖。"""
-    monkeypatch.setattr(packer, "check_warehouse", lambda cfg, catalog: [])
+    物料补齐脚本逻辑由 test_pull_script_missing_branch 直接覆盖。
+    注意: 打补丁要打到实现模块(packerlib.validate), packer 只是兼容薄壳。"""
+    monkeypatch.setattr("packerlib.validate.check_warehouse", lambda cfg, catalog: [])
 
 
 def _find_bash():
@@ -218,7 +219,8 @@ def test_missing_materials_and_pull_script(catalog):
 def test_pull_script_missing_branch(monkeypatch, catalog):
     """物料齐全时用 monkeypatch 模拟缺失, 保证补料脚本生成逻辑始终被覆盖"""
     fake = [("prom/alertmanager:v0.28.1", "warehouse/images/alertmanager/v0.28.1/amd64.tar", "linux/amd64")]
-    monkeypatch.setattr(packer, "missing_materials", lambda cat, archs=("amd64", "arm64"): fake)
+    monkeypatch.setattr("packerlib.builder.missing_materials",
+                        lambda cat, archs=("amd64", "arm64"): fake)
     script, items = packer.gen_pull_script(catalog)
     assert items == fake
     assert "pull_tar 'prom/alertmanager:v0.28.1'" in script
@@ -602,6 +604,17 @@ def test_docs_static_site_packer_html_sync():
     root = Path(__file__).resolve().parent.parent
     assert _norm_lf(root / "docs" / "packer.html") == _norm_lf(root / "packer.html")
     assert _norm_lf(root / "docs" / "logos.js") == _norm_lf(root / "packer_logos.js")
+
+
+def test_webui_sources_build_sync():
+    """packer.html 必须由 webui/ 源文件构建(源文件改动后运行 python build_webui.py)。
+    packer.html 是交付形态(单文件离线可用), webui/ 是维护形态(结构/样式/脚本分文件)"""
+    root = Path(__file__).resolve().parent.parent
+    sys.path.insert(0, str(root))
+    import build_webui
+    built = build_webui.build_html().replace(b"\r\n", b"\n")
+    current = _norm_lf(root / "packer.html")
+    assert built == current, "webui/ 源与 packer.html 不同步, 请运行: python build_webui.py"
 
 
 def test_docs_versions_json_has_plugins():

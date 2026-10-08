@@ -2,6 +2,28 @@
 
 按时间倒序记录每次功能与修复。`docs/` 演示站随前端改动同步更新。
 
+## 2026-10-08（packer 代码模块化拆分）
+
+- **packer.py(4490 行)拆分为 packerlib/ 包(14 个功能模块)**：paths / util / catalog /
+  validate / nacos_sql / compose / cluster / manifest / multinode / nginx_conf /
+  progress / builder(打包主流程) / web / cli，按原分区注释按 AST 节点切分，跨模块依赖
+  显式导入；packer.py 保留为**兼容薄壳**（`python packer.py` 各命令与
+  `import packer` 用法不变，98 个顶层符号全量保留，`--dump-catalog` 输出与拆分前
+  逐字节一致）
+- 镜像 tar/补料脚本辅助函数（missing_materials / gen_pull_script / gen_retag_mirrors_sh
+  等）从 web 段并入 builder 模块——本质是打包逻辑，同时消除 pack↔web 循环导入；
+  模块改名 builder 避免与导出函数 `pack` 同名遮蔽；测试里 2 处 monkeypatch 相应
+  改打实现模块（`packerlib.validate.check_warehouse` / `packerlib.builder.missing_materials`）
+- **packer.html(2582 行)拆分为 webui/ 源文件 + build_webui.py 构建脚本**：
+  template.html(结构, 231 行) / style.css(361 行) / app.js(1992 行)，构建产物与拆分前
+  **逐字节一致**；packer.html 保持单文件交付形态（离线可直接打开），webui/ 是维护形态
+  （改样式/脚本不用在 2500 行里翻找）
+- **改 UI 流程**：改 `webui/` 源文件 → `python build_webui.py`（自动同步根目录
+  packer.html 与 docs/ 副本）；新增防陈旧测试 `test_webui_sources_build_sync`
+  （改了源忘构建会被 CI 拦下，已验证污染源文件时测试变红）
+- 回归：pytest **52 passed**（新增 1 条）/ 冒烟打包 11 项 / 集群场景 11 项全绿；
+  拆分前文件快照备份于 `backups/20261008-pre-split/`（本地留档，不入库）
+
 ## 2026-10-08（K8s 集群配置对齐 kk v4 + 多机同端口）
 
 - **逐条对照 KubeKey v4 源码核查打包器生成的 config.yaml，修三处键位差异、补齐缺失能力**：

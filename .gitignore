@@ -15,6 +15,9 @@ tmp_*
 # 本地下载的镜像工具(crane 等)
 tools/bin/
 
+# 本地手工备份(重构/发布前快照; git 历史即远端备份)
+backups/
+
 # 打包器生成的样例配置(个人本地文件)
 example-config.json
 kkstage/
