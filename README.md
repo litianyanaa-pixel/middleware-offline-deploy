@@ -381,7 +381,9 @@ warehouse/images/postgres/15.19/arm64.tar   ← postgres-15.19-arm64.tar 放这�
 │   ├── builder.py             #   打包主流程(校验→生成→物料收集→tar.gz, 含补料脚本)
 │   ├── manifest.py            #   manifest.sh / 部署摘要 / images.txt
 │   ├── catalog.py             #   versions.json + plugins/ 插件合并加载
-│   └── web.py / cli.py ...    #   本地 Web 界面 / CLI 入口 / 通用工具 / 进度回调
+│   ├── paths.py / util.py / progress.py    #   路径约定 / 通用工具 / 进度回调
+│   ├── nacos_sql.py / nginx_conf.py        #   Nacos SQL 派生 / nginx 配置生成
+│   └── web.py / cli.py        #   本地 Web 界面 / CLI 入口
 ├── packer.html                # Web 界面(单文件交付形态, 由 webui/ 构建生成)
 ├── webui/                     # ★ UI 源文件: template.html(结构) / style.css / app.js
 ├── build_webui.py             # UI 构建: 改 webui/ 后运行, 同步 packer.html 与 docs/ 副本

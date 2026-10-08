@@ -1,6 +1,6 @@
 # K8s 集群信创离线部署 — 设计文档 (v2, 已集成进打包页面)
 
-> 配套代码: `packer.py`(打包逻辑, 搜 `cluster`) + `k8s/server/deploy-cluster.sh`(部署脚本)。
+> 配套代码: `packerlib/cluster.py`(集群配置生成与物料, 打包入口 `python packer.py`) + `k8s/server/deploy-cluster.sh`(部署脚本)。
 > 本文回答三件事: 整体架构怎么设计、物料怎么准备(含信创)、怎么用和怎么回滚。
 
 ## 一、总体架构

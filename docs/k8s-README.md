@@ -24,7 +24,8 @@ k8s/
 └── README.md                   # 本文件
 ```
 
-打包决策/生成/物料检查逻辑都在 `packer.py`(搜索 `cluster` 相关函数), 物料目录定义在
+打包决策/生成/物料检查逻辑在 `packerlib/`(`cluster.py` 集群配置与物料、`builder.py` 打包主流程;
+入口 `python packer.py` 兼容薄壳), 物料目录定义在
 `versions.json` 的 `cluster` 节, 物料放置与信创适配见 **[docs/k8s-信创离线部署.md](../docs/k8s-信创离线部署.md)**。
 
 ## 物料(服务器离线部署前, 打包机需备齐)

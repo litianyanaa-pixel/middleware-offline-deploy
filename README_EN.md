@@ -347,17 +347,32 @@ Port/password changes should go through "edit locally → repack → redeploy", 
 ## 📁 8. Directory Structure
 
 ```
-├── packer.py                  # local packer (web + CLI, stdlib only)
-├── packer.html                # web UI (sidebar console)
+├── packer.py                  # packer entry (web + CLI, stdlib only): thin compatibility shell, implementation in packerlib/
+├── packerlib/                 # ★ packer implementation package (modular by concern, see each module's docstring)
+│   ├── validate.py            #   config validation (single-host / multi-host / K8s / material completeness)
+│   ├── compose.py             #   docker-compose.yml / .env / backup config generation
+│   ├── cluster.py             #   K8s cluster inventory/config generation & offline material collection
+│   ├── multinode.py           #   per-node artifacts for multi-host deploy (compose snippets / install & dist scripts)
+│   ├── builder.py             #   main packing flow (validate → generate → collect materials → tar.gz, incl. refill scripts)
+│   ├── manifest.py            #   manifest.sh / deploy summary / images.txt
+│   ├── catalog.py             #   merged catalog from versions.json + plugins/
+│   ├── paths.py / util.py / progress.py    #   path conventions / shared utils / progress callback
+│   ├── nacos_sql.py / nginx_conf.py        #   Nacos SQL derivation / nginx config generation
+│   └── web.py / cli.py        #   local web UI / CLI entry
+├── packer.html                # web UI (single-file deliverable, built from webui/)
+├── webui/                     # ★ UI sources: template.html (structure) / style.css / app.js
+├── build_webui.py             # UI build: run after editing webui/, syncs packer.html and the docs/ copy
+├── prepare_cluster.py         # K8s offline image manifest / collection (loaded by the packer on demand)
 ├── packer_logos.js            # middleware brand logos (inline data URIs)
 ├── versions.json              # ★ material catalog: versions / image paths / ports / secret fields all defined here
 ├── plugins/                   # ★ pluggable middleware plugins (_template.py is the template)
 │   └── README.md              #   plugin interface contract
 ├── server/
-│   └── deploy.sh              # server-side deploy script (bundled into every offline bundle, zero-interaction / idempotent)
+│   ├── deploy.sh              # server-side deploy script (bundled into every offline bundle, zero-interaction / idempotent)
+│   └── deploy-cluster.sh      # K8s cluster deploy script (bundled into cluster bundles)
 ├── templates/                 # nginx.conf / default.conf / redis.conf / index.html
 ├── sql/xxl-job.sql            # XXL-Job schema script
-├── tests/                     # regression tests (image matching simulation / smoke packing config)
+├── tests/                     # regression tests (pytest unit / smoke packing / cluster scenario matrix)
 │   └── normalize_sim_test.sh
 ├── tools/update_pages.py      # sync the GitHub Pages demo site (docs/)
 ├── docs/                      # Pages site source (landing page + packer frontend copy + screenshots)
@@ -365,10 +380,15 @@ Port/password changes should go through "edit locally → repack → redeploy", 
 ├── warehouse/                 # ★ raw material warehouse (not in git, huge)
 │   ├── packages/x86_64/       #   docker-29.8.0.tgz, docker-compose-linux-x86_64
 │   ├── packages/aarch64/      #   docker-29.8.0.tgz, docker-compose-linux-aarch64
-│   └── images/<middleware>/<version>/ #   amd64.tar / arm64.tar
+│   ├── images/<middleware>/<version>/ #   amd64.tar / arm64.tar
+│   └── cluster/               #   K8s materials (kk / binaries / offline image tars / charts / Xinchuang OS packages)
 ├── dist/                      # bundle output directory (not in git)
 └── legacy/deploy.sh           # archived legacy interactive script (superseded)
 ```
+
+> Dev tips: packing logic → locate the module in `packerlib/`; UI → edit the `webui/` sources then run
+> `python build_webui.py` (tests fail on "sources changed without a rebuild"); `packer.py` and
+> `packer.html` are the two deliverable forms — do not edit `packer.html` directly.
 
 ## ☸ 9. Kubernetes Cluster Deployment (Xinchuang-ready)
 

@@ -2,6 +2,14 @@
 
 按时间倒序记录每次功能与修复。`docs/` 演示站随前端改动同步更新。
 
+## 2026-10-08（重构后文档同步）
+
+- 文档对齐 packer.py→packerlib/ 与 packer.html→webui/ 拆分：README 目录树把 packerlib
+  14 个模块列全；README_EN.md 目录结构整段同步（packerlib/ / webui/ / build_webui.py +
+  开发提示，顺带补上此前缺失的 prepare_cluster.py / deploy-cluster.sh / warehouse/cluster
+  等 K8s 条目）；docs/k8s-README.md 与 docs/k8s-信创离线部署.md 中"逻辑都在 packer.py"
+  的旧指向改为 packerlib/cluster.py 等。`python packer.py` 用法不变，无需改操作习惯
+
 ## 2026-10-08（集群高级配置折叠状态不再被联动重渲染重置）
 
 - **修复**：勾选 K8s 集群后，展开「集群高级配置」折叠块，只要在别处切换选项（安装模式
