@@ -1369,7 +1369,9 @@ function renderInfraTopology(){
       '<div style="margin-top:6px">'+kfTxt('image_registry.vip', ir.vip, 'HA VIP(可选)')+'</div>',
       '部署在分配了「镜像仓库」角色的节点; 多仓库节点自动 keepalived HA');
 
-  html += '<details style="margin-top:14px"><summary style="cursor:pointer"><h3 class="cat-h" style="margin:0">集群高级配置 <span class="hint">(运行时 / 数据目录 / etcd 调优 / Multi-CNI / Calico / DNS / 证书与备份 / 镜像加速 / NTP / 存储 / 私有镜像仓库)</span></h3></summary>'+
+  // 联动重渲染频繁重建本区块, 折叠展开状态由用户控制, 不随重建被重置
+  const advOpen = !!(box.querySelector('details') || {}).open;
+  html += '<details'+(advOpen?' open':'')+' style="margin-top:14px"><summary style="cursor:pointer"><h3 class="cat-h" style="margin:0">集群高级配置 <span class="hint">(运行时 / 数据目录 / etcd 调优 / Multi-CNI / Calico / DNS / 证书与备份 / 镜像加速 / NTP / 存储 / 私有镜像仓库)</span></h3></summary>'+
     '<div style="margin-top:10px"><div class="kform">'+adv+'</div></div></details>';
 
   box.innerHTML = html;
