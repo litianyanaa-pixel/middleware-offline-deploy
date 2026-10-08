@@ -45,6 +45,12 @@ def master_server_ip(cfg, svc):
     return servers[idx]["ip"] if isinstance(idx, int) and 0 <= idx < len(servers) else ""
 
 
+def proxysql_name(cfg, svc):
+    """ProxySQL 实例名: 只启用一个主从集群时保持 proxysql(兼容旧布局), 两个都启用时用 proxysql-<svc> 区分"""
+    on = [s for s in ("mysql8", "mysql57") if ((cfg.get("features") or {}).get("proxysql_" + s))]
+    return "proxysql" if len(on) <= 1 else "proxysql-" + svc
+
+
 def tr(text, lang="zh"):
     """双语约定: 文案写作 "中文|English", 按 lang 取半边; 无竖线时原样返回"""
     s = str(text)

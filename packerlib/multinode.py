@@ -162,22 +162,25 @@ def _node_redis_blocks(cfg, catalog, role, master_ip):
     }
 
 
-def gen_proxysql_conf(cfg):
-    """ProxySQL 读写分离配置: 写 -> HG10(主库), 读 -> HG20(从库), SELECT 自动路由到读组"""
+def gen_proxysql_conf(cfg, svc):
+    """单集群的 ProxySQL 读写分离配置: 写 -> HG10(主库), 读 -> HG20(从库), SELECT 自动路由到读组.
+    每个主从形态的 MySQL 独立一个实例(混在一对 hostgroup 里两套集群的读会互串);
+    多机: 主/从用节点 IP + 宿主端口; 同机: 主/从用 compose 服务名 + 容器端口 3306"""
     ports = cfg["ports"]
     pw = cfg["secrets"].get("MYSQL_ROOT_PASSWORD", "")
-    mh_groups = []
-    for s in ("mysql8", "mysql57"):
-        if is_multihost(cfg, s):
-            mh_groups.append((s, master_server_ip(cfg, s), ports[s],
-                              [(cfg["servers"][i]["ip"], ports["%s_replica" % s])
-                               for i in cfg["multihost"][s]["replicas"]]))
-    srv_lines = []
-    for s, mip, mport, replicas in mh_groups:
-        srv_lines.append('\t\t{address="%s",port=%d,hostgroup=10,max_connections=200},' % (mip, mport))
-        for rip, rport in replicas:
-            srv_lines.append('\t\t{address="%s",port=%d,hostgroup=20,max_connections=200},' % (rip, rport))
-    ver = "8.0.46" if any(s == "mysql8" for s, *_ in mh_groups) else "5.7.44"
+    if is_multihost(cfg, svc):
+        master = (master_server_ip(cfg, svc), ports[svc])
+        replicas = [(cfg["servers"][i]["ip"], ports["%s_replica" % svc])
+                    for i in cfg["multihost"][svc]["replicas"]]
+    else:
+        n = (cfg.get("replicas") or {}).get(svc, 1)
+        master = (svc, 3306)
+        replicas = [("%s-replica" % svc if r == 0 else "%s-replica%d" % (svc, r + 1), 3306)
+                    for r in range(n)]
+    srv_lines = ['\t\t{address="%s",port=%d,hostgroup=10,max_connections=200},' % master]
+    for rip, rport in replicas:
+        srv_lines.append('\t\t{address="%s",port=%d,hostgroup=20,max_connections=200},' % (rip, rport))
+    ver = "8.0.46" if svc == "mysql8" else "5.7.44"
     return """# 由打包器自动生成 (ProxySQL 读写分离, 重新部署时可覆盖)
 datadir="/var/lib/proxysql"
 errorlog="/var/lib/proxysql/proxysql.log"

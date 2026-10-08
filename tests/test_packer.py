@@ -384,17 +384,59 @@ def test_multihost_redis_sentinel(catalog):
 def test_multihost_proxysql_conf(catalog):
     cfg = _mh_cfg(["mysql8"], {"mysql8": "master-slave"},
                   {"mysql8": {"enabled": True, "master": 0, "replicas": [1, 2]}},
-                  features={"proxysql": True})
+                  features={"proxysql": True})   # 旧版布尔, 应迁移为 mysql8 实例启用
     cfg, _ = packer.validate_config(cfg, catalog)
-    conf = packer.gen_proxysql_conf(cfg)
+    assert cfg["features"]["proxysql_mysql8"] is True
+    assert cfg["features"]["proxysql_mysql57"] is False
+    conf = packer.gen_proxysql_conf(cfg, "mysql8")
     assert '{address="10.0.0.11",port=%d,hostgroup=10' % cfg["ports"]["mysql8"] in conf
     assert 'hostgroup=20' in conf
     assert 'default_hostgroup=10' in conf
     assert 'match_pattern' in conf   # 读写分流规则
     compose = packer.gen_compose(cfg, catalog)
-    assert "container_name: proxysql" in compose
+    assert "container_name: proxysql" in compose   # 单实例保持旧名字
     imgs = [f for f, _, _ in packer.gen_images_txt(cfg, catalog)]
     assert any("proxysql" in i for i in imgs)
+    # 旧版单实例端口键迁移到 mysql8 实例
+    cfg_legacy = _mh_cfg(["mysql8"], {"mysql8": "master-slave"},
+                         {"mysql8": {"enabled": True, "master": 0, "replicas": [1]}},
+                         features={"proxysql": True}, ports={"proxysql": 17000, "proxysql_admin": 17001})
+    cfg_legacy, _ = packer.validate_config(cfg_legacy, catalog)
+    assert cfg_legacy["ports"]["proxysql_mysql8"] == 17000
+    assert cfg_legacy["ports"]["proxysql_mysql8_admin"] == 17001
+
+
+def test_proxysql_per_cluster_and_local_slave(catalog):
+    # 同机主从 + 读写分离: 主/从用 compose 服务名 + 容器端口 3306(旧版会生成空 mysql_servers)
+    cfg = _mh_cfg(["mysql8"], {"mysql8": "master-slave"}, {},
+                  replicas={"mysql8": 1}, features={"proxysql_mysql8": True})
+    cfg, _ = packer.validate_config(cfg, catalog)
+    conf = packer.gen_proxysql_conf(cfg, "mysql8")
+    assert '{address="mysql8",port=3306,hostgroup=10' in conf
+    assert '{address="mysql8-replica",port=3306,hostgroup=20' in conf
+    compose = packer.gen_compose(cfg, catalog)
+    assert "container_name: proxysql\n" in compose
+    assert "./proxysql/proxysql.cnf:/etc/proxysql.cnf:ro" in compose
+
+    # 同时部署 5.7/8.0 双主从: 各自独立实例/端口/配置, 读不互串
+    cfg2 = _mh_cfg(["mysql8", "mysql57"],
+                   {"mysql8": "master-slave", "mysql57": "master-slave"},
+                   {"mysql8": {"enabled": True, "master": 0, "replicas": [1]},
+                    "mysql57": {"enabled": True, "master": 2, "replicas": [3]}},
+                   features={"proxysql_mysql8": True, "proxysql_mysql57": True})
+    cfg2, _ = packer.validate_config(cfg2, catalog)
+    assert cfg2["ports"]["proxysql_mysql8"] != cfg2["ports"]["proxysql_mysql57"]
+    assert cfg2["ports"]["proxysql_mysql8"] == 16033 and cfg2["ports"]["proxysql_mysql57"] == 16035
+    c8 = packer.gen_proxysql_conf(cfg2, "mysql8")
+    c57 = packer.gen_proxysql_conf(cfg2, "mysql57")
+    assert 'server_version="8.0.46"' in c8 and 'server_version="5.7.44"' in c57
+    # 每份配置只有自己集群的主库进 HG10
+    assert c8.count(',hostgroup=10,') == 1 and c57.count(',hostgroup=10,') == 1
+    compose2 = packer.gen_compose(cfg2, catalog)
+    assert "container_name: proxysql-mysql8" in compose2
+    assert "container_name: proxysql-mysql57" in compose2
+    mf = packer.gen_manifest_sh(cfg2, catalog, "", packer.build_summary_lines(cfg2, catalog))
+    assert "读写分离(MySQL 8.0 主从)" in mf and "读写分离(MySQL 5.7 主从)" in mf
 
 
 def test_multihost_validation_errors(catalog):

@@ -27,7 +27,7 @@ from .nacos_sql import build_nacos_sql
 from .paths import (BASE_DIR, CLUSTER_SH, DIST_DIR, HTML_FILE, LOGOS_JS, SERVER_SH,
                     SQL_DIR, TPL_DIR, WAREHOUSE, log)
 from .progress import PackProgress
-from .util import PackError, bash_quote, has_multihost, is_multihost, tr
+from .util import PackError, bash_quote, has_multihost, is_multihost, proxysql_name, tr
 from .validate import check_warehouse, validate_config
 
 
@@ -238,9 +238,10 @@ def pack(cfg, catalog, out_dir=None, progress=None):
                     if (cfg.get("replicas") or {}).get(_ms, 1) == 2:
                         conf_files["conf/%s-replica2/my.cnf" % _ms] = TPL_DIR / "mysql-my.cnf"
 
-    # ProxySQL 读写分离配置(可选组件)
-    if (cfg.get("features") or {}).get("proxysql"):
-        conf_files["conf/proxysql/proxysql.cnf"] = gen_proxysql_conf(cfg)
+    # ProxySQL 读写分离配置(可选组件, 每个主从 MySQL 独立实例)
+    for _px in ("mysql8", "mysql57"):
+        if (cfg.get("features") or {}).get("proxysql_" + _px):
+            conf_files["conf/%s/proxysql.cnf" % proxysql_name(cfg, _px)] = gen_proxysql_conf(cfg, _px)
 
     # ---- 插件附带的配置文件(可选 conf_files 钩子) ----
     for s in cfg["services"]:

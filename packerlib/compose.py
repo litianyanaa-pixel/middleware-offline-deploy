@@ -13,7 +13,7 @@ from .catalog import PLUGINS, PROXYSQL_META
 from .nacos_sql import build_nacos_sql
 from .paths import SERVER_SH, TPL_DIR, WAREHOUSE
 from .util import (PackError, bash_quote, env_quote, gen_nacos_token,
-                   gen_random_password, is_multihost, tr)
+                   gen_random_password, is_multihost, proxysql_name, tr)
 
 
 # ---------------------------------------------------------------- 生成 compose / .env / manifest
@@ -451,12 +451,14 @@ def gen_compose(cfg, catalog):
                           "extra_ports": extra_lines("nginx"),
                           "xhosts": "\n".join(xhosts) + ("\n" if xhosts else "")})
 
-    # ---- ProxySQL 读写分离(可选组件) ----
-    if features.get("proxysql"):
+    # ---- ProxySQL 读写分离(可选组件, 每个主从 MySQL 独立实例) ----
+    for _px in ("mysql8", "mysql57"):
+        if not features.get("proxysql_" + _px):
+            continue
         out.append("""
-  proxysql:
+  %(nm)s:
     image: %(image)s
-    container_name: proxysql
+    container_name: %(nm)s
     restart: always
     environment:
       TZ: ${TZ}
@@ -464,8 +466,8 @@ def gen_compose(cfg, catalog):
       - "%(p_main)d:6033"
       - "%(p_admin)d:6032"
     volumes:
-      - ./proxysql/proxysql.cnf:/etc/proxysql.cnf:ro
-      - ./proxysql/data:/var/lib/proxysql
+      - ./%(nm)s/proxysql.cnf:/etc/proxysql.cnf:ro
+      - ./%(nm)s/data:/var/lib/proxysql
     # 健康检查走数据面入口: 能通过代理查到后端才算就绪
     healthcheck:
       test: ["CMD-SHELL", "mysql --protocol=tcp -h127.0.0.1 -P6033 -uroot -p\\"$$MYSQL_ROOT_PASSWORD\\" -e 'SELECT 1' >/dev/null 2>&1 || exit 1"]
@@ -474,8 +476,9 @@ def gen_compose(cfg, catalog):
       retries: 12
       start_period: 30s
     networks:
-      - app-network""" % {"image": "%s:%s" % (PROXYSQL_META["image"], PROXYSQL_META["tag"]),
-                          "p_main": ports["proxysql"], "p_admin": ports["proxysql_admin"]})
+      - app-network""" % {"nm": proxysql_name(cfg, _px),
+                          "image": "%s:%s" % (PROXYSQL_META["image"], PROXYSQL_META["tag"]),
+                          "p_main": ports["proxysql_" + _px], "p_admin": ports["proxysql_" + _px + "_admin"]})
 
     # ---- 插件中间件(可插拔) ----
     for s in services:

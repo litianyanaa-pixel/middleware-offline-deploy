@@ -600,7 +600,7 @@ const state = { ports: {}, secrets: {}, db: {}, extra: {}, backup: null, proxies
         mysql57: { enabled:false, master:null, replicas:[null] },
         redis: { enabled:false, master:null, replicas:[null,null] } },
   replicas: { mysql8: 1, mysql57: 1 },
-  features: { proxysql: false } };
+  features: {} };
 const WEEK = ["", "周一", "周二", "周三", "周四", "周五", "周六", "周日"];
 let previewData = { compose: "", env: "", manifest: "" };
 let curTab = "compose";
@@ -1513,8 +1513,8 @@ function renderTopology(){
         html += '<div class="hint" style="margin-top:7px">主库服务名仍为 '+s+' (Nacos/XXL-Job 照常连它), 从库只读端口 '+defPort+' 自动同步; 部署脚本自动配置复制关系</div>';
       }
       html += '<div style="margin-top:10px"><label style="display:inline-flex;align-items:center;gap:7px;cursor:pointer">'+
-        '<input type="checkbox" data-feat="proxysql" '+(state.features.proxysql?'checked':'')+'>'+
-        '<span>读写分离 (ProxySQL: 写走主库, SELECT 自动分流到从库, 应用只连一个入口端口)</span></label></div>';
+        '<input type="checkbox" data-feat="proxysql_'+s+'" '+(state.features['proxysql_'+s]?'checked':'')+'>'+
+        '<span>读写分离 (ProxySQL, 只针对 '+nm+' 这一套主从: 写走主库, SELECT 自动分流到从库, 应用只连该实例入口端口)</span></label></div>';
     }
     html += '</div>';
   }
@@ -1646,11 +1646,12 @@ function renderTopology(){
     saveLocal();
   });
 
-  // ---- 事件: 读写分离开关 ----
+  // ---- 事件: 读写分离开关(每个主从 MySQL 独立一个 ProxySQL 实例) ----
   box.querySelectorAll('input[data-feat]').forEach(c => c.onchange = () => {
-    state.features.proxysql = c.checked;
+    state.features[c.dataset.feat] = c.checked;
+    const nm = c.dataset.feat.endsWith('mysql57') ? 'MySQL 5.7' : 'MySQL 8.0';
     saveLocal(); renderDynamic();
-    toast(c.checked ? '已启用读写分离 (ProxySQL, 镜像需补料: proxysql/proxysql 2.6.6)' : '已关闭读写分离');
+    toast(c.checked ? ('已启用 '+nm+' 主从的读写分离 (独立 ProxySQL 实例, 镜像需补料: proxysql/proxysql 2.6.6)') : ('已关闭 '+nm+' 主从的读写分离'));
   });
 }
 function updateSvcWarn(){}
@@ -1705,14 +1706,16 @@ const gotoStep = gotoView;
 function updateStepBadges(){
   const svcs = [...selected];
   $('#badge2').textContent = svcs.length ? (svcs.length + ' 项') : '';
-  // 步骤4: 需要填写的账号/数据库是否齐备
+  // 步骤4: 需要填写的账号/数据库是否齐备(按实际勾选的应用逐项判断, 未勾选的不计入;
+  // secret 只统计必填项 — webhook 类(如告警 Webhook)后端校验允许留空)
   let pending = 0;
-  if (svcs.some(s => s==='nacos'||s==='xxljob') && (!state.db.nacos || !state.db.xxljob)) pending++;
-  const hasSecret = CATALOG.secrets.some(it => it.services.some(s => selected.has(s)));
-  if (hasSecret && Object.values(state.secrets).some(v => !String(v||'').trim())) pending++;
+  if (selected.has('nacos') && !state.db.nacos) pending++;
+  if (selected.has('xxljob') && !state.db.xxljob) pending++;
+  const needSecrets = CATALOG.secrets.filter(it => it.type !== 'webhook' && it.services.some(s => selected.has(s)));
+  if (needSecrets.some(it => !String(state.secrets[it.key] ?? '').trim())) pending++;
   const b4 = $('#badge4');
   if (pending){ b4.textContent = pending + ' 项待配置'; b4.className = 'wbadge warn'; }
-  else { b4.textContent = hasSecret ? '已配置' : ''; b4.className = 'wbadge'; }
+  else { b4.textContent = needSecrets.length ? '已配置' : ''; b4.className = 'wbadge'; }
   // badge 文本变化会改变步骤 tab 宽度, 胶囊需同步(修复: 勾选组件后胶囊宽度不更新的问题)
   movePill(curStep);
 }
@@ -1742,7 +1745,6 @@ function renderDynamic(){
   $('#step4Empty').style.display = (vis('sec-pwd') || vis('sec-db') || vis('sec-backup')) ? 'none' : '';
   renumberSections();
   $('#step5Empty').style.display = vis('previewCard') ? 'none' : '';
-  updateStepBadges();
   renderTopology();
   renderPool();
   renderInfraTopology();
@@ -1817,12 +1819,14 @@ function renderDynamic(){
     html += '</div><button type="button" class="addport" title="添加自定义端口" aria-label="添加自定义端口" data-eadd="'+s+'">+</button></div>';
     pb.insertAdjacentHTML('beforeend', html);
   }
-  // ---- ProxySQL 读写分离端口 ----
-  if (state.features.proxysql){
+  // ---- ProxySQL 读写分离端口(每个启用的主从 MySQL 一个实例) ----
+  for (const s of ['mysql8', 'mysql57']){
+    if (!state.features['proxysql_' + s]) continue;
+    const nm = s === 'mysql8' ? 'MySQL 8.0' : 'MySQL 5.7';
     const pxDefs = [
-      {key:'proxysql', label:'读写分离入口 (数据面)', default:16033, container:6033},
-      {key:'proxysql_admin', label:'ProxySQL 管理面', default:16032, container:6032}];
-    let ph = '<div class="grp"><h3>读写分离 (ProxySQL) <span class="hint">运行在主部署机</span></h3><div class="map">'+
+      {key:'proxysql_'+s, label:'读写分离入口 ('+nm+' 主从)', default: s === 'mysql8' ? 16033 : 16035, container:6033},
+      {key:'proxysql_'+s+'_admin', label:'ProxySQL 管理面 ('+nm+' 主从)', default: s === 'mysql8' ? 16032 : 16034, container:6032}];
+    let ph = '<div class="grp"><h3>读写分离 ProxySQL ('+nm+' 主从) <span class="hint">运行在主部署机</span></h3><div class="map">'+
       '<div class="map-cols"><span></span><span>外部访问端口(宿主机)</span><span></span><span>容器端口</span></div>';
     for (const p of pxDefs){
       if (!(p.key in state.ports)) state.ports[p.key] = p.default;
@@ -1832,7 +1836,7 @@ function renderDynamic(){
         '<span class="arrow">→</span>'+
         '<span class="ctn">'+p.container+'</span></div>';
     }
-    ph += '</div><div class="hint">应用统一连接 入口端口: 写自动路由到主库, SELECT 自动分流到从库; 管理面端口 (admin/admin) 供运维查看路由规则</div></div>';
+    ph += '</div><div class="hint">应用连该实例入口端口: 写自动路由到 '+nm+' 主库, SELECT 自动分流到其从库; 管理面端口 (admin/admin) 供运维查看路由规则</div></div>';
     pb.insertAdjacentHTML('beforeend', ph);
   }
   pb.querySelectorAll('input[data-port]').forEach(i => i.oninput = () => { state.ports[i.dataset.port] = i.value; validatePorts(); saveLocal(); });
@@ -1857,6 +1861,8 @@ function renderDynamic(){
   renderProxy();
   renderDb();
   renderBackup();
+  // 徽标放在 renderDb 之后: state.db 在 renderDb 里才初始化, 先算会误报"待配置"
+  updateStepBadges();
   validatePorts();
   updateStat();
 }
@@ -2222,7 +2228,19 @@ function renderDb(){
   }
 }
 
-/* ---- 端口冲突实时校验(仅宿主机端口查重; 容器端口只做合法性) ---- */
+/* ---- 端口冲突实时校验(仅宿主机端口查重; 容器端口只做合法性) ----
+   多机部署的服务跑在不同机器上(主/从/哨兵各占一台, Kafka 多机节点组每台一致),
+   同端口合法, 与打包校验(服务级 mh 豁免 + mh_node_keys + kafka_mh_ 前缀)同口径, 不标红 */
+function mhPortExempt(key){
+  const mh = state.mh || {};
+  const on = s => !!(mh[s] && mh[s].enabled && ['master-slave','sentinel','cluster'].includes(state.topology[s]));
+  key = String(key || '');
+  if (key.indexOf('kafka_mh_') === 0) return true;
+  if (key === 'mysql8' || key === 'mysql8_replica') return on('mysql8');
+  if (key === 'mysql57' || key === 'mysql57_replica') return on('mysql57');
+  if (key === 'redis' || key === 'redis_replica' || key === 'redis_sentinel') return on('redis');
+  return false;
+}
 function validatePorts(){
   const seen = {};   // 宿主机端口 -> 代表元素
   const mark = (el, ok) => { el.classList.toggle('bad', !ok); el.title = ok ? '' : '端口不合法或冲突'; };
@@ -2231,6 +2249,7 @@ function validatePorts(){
     const valid = /^\d+$/.test(String(raw).trim()) && n >= 1 && n <= 65535;
     if (!valid){ mark(el, false); return; }
     if (isHost){
+      if (mhPortExempt(el.dataset.port)){ mark(el, true); return; }
       if (seen[n]){ mark(el, false); if (seen[n] !== el) mark(seen[n], false); }
       else { seen[n] = el; mark(el, true); }
     } else mark(el, true);
@@ -2321,7 +2340,15 @@ function applyConfig(cfg){
     redis: Object.assign({ enabled:false, master:null, replicas:[null,null] }, mhIn.redis || {}),
   };
   state.replicas = Object.assign({ mysql8: 1, mysql57: 1 }, cfg.replicas || {});
-  state.features = Object.assign({ proxysql: false }, cfg.features || {});
+  state.features = Object.assign({}, cfg.features || {});
+  // 旧版单布尔读写分离迁移为按实例开关; 旧单实例端口迁移到 mysql8 实例(与打包校验同口径)
+  if (cfg.features && cfg.features.proxysql === true && cfg.features.proxysql_mysql8 === undefined){
+    state.features.proxysql_mysql8 = true; state.features.proxysql_mysql57 = true;
+  }
+  if (cfg.ports && cfg.ports.proxysql != null && cfg.ports.proxysql_mysql8 == null){
+    state.ports.proxysql_mysql8 = cfg.ports.proxysql;
+    state.ports.proxysql_mysql8_admin = cfg.ports.proxysql_admin;
+  }
   state.cluster = Object.assign({ enabled: false, kube_version: '', mode: 'cache', cni_type: 'calico',
     proxy_mode: 'iptables', pod_cidr: '10.233.64.0/18', service_cidr: '10.233.0.0/18',
     timezone: 'Asia/Shanghai', os_distros: [], roles: {}, ha_type: 'local', ha_vip: '', upgrade_to: '',
@@ -2393,7 +2420,7 @@ async function doPreview(){
         '# ' + n.name + '  ' + n.user + '@' + n.ip + ' (SSH ' + n.ssh + ')' +
         '\n# 角色: ' + n.roles.join(', ') +
         '\n# 镜像: ' + (n.images.length ? n.images.join(', ') : '(无)')).join('\n\n') +
-        (d.proxysql_conf ? '\n\n# ---- ProxySQL 读写分离配置 (conf/proxysql/proxysql.cnf) ----\n' + d.proxysql_conf : '');
+        (d.proxysql_conf ? '\n\n# ---- ProxySQL 读写分离配置 (conf/<实例名>/proxysql.cnf) ----\n' + d.proxysql_conf : '');
     }
     $('#tabKafkaNodes').style.display = (d.nodes && d.nodes.length) ? '' : 'none';
     previewData.clusterInv = d.cluster_inventory || '';

@@ -472,9 +472,20 @@ def validate_config(cfg, catalog):
         reps[ms] = n
     cfg["replicas"] = reps
 
-    # 读写分离(ProxySQL): 存在 MySQL 主从形态时可选
+    # 读写分离(ProxySQL): 每个主从形态的 MySQL 独立一个实例(独立开关/入口与管理端口/配置,
+    # 两套集群混在同一对 hostgroup 里读会互串); 旧版布尔 features.proxysql 兼容为对所有主从 MySQL 启用
     features_raw = cfg.get("features") or {}
-    features = {"proxysql": bool(features_raw.get("proxysql")) and bool(reps)}
+    px_raw = features_raw.get("proxysql")
+    if isinstance(px_raw, dict):
+        px_on = {s: bool(px_raw.get(s)) for s in ("mysql8", "mysql57")}
+    else:
+        # 按实例顶层键(proxysql_mysql8/...)或旧版布尔(proxysql=true 视为全启用)
+        px_on = {s: bool(features_raw.get("proxysql_" + s)) or bool(px_raw)
+                 for s in ("mysql8", "mysql57")}
+    features = {"proxysql": False}
+    for s in ("mysql8", "mysql57"):
+        features["proxysql_" + s] = px_on[s] and s in reps
+    features["proxysql"] = features["proxysql_mysql8"] or features["proxysql_mysql57"]
     if features["proxysql"] and "proxysql" in services:
         raise PackError("读写分离为可选组件, 无需在中间件中单独选择|Read/write splitting is an optional component, not a middleware")
     cfg["features"] = features
@@ -503,9 +514,21 @@ def validate_config(cfg, catalog):
             topo_port_defs.append(("kafka_c1", "Kafka broker1 端口(SASL)|Kafka broker1 port (SASL)", 19092))
             topo_port_defs.append(("kafka_c2", "Kafka broker2 端口(SASL)|Kafka broker2 port (SASL)", 29092))
             topo_port_defs.append(("kafka_c3", "Kafka broker3 端口(SASL)|Kafka broker3 port (SASL)", 39092))
-    if features.get("proxysql"):
-        topo_port_defs.append(("proxysql", "读写分离入口端口|Read/write split entry port", 16033))
-        topo_port_defs.append(("proxysql_admin", "ProxySQL 管理端口|ProxySQL admin port", 16032))
+    # 旧版单实例端口键迁移到 mysql8 实例(仅当新键未填), 老配置重新打包端口不变
+    ports = dict(ports)
+    if "proxysql_mysql8" not in ports and "proxysql" in ports:
+        ports["proxysql_mysql8"] = ports["proxysql"]
+    if "proxysql_mysql8_admin" not in ports and "proxysql_admin" in ports:
+        ports["proxysql_mysql8_admin"] = ports["proxysql_admin"]
+    for _px in ("mysql8", "mysql57"):
+        if not features.get("proxysql_" + _px):
+            continue
+        nm = "MySQL 8.0" if _px == "mysql8" else "MySQL 5.7"
+        d_main, d_admin = {"mysql8": (16033, 16032), "mysql57": (16035, 16034)}[_px]
+        topo_port_defs.append(("proxysql_" + _px,
+                               "读写分离入口端口(%s 主从)|Read/write split entry port (%s)" % (nm, nm), d_main))
+        topo_port_defs.append(("proxysql_" + _px + "_admin",
+                               "ProxySQL 管理端口(%s 主从)|ProxySQL admin port (%s)" % (nm, nm), d_admin))
     if "kafka" in mh:
         # 多机时主部署机不运行 Kafka 容器, 单机端口键让位给节点端口组
         norm_ports.pop("kafka", None)

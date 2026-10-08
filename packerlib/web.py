@@ -20,13 +20,24 @@ from .multinode import gen_nodes, gen_proxysql_conf
 from .builder import (gen_pull_script, gen_retag_mirrors_sh, missing_materials, pack)
 from .paths import BASE_DIR, DIST_DIR, HTML_FILE, LOGOS_JS, log
 from .progress import PackProgress
-from .util import PackError, bash_quote, tr
+from .util import PackError, bash_quote, proxysql_name, tr
 from .validate import validate_config
 
 
 # ---------------------------------------------------------------- Web 界面
 
 PACK_STATE = {"prog": None}   # 当前打包进度对象
+
+
+def proxysql_preview(cfg):
+    """预览用 ProxySQL 配置: 每个启用的主从集群一段(带实例名注释); 未启用返回空串"""
+    blocks = []
+    for s in ("mysql8", "mysql57"):
+        if (cfg.get("features") or {}).get("proxysql_" + s):
+            blocks.append("# 实例 %s (MySQL %s 主从)\n%s" % (
+                proxysql_name(cfg, s), "8.0" if s == "mysql8" else "5.7",
+                gen_proxysql_conf(cfg, s)))
+    return "\n\n".join(blocks)
 
 
 def start_pack_async(cfg, catalog):
@@ -249,7 +260,7 @@ def make_handler(catalog):
                                    "auth": "password" if n["server"].get("password") else "key",
                                    "roles": n["roles"],
                                    "images": [i[0] for i in n["images"]]} for n in _nodes],
-                        "proxysql_conf": gen_proxysql_conf(cfg2) if (cfg2.get("features") or {}).get("proxysql") else "",
+                        "proxysql_conf": proxysql_preview(cfg2),
                         "backup_crons": ["%s %s" % (cron, eng) for eng, cron in backup_crons(cfg2.get("backup") or {})],
                         "warnings": warns + _cl_warns + (validate_compose_with_docker(compose, env) if compose else []),
                     })

@@ -3,7 +3,7 @@
 from .catalog import PLUGINS, PROXYSQL_META
 from .compose import backup_crons, plugin_ctx, resolve_db
 from .multinode import gen_nodes
-from .util import bash_quote, is_multihost, master_server_ip, tr
+from .util import bash_quote, is_multihost, master_server_ip, proxysql_name, tr
 
 
 def gen_manifest_sh(cfg, catalog, client_img, summary_lines, bundle_name=None):
@@ -108,11 +108,14 @@ def gen_manifest_sh(cfg, catalog, client_img, summary_lines, bundle_name=None):
         # 哨兵会把故障转移结果重写回自己的配置文件, 文件属主必须是容器内 redis(999)
         # (部署布局是平铺的: conf/<svc>/* 会被 deploy.sh 放到 <DEPLOY_DIR>/<svc>/ 下)
         chown_dirs.append("redis/sentinel.conf:999")
-    if features.get("proxysql"):
-        container_names.append("proxysql")
-        data_dirs.append("proxysql/data")
-        health_wait.append("proxysql")
-        port_keys += [ports["proxysql"], ports["proxysql_admin"]]
+    for _px in ("mysql8", "mysql57"):
+        if not features.get("proxysql_" + _px):
+            continue
+        nm = proxysql_name(cfg, _px)
+        container_names.append(nm)
+        data_dirs.append(nm + "/data")
+        health_wait.append(nm)
+        port_keys += [ports["proxysql_" + _px], ports["proxysql_" + _px + "_admin"]]
 
     def db_lines(app, prefix):
         conf = db.get(app)
@@ -246,10 +249,14 @@ def build_summary_lines(cfg, catalog):
             if (cfg.get("topology") or {}).get("mysql8") == "master-slave":
                 lines.append("MySQL 8.0 从库 __IP__:%d  (只读, GTID 自动同步主库|replica, read-only, GTID sync from master)"
                              % ports["mysql8_replica"])
-    if (cfg.get("features") or {}).get("proxysql"):
-        lines.append("读写分离      mysql -h<ip> -P%d -uroot  (写->主库 读->从库, 管理台 <ip>:%d admin)|"
-                     "Read/write split  mysql -h<ip> -P%d -uroot  (writes->master reads->replicas, admin <ip>:%d admin)"
-                     % (ports["proxysql"], ports["proxysql_admin"], ports["proxysql"], ports["proxysql_admin"]))
+    for _px in ("mysql8", "mysql57"):
+        if not (cfg.get("features") or {}).get("proxysql_" + _px):
+            continue
+        nm = "MySQL 8.0" if _px == "mysql8" else "MySQL 5.7"
+        p1, p2 = ports["proxysql_" + _px], ports["proxysql_" + _px + "_admin"]
+        lines.append("读写分离(%s 主从)  mysql -h<ip> -P%d -uroot  (写->主库 读->从库, 管理台 <ip>:%d admin)|"
+                     "Read/write split (%s)  mysql -h<ip> -P%d -uroot  (writes->master reads->replicas, admin <ip>:%d admin)"
+                     % (nm, p1, p2, nm, p1, p2))
     if "redis" in services_of(cfg):
         if is_multihost(cfg, "redis"):
             mip = mh_ip("redis", "master")
