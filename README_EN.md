@@ -42,31 +42,31 @@ Local (Windows / macOS / Linux)                Server (offline intranet)
 
 **Basics + middleware selection**: project name, deploy directory, Docker data root, registry mirrors (one-click fill with tested-working mirrors); select middleware by card with automatic architecture and size detection.
 
-![Basics and middleware selection](docs/images/ui-basic.png)
+![Middleware selection](docs/images/en/ui-basic.png)
 
 **Port mapping**: host port on the left, container port after the arrow; every service supports extra custom mappings with global duplicate checking.
 
-![Port mapping](docs/images/ui-port.png)
+![Port mapping](docs/images/en/ui-port.png)
 
 **Reverse proxy wizard** (appears when NGINX is selected): per-site static frontend + API forwarding, or full-site reverse proxy; WebSocket, upload limits, HTTPS certificate upload and real-IP restoration are all toggles.
 
-![Reverse proxy wizard](docs/images/ui-proxy.png)
+![Reverse proxy wizard](docs/images/en/ui-proxy.png)
 
 **Accounts & passwords**: every password supports random generation with strength hints; stored at permission 600 in `.env` after deployment.
 
-![Accounts and passwords](docs/images/ui-secrets.png)
+![Accounts and passwords](docs/images/en/ui-secrets.png)
 
 **Database sources + scheduled backup**: Nacos/XXL-Job can use "the MySQL deployed in this bundle" (auto import) or an external database (127.0.0.1 is auto-rewritten to host-gateway); backup policy ships in the bundle as crontab.
 
-![Database sources and backup](docs/images/ui-db-backup.png)
+![Database sources and backup](docs/images/en/ui-db-backup.png)
 
 **Warehouse status**: local `warehouse/` packages and images inventoried per architecture — what's missing at a glance.
 
-![Warehouse status](docs/images/ui-warehouse.png)
+![Warehouse status](docs/images/en/ui-warehouse.png)
 
 **Preview before packing**: inspect the generated docker-compose.yml / .env / manifest.sh before building.
 
-![Preview](docs/images/ui-preview.png)
+![Preview](docs/images/en/ui-preview.png)
 
 ## 📦 1. Pack Locally
 
@@ -399,7 +399,7 @@ On the server it is still `./deploy.sh`: the cluster is provisioned first, then 
 (a cluster-only bundle finishes after the cluster). **amd64 (x86_64) only for now;
 arm64 (Kunpeng/Phytium) will open later** (the UI hints when selected).
 
-![Kubernetes cluster card](docs/images/ui-cluster-card.png)
+![Kubernetes cluster card](docs/images/en/ui-cluster-card.png)
 
 Cluster settings (version / CNI / CIDR / kube-proxy mode in a two-column form), offline
 material mode (artifact / binary cache), per-distro OS package selection (Kylin / UOS /
@@ -407,19 +407,19 @@ openEuler / Anolis / Alibaba Cloud Linux etc., 9 distros) and node role assignme
 live in the same "deployment topology" area as the MySQL/Redis/Kafka multi-host forms;
 renaming a server in the pool updates the role-assignment labels live:
 
-![Cluster settings & role assignment](docs/images/ui-cluster-form.png)
+![Cluster settings & role assignment](docs/images/en/ui-cluster-form.png)
 
 Generate Preview gains "Cluster inventory" and "Cluster config" tabs showing the exact
 inventory.yaml / config.yaml that go into the bundle:
 
-![K8s preview tabs](docs/images/ui-cluster-preview.png)
+![K8s preview tabs](docs/images/en/ui-cluster-preview.png)
 
 Missing materials are **auto-completed at pack time**: binaries are downloaded from
 China-reachable mirrors (with per-component progress); the artifact bundle is built
 automatically via Docker Desktop running `kk artifact export` (zone=cn domestic mirrors,
 ~3-5 minutes measured); only materials that cannot be auto-fetched prompt for a path:
 
-![Pack done & artifacts](docs/images/ui-cluster-packdone.png)
+![Artifacts history](docs/images/en/ui-cluster-packdone.png)
 
 Validated end-to-end with a containerized two-node cluster (Ubuntu 22.04 systemd + SSH):
 340 kk tasks with 0 failures, both nodes joined, idempotent re-run passed — see

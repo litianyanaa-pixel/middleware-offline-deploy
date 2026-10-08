@@ -547,6 +547,8 @@ def gen_pull_script(catalog, archs=("amd64", "arm64")):
         "#!/usr/bin/env bash",
         "# 缺失物料一键补齐脚本 (由 Local Bundle Studio 生成于 %s)" % _dt.now().strftime("%Y-%m-%d %H:%M"),
         "# 用法: 在仓库根目录(含 warehouse/)执行:  bash pull_missing_images.sh",
+        "# 范围: 仅中间件镜像物料; K8s 集群物料(kk/二进制缓存/离线镜像包)打包时自动补齐,",
+        "#       或用 python prepare_cluster.py 单独准备。",
         "# 逻辑: 依次尝试国内镜像源 docker pull -> docker tag -> docker save 落盘到规范路径;",
         "#       全部失败且有 tools/bin/crane 时回退 crane 拉取(load 后重存, 保证 tar 仓库名规范)。",
         "set -uo pipefail",

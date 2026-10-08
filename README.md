@@ -53,31 +53,31 @@
 
 **基础设置 + 选择中间件**：项目名、部署目录、Docker 数据目录、镜像加速器（一键填入实测可用源）；按卡片勾选中间件，自动识别架构与体积。
 
-![基础设置与选择中间件](docs/images/ui-basic.png)
+![选择中间件](docs/images/zh/ui-basic.png)
 
 **端口映射**：左侧宿主机端口、箭头后为容器内端口；每个服务都支持追加自定义映射，全局查重。
 
-![端口映射](docs/images/ui-port.png)
+![端口映射](docs/images/zh/ui-port.png)
 
 **反向代理向导**（勾选 NGINX 后出现）：按站点配置静态前端 + 接口转发，或整站反代；WebSocket、上传限制、HTTPS 证书上传、真实 IP 还原都是开关项。
 
-![反向代理向导](docs/images/ui-proxy.png)
+![反向代理向导](docs/images/zh/ui-proxy.png)
 
 **账号密码**：所有密码支持随机生成与强度提示；部署后以 600 权限存于 `.env`。
 
-![账号密码](docs/images/ui-secrets.png)
+![账号密码](docs/images/zh/ui-secrets.png)
 
 **数据库来源 + 定时备份**：Nacos/XXL-Job 可选"本次部署的 MySQL"（自动导库）或外部数据库（127.0.0.1 自动改写 host-gateway）；备份策略随包分发为 crontab。
 
-![数据库来源与备份](docs/images/ui-db-backup.png)
+![数据库来源与备份](docs/images/zh/ui-db-backup.png)
 
 **物料仓库状态**：本地 `warehouse/` 的安装包与镜像按架构盘点，缺什么一目了然。
 
-![物料仓库状态](docs/images/ui-warehouse.png)
+![物料仓库状态](docs/images/zh/ui-warehouse.png)
 
 **生成预览**：打包前可直接查看生成的 docker-compose.yml / .env / manifest.sh。
 
-![生成预览](docs/images/ui-preview.png)
+![生成预览](docs/images/zh/ui-preview.png)
 
 ## 📦 一、本地打包
 
@@ -423,7 +423,7 @@ warehouse/images/postgres/15.19/arm64.tar   ← postgres-15.19-arm64.tar 放这�
 再装中间件（纯集群包建完集群即结束）。**当前开放 amd64（x86_64）；arm64（鲲鹏/飞腾）
 后续开放**（页面勾选时会给提示）。
 
-![Kubernetes 集群卡片](docs/images/ui-cluster-card.png)
+![Kubernetes 集群卡片](docs/images/zh/ui-cluster-card.png)
 
 集群参数（版本/CNI/CIDR/kube-proxy 模式等双列表单）、部署模式（**纯离线**：二进制+镜像
 全本地，镜像按原生 tag 打包收集、部署前导入节点 containerd，全程不访问外网 / **在线**：节点
@@ -431,7 +431,7 @@ warehouse/images/postgres/15.19/arm64.tar   ← postgres-15.19-arm64.tar 放这�
 与节点角色分配，全部在与 MySQL/Redis/Kafka 多机形态同一处的「部署形态」区完成；
 服务器池里改别名/IP，下方角色分配的节点标签实时联动：
 
-![集群参数与角色分配](docs/images/ui-cluster-form.png)
+![集群参数与角色分配](docs/images/zh/ui-cluster-form.png)
 
 **控制面 HA**：多控制面节点时可选 kube-vip（填同网段空闲 VIP，kk 自动选网卡并漂移）或
 haproxy（各节点静态 Pod 本机转发，端点地址填域名或 127.0.0.2）；「集群高级配置」还提供
@@ -444,14 +444,14 @@ helm 覆盖 ipipMode/vxlanMode/mtu）、**DNS 覆盖**（CoreDNS/NodeLocalDNS �
 生成预览会多出「集群 inventory」「集群 config」两个标签页，实时展示将打进包里的
 inventory.yaml / config.yaml：
 
-![K8s 预览标签页](docs/images/ui-cluster-preview.png)
+![K8s 预览标签页](docs/images/zh/ui-cluster-preview.png)
 
 物料缺失**打包时自动补齐**：二进制组件从国内可达源自动下载（带每组件进度）；
 离线镜像包用 Docker Desktop 按原生 tag 自动收集（`docker pull` 国内镜像源 → `docker save`，
 v1.28+flannel 实测 639MB，10 个镜像一次收齐）；CNI chart 从 GitHub 镜像源自动下载；
 仅无法自动补齐的物料才会提示放置路径：
 
-![打包完成与历史产物](docs/images/ui-cluster-packdone.png)
+![历史产物](docs/images/zh/ui-cluster-packdone.png)
 
 本地已用容器化双节点（Ubuntu 22.04 systemd + SSH）完成端到端验证：kk 全流程 340 个任务
 0 失败、双节点注册、幂等重跑通过，过程与修复记录见
