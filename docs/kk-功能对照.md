@@ -34,22 +34,37 @@
 
 | kk 能力 | 现状 | 备注 |
 |---|---|---|
-| 私有镜像仓库部署(harbor/docker-registry + HA) | 页面无表单 | config `image_registry.type`;需 registry 节点角色配合(角色已支持) |
-| 外部 etcd 集群(独立部署) | 页面无表单 | inventory `etcd` 组指向独立节点 + config etcd 部署类型 |
+| 外部 etcd 集群(独立部署) | 页面无表单 | inventory `etcd` 组指向独立节点 + config `etcd.deployment_type: external` |
 | 双栈 IPv6 | 页面无表单 | pod_cidr 双族 + inventory internal_ipv6 |
-| 多 CNI(multus/spiderpool) | 页面无表单 | config `cni.multi_cni` |
-| 存储配置(localpv/nfs storageclass、节点磁盘格式化) | 页面无表单 | config `storage.*` / inventory `storage` 字段 |
-| NTP 服务器自定义 | 页面无表单(固定关) | config `native.ntp`(内网 NTP 场景常用, 优先级较高) |
+| Multi-CNI spiderpool | 仅 multus 有表单 | config `cni.multi_cni: spiderpool`(离线镜像收集未覆盖 spiderpool, 需在线) |
 | HTTP 代理 | 页面无表单 | config 代理段(有网代理环境) |
-| kubelet/kubeadm 参数自定义 | 页面无表单 | config `kubernetes.kubelet` 等 |
 | 节点标签/taint 自定义 | 页面无表单 | config `kubernetes.custom_labels/taints` |
 | hooks(pre/post install 脚本) | 页面无表单 | 项目 hooks 目录 |
 | 逐节点差异化凭据(密钥/密码混用) | 统一凭据 | inventory `connector.private_key` |
 | 集群内 NFS/存储服务器角色 | 角色已支持(registry/nfs 组), 页面无 nfs 角色项 | inventory `nfs` 组 |
+| kube-vip BGP 模式 | 页面无表单(默认 ARP) | config `control_plane_endpoint.kube_vip.mode` |
 
-## 四、优先级建议(结合离线交付场景)
+## 四、页面已有表单(此前列在"暂未覆盖", 现已落地)
 
-1. **NTP 自定义**(内网 NTP 源常见, 配置项小)
-2. **私有镜像仓库表单**(harbor 型交付常见; registry 角色已有)
-3. **存储配置表单**(storageclass 是集群交付的常见后续)
-4. 外部 etcd / 双栈 IPv6(按客户环境按需)
+| kk 能力 | config 键 |
+|---|---|
+| 私有镜像仓库(harbor/docker-registry + HA VIP) | `image_registry.type` / `ha_vip`(需 registry 角色节点) |
+| 存储配置(localpv/nfs storageclass) | `storage_class.*` |
+| NTP 服务器自定义 | `native.ntp` |
+| kubelet 参数(max-pods/extra_args/extra_config/root-dir) | `kubernetes.kubelet.*` |
+| etcd 数据目录与调优(心跳/选举/压缩/配额等 9 参数) | `etcd.env.*` |
+| Multi-CNI multus(含镜像 tag) | `cni.multi_cni` / `cni.multus.image.tag` |
+| Calico 专属调优(ipipMode/vxlanMode/mtu) | `cni.calico.values`(helm values 透传) |
+| Pod/Service CIDR + 每节点 Pod 子网掩码 | `cni.pod_cidr` / `service_cidr` / `ipv4_mask_size` |
+| CRI 运行时选择(containerd/docker) | `cri.container_manager`(docker 仅在线) |
+| CoreDNS/NodeLocalDNS 镜像 tag 与启停 | `dns.coredns.image.tag` / `dns.nodelocaldns.*` |
+| 证书续期(安装时开关 + crontab) | `kubernetes.certs.renew` + 部署 crontab |
+| kubeadm 配置备份目录 | `kubernetes.backup.kubeadm_config_dir` |
+| 控制面 HA(kube-vip/haproxy + VIP) | `control_plane_endpoint.{type,host,kube_vip.address}` |
+
+## 五、优先级建议(结合离线交付场景)
+
+1. 外部 etcd(独立 3 节点交付场景偶见)
+2. HTTP 代理(有网代理环境)
+3. 节点标签/taint(业务调度约束)
+4. 双栈 IPv6 / kube-vip BGP(按客户环境按需)

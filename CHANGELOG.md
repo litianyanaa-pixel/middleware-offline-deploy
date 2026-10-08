@@ -2,6 +2,37 @@
 
 按时间倒序记录每次功能与修复。`docs/` 演示站随前端改动同步更新。
 
+## 2026-10-08（K8s 集群配置对齐 kk v4 + 多机同端口）
+
+- **逐条对照 KubeKey v4 源码核查打包器生成的 config.yaml，修三处键位差异、补齐缺失能力**：
+  - **etcd 数据目录键位修正（重要）**：v4 只读 `etcd.env.data_dir`（kk etcd 模板逐键消费
+    `.etcd.env.*`），此前生成的顶层 `etcd.data_dir` 是旧版 kk 的键，v4 静默忽略 → 数据仍落
+    `/var/lib/etcd` 而非自定义目录；已移入 `env` 并透出 etcd 调优 9 参数（心跳/选举/压缩保留/
+    快照/后端配额/请求上限/max_snapshots/max_wals/log_level，白名单校验）
+  - **kubelet 无需改**：`kubelet_args` 列表是 kk v1~v3 旧格式，v4 走 `kubelet.extra_args` map
+    （kubeadm v1beta4 经 mapToNamedStringArgs 自动加 `--` 前缀），打包器现有生成即正确
+  - **localpv 无需改**：v4 键就是 `storage_class.local.path`（`base_path` 是 kk v3 旧键）
+- **控制面 HA 补 VIP 表单**（此前 kube-vip/haproxy 选了也无处填 VIP）：kube-vip 模式除
+  `control_plane_endpoint.host` 外同步写入 `kube_vip.address`（空值会让静态 Pod 拿到空
+  vip_address；kk 按该地址所在网段自动发现网卡并漂移 VIP）；haproxy 模式提示填域名或 127.0.0.2
+- **证书与备份入口**：安装时续期开关（`kubernetes.certs.renew`）+ 续期 crontab（部署后写入
+  主部署机 crontab 执行 `kk certs renew`，此链路原已存在仅缺 UI）+ kubeadm 配置带时间戳备份
+  目录（`kubernetes.backup.kubeadm_config_dir`，kk post_install 每次部署自动备份，留空禁用）
+- **CRI 运行时选择**：`cri.container_manager`（containerd 默认 / docker 仅在线安装——纯离线
+  物料与预装流程只含 containerd，K8s ≥1.24 的 docker 由 kk 自动装 cri-dockerd）
+- **CNI 扩展**：每节点 Pod 子网掩码 `cni.ipv4_mask_size`、Multi-CNI multus（含镜像 tag，
+  离线镜像清单同步收集 `multus-cni`）、**Calico values 原样透传 helm**（`cni.calico.values`，
+  v4 无独立 ipipMode/vxlanMode/mtu 键，靠 `-f` 自定义 values；YAML mapping 前置校验，非
+  calico 自动忽略并告警）
+- **DNS 覆盖**：CoreDNS/NodeLocalDNS 镜像 tag 与启停（`dns.*`；离线镜像清单同步用覆盖后的
+  tag，关闭 nodelocaldns 时不再收集对应镜像）
+- **多机主从允许主从同端口**：多机形态下从库/哨兵端口只存在于远端节点，放开与主库等端口的
+  全局冲突校验（mysql8/mysql57/redis）；单机主从仍同机查重；kafka 多机节点组端口本就每台一致
+- **kk-功能对照表重写**：NTP/存储/私有仓库/多CNI/kubelet/etcd 调优等十余项早已落地表单的
+  能力从"暂未覆盖"移入"页面已有表单"，遗留项收敛为外部 etcd/双栈/HTTP 代理/BGP 等
+- 回归：tests 51 passed 1 skipped（新增 etcd env/HA VIP/CRI+CNI+DNS/校验矩阵/多机同端口
+  5 组用例）；docs/packer.html 已同步
+
 ## 2026-10-08（静态演示站同步机制 + 部署位置提醒）
 
 - **修复多机部署从库端口输入框显示 undefined**：端口映射卡片追加的从库/哨兵端口定义

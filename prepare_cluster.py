@@ -319,25 +319,32 @@ def cluster_images_tar_name(kube_version, cni_type, arch=ARCH):
     return "k8s-%s-%s-%s-images.tar" % (kube_version.lstrip("v"), cni_type, arch)
 
 
-def k8s_image_specs(ccat, kube_version, cni_type, ha_type="local", storage=None, arch=ARCH):
+def k8s_image_specs(ccat, kube_version, cni_type, ha_type="local", storage=None, arch=ARCH,
+                    dns=None, multi_cni="none", multi_cni_tag=""):
     """纯离线模式所需镜像清单(原生 registry tag, 部署前导入节点 containerd)。
-    覆盖: 控制面+CoreDNS+NodeLocalDNS+etcd+CNI(+HA 端点+存储类)。
-    与 kk 各角色模板实际引用的镜像严格一致; 版本号取自 versions.json(对齐 kk per-minor vars)。"""
+    覆盖: 控制面+CoreDNS+NodeLocalDNS+etcd+CNI(+HA 端点+存储类+Multi-CNI)。
+    与 kk 各角色模板实际引用的镜像严格一致; 版本号取自 versions.json(对齐 kk per-minor vars),
+    dns 覆盖 tag 时以覆盖值为准(离线导入的镜像必须与 config.yaml 生成的 tag 一致)。"""
     ver = ccat["versions"][kube_version]
     comps = ver.get("components") or {}
+    dns = dns or {}
     images = [
         "registry.k8s.io/kube-apiserver:%s" % kube_version,
         "registry.k8s.io/kube-controller-manager:%s" % kube_version,
         "registry.k8s.io/kube-scheduler:%s" % kube_version,
         "registry.k8s.io/kube-proxy:%s" % kube_version,
         "registry.k8s.io/pause:%s" % (ver.get("sandbox_image_tag") or "3.9"),
-        "registry.k8s.io/coredns/coredns:%s" % (ver.get("coredns_tag") or ""),
-        # NodeLocalDNS 默认启用(kk 05-dns defaults), kubelet clusterDNS 指向 169.254.25.10
-        "registry.k8s.io/dns/k8s-dns-node-cache:%s" % (ver.get("nodelocaldns_tag") or ""),
-        # docker.io 单路径镜像必须写 library 全称: containerd 会把 docker.io/etcd 规范化成
-        # docker.io/library/etcd 再查本地, tag 少了 library 会 miss 后转在线拉取
-        "docker.io/library/etcd:%s" % ((comps.get("etcd") or {}).get("version") or ""),
+        "registry.k8s.io/coredns/coredns:%s" % (dns.get("coredns_tag") or ver.get("coredns_tag") or ""),
     ]
+    if dns.get("nodelocaldns_enabled") is not False:
+        # NodeLocalDNS 默认启用(kk 05-dns defaults), kubelet clusterDNS 指向 169.254.25.10
+        images.append("registry.k8s.io/dns/k8s-dns-node-cache:%s"
+                      % (dns.get("nodelocaldns_tag") or ver.get("nodelocaldns_tag") or ""))
+    if multi_cni == "multus":
+        images.append("ghcr.io/k8snetworkplumbingwg/multus-cni:%s" % (multi_cni_tag or "v4.3.0"))
+    # docker.io 单路径镜像必须写 library 全称: containerd 会把 docker.io/etcd 规范化成
+    # docker.io/library/etcd 再查本地, tag 少了 library 会 miss 后转在线拉取
+    images.append("docker.io/library/etcd:%s" % ((comps.get("etcd") or {}).get("version") or ""))
     cni_ver = (ver.get("cni_versions") or {}).get(cni_type) or ver.get("cni_plugin", {}).get("version", "")
     if cni_type == "flannel":
         # flannel chart 的镜像在 ghcr.io(kk values 仅覆写 repository 前缀, tag 跟随 chart)

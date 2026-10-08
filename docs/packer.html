@@ -591,7 +591,10 @@ const state = { ports: {}, secrets: {}, db: {}, extra: {}, backup: null, proxies
   servers: [],
   cluster: { enabled: false, kube_version: '', mode: 'cache', cni_type: 'calico', proxy_mode: 'iptables',
              pod_cidr: '10.233.64.0/18', service_cidr: '10.233.0.0/18', timezone: 'Asia/Shanghai', os_distros: [], roles: {},
-             ha_type: 'local', ha_vip: '', upgrade_to: '', k8s_image_registry: '' },
+             ha_type: 'local', ha_vip: '', upgrade_to: '', k8s_image_registry: '',
+             container_manager: 'containerd', ipv4_mask_size: 24, multi_cni: 'none', multi_cni_tag: '',
+             calico_values: '', dns: { coredns_tag: '', nodelocaldns_enabled: true, nodelocaldns_tag: '' },
+             certs_renew_cron: '', kubeadm_config_dir: '/etc/kubekey/backup/kubernetes' },
   mh: { kafka: { enabled:false, count:3, brokers:[null,null,null] },
         mysql8: { enabled:false, master:null, replicas:[null] },
         mysql57: { enabled:false, master:null, replicas:[null] },
@@ -714,6 +717,24 @@ const EN_DICT = {
   "与 Docker 加速器同一批实测源; K8s 组件镜像在离线/zone=cn 模式下自动走集群内仓库或国内源": "same verified mirrors as Docker; K8s images go through the in-cluster registry or CN mirrors in offline/zone=cn mode",
   "镜像源前缀用于在线/镜像下载的仓库地址; 节点 containerd 侧的加速器即下方「镜像加速」": "prefix for online/image download repos; node-side containerd mirrors are the 'Registry mirrors' below",
   "部署在分配了「镜像仓库」角色的节点; 多仓库节点自动 keepalived HA": "deployed on nodes with the 'registry' role; keepalived HA automatically with multiple registry nodes",
+  "CRI 运行时": "Container runtime", "Pod 子网掩码": "Pod subnet mask",
+  "docker 运行时仅支持在线安装(K8s ≥1.24 由 kk 自动装 cri-dockerd); 纯离线包只预装 containerd": "docker runtime is online-install only (kk auto-installs cri-dockerd for K8s ≥1.24); offline bundles preinstall containerd",
+  "Multi-CNI": "Multi-CNI", "Multus 镜像 tag": "Multus image tag",
+  "Calico values 覆盖": "Calico values override",
+  "Calico 专属调优(ipipMode/vxlanMode/mtu 等)经此透传; 留空用 kk 默认 values": "Calico-specific tuning (ipipMode/vxlanMode/mtu etc.) passes through here; leave empty for kk defaults",
+  "etcd 高级参数": "etcd advanced params", "kubeadm 备份目录": "kubeadm backup dir",
+  "etcd 参数写入 config 的 etcd.env(data_dir 同); kubeadm-config 每次部署自动带时间戳备份到该目录": "etcd params go under etcd.env in the config (data_dir included); kubeadm-config is timestamp-backed-up there on every deploy",
+  "CoreDNS 镜像 tag": "CoreDNS image tag",
+  "NodeLocalDNS 镜像 tag, 可选": "NodeLocalDNS image tag (optional)",
+  "证书续期 crontab": "Cert renewal crontab", "安装时证书续期": "Renew certs at install",
+  "如 0 0 1 * * (每月 1 号零点续期); 留空=不启用": "e.g. 0 0 1 * * (renew at midnight on day 1 monthly); empty = disabled",
+  "部署时执行一轮 kubeadm certs renew (默认开)": "run one round of kubeadm certs renew during deploy (on by default)",
+  "crontab 在主部署机执行 kk certs renew 并自动重启控制面静态 Pod(日志 /var/log/kk-certs-renew.log); kk 侧安装续期由 kubernetes.certs.renew 控制": "the crontab runs kk certs renew on the primary deploy machine and restarts control-plane static pods (log: /var/log/kk-certs-renew.log); install-time renewal is controlled by kubernetes.certs.renew",
+  "kube-vip VIP / 端点地址": "kube-vip VIP / endpoint address",
+  "必填: 控制面同网段空闲 IP, 如 10.0.0.100": "required: a free IP in the control-plane subnet, e.g. 10.0.0.100",
+  "必填: 如 lb.example.com 或 127.0.0.2": "required: e.g. lb.example.com or 127.0.0.2",
+  "kube-vip 以静态 Pod 跑在控制面节点: VIP 须与节点同网段且未被占用, kk 自动选择网卡并漂移 VIP": "kube-vip runs as a static pod on control-plane nodes: the VIP must be free and in the same subnet; kk auto-picks the NIC and floats the VIP",
+  "haproxy 静态 Pod 在每个节点本机转发 API(后端自动指向控制面节点); 端点地址写域名或 127.0.0.2 即可": "a haproxy static pod forwards the API on every node (backends auto-point to control planes); use a DNS name or 127.0.0.2 as the endpoint",
   "数据目录 / 运行时参数 / 镜像加速 / NTP / 存储 / 私有镜像仓库": "data dirs / runtime args / mirrors / NTP / storage / private registry",
   "containerd 2.x 依赖 glibc ≥ 2.35, 老系统请勾选静态构建或降级 1.7.x": "containerd 2.x needs glibc >= 2.35; use static build or 1.7.x on older distros",
   "开源发行版依赖包已内置": "packages for open-source distros are bundled",
@@ -754,6 +775,9 @@ const EN_DICT = {
   "artifact 产物 (含镜像, 推荐)": "artifact bundle (with images, recommended)",
   "二进制缓存 (镜像走内网仓库)": "binary cache (images via intranet registry)",
   "iptables (旧内核安全)": "iptables (safe on old kernels)", "nftables (需内核≥5.13)": "nftables (kernel >= 5.13)",
+  "containerd (默认)": "containerd (default)", "docker (仅在线安装)": "docker (online only)",
+  "none (默认)": "none (default)", "multus (Pod 多网卡)": "multus (multi-NIC pods)",
+  "启用 NodeLocalDNS (默认开)": "Enable NodeLocalDNS (on by default)",
   "MySQL 5.7 不支持 arm64": "MySQL 5.7 has no arm64 image",
   "已恢复上次填写的配置": "Restored your last configuration",
   "配置已导出, 可用 python packer.py --config 直接打包": "Config exported; pack with python packer.py --config",
@@ -1225,6 +1249,8 @@ function renderInfraTopology(){
       '<option value="kube-vip" '+(haType==='kube-vip'?'selected':'')+'>kube-vip (推荐)</option>'+
       '<option value="haproxy" '+(haType==='haproxy'?'selected':'')+'>haproxy</option></select>'
     : '<input type="text" value="local (单控制面)" disabled>';
+  // kube-vip/haproxy 必须提供端点地址(字段在下方 html 拼接区渲染, 依赖 kfTxt/kHint)
+  const showVip = haType !== 'local';
   const modeShown = cl.mode === 'artifact' ? 'cache' : cl.mode;   // 旧配置的 artifact 模式并入纯离线展示
   const modeOpts = [
     ['cache', '纯离线 (二进制+镜像全本地)', '镜像打包时按原生 tag 收集, 部署前导入节点本地 containerd, 全程不访问外网'],
@@ -1270,6 +1296,11 @@ function renderInfraTopology(){
     kfRow('控制面 HA', haField, 'kube-proxy 模式', '<select data-cf="proxy_mode">'+
       '<option value="iptables" '+(cl.proxy_mode==='iptables'?'selected':'')+'>iptables (旧内核安全)</option>'+
       '<option value="nftables" '+(cl.proxy_mode==='nftables'?'selected':'')+'>nftables (需内核≥5.13)</option></select>')+
+    (showVip ? kfRow('kube-vip VIP / 端点地址', kfTxt('ha_vip', cl.ha_vip,
+        haType==='kube-vip' ? '必填: 控制面同网段空闲 IP, 如 10.0.0.100' : '必填: 如 lb.example.com 或 127.0.0.2')) : '')+
+    (showVip ? (haType==='kube-vip'
+        ? kHint('kube-vip 以静态 Pod 跑在控制面节点: VIP 须与节点同网段且未被占用, kk 自动选择网卡并漂移 VIP')
+        : kHint('haproxy 静态 Pod 在每个节点本机转发 API(后端自动指向控制面节点); 端点地址写域名或 127.0.0.2 即可')) : '')+
     kfRow('时区', kfTxt('timezone', cl.timezone), '升级包', '<select data-cf="upgrade_to">'+upOpts+'</select>')+
     kHint('附带目标版本 kube 三件套与 upgrade-cluster.sh, 打包时自动下载目标版本二进制')+
     kfRow('安装方式', '<div class="kinline">'+modeOpts+'</div>')+
@@ -1285,6 +1316,11 @@ function renderInfraTopology(){
   const ir = cl.image_registry || {};
   const ntp = cl.ntp || {};
   const adv =
+    kfRow('CRI 运行时', '<select data-cf="container_manager">'+
+      '<option value="containerd" '+(cl.container_manager!=='docker'?'selected':'')+'>containerd (默认)</option>'+
+      '<option value="docker" '+(cl.container_manager==='docker'?'selected':'')+'>docker (仅在线安装)</option></select>',
+      'Pod 子网掩码', kfTxt('ipv4_mask_size', cl.ipv4_mask_size, '每节点 Pod 子网掩码, 默认 24'))+
+    kHint('docker 运行时仅支持在线安装(K8s ≥1.24 由 kk 自动装 cri-dockerd); 纯离线包只预装 containerd')+
     kfRow('containerd 数据目录', kfTxt('components.containerd_root', comp.containerd_root, '/var/lib/containerd'),
         'docker 数据目录', kfTxt('components.docker_root', comp.docker_root, '/var/lib/docker'))+
     kfRow('etcd 数据目录', kfTxt('components.etcd_dir', comp.etcd_dir, '/var/lib/etcd'),
@@ -1295,6 +1331,16 @@ function renderInfraTopology(){
     kHint('containerd 2.x 依赖 glibc ≥ 2.35, 老系统请勾选静态构建或降级 1.7.x')+
     kfRow('kubelet 扩展参数', kfLines('kubelet.extra_args', kl.extra_args, 3, '每行一个: key=value (如 system-reserved=memory=300Mi)'))+
     kfRow('kubelet 扩展配置', '<textarea data-cft="kubelet.extra_config" rows="4" placeholder="KubeletConfiguration 追加字段 (YAML 缩进), 如 maxOpenFiles: 1000000">'+esc(kl.extra_config||'')+'</textarea>')+
+    kfRow('etcd 高级参数', kfLines('components.etcd_env', comp.etcd_env, 3,
+        '每行 key=value, 可选: heartbeat_interval / election_timeout / compaction_retention / snapshot_count / quota_backend_bytes / max_request_bytes / max_snapshots / max_wals / log_level'),
+        'kubeadm 备份目录', kfTxt('kubeadm_config_dir', cl.kubeadm_config_dir, '/etc/kubekey/backup/kubernetes, 留空=禁用'))+
+    kHint('etcd 参数写入 config 的 etcd.env(data_dir 同); kubeadm-config 每次部署自动带时间戳备份到该目录')+
+    kfRow('Multi-CNI', '<select data-cf="multi_cni">'+
+      '<option value="none" '+(cl.multi_cni!=='multus'?'selected':'')+'>none (默认)</option>'+
+      '<option value="multus" '+(cl.multi_cni==='multus'?'selected':'')+'>multus (Pod 多网卡)</option></select>',
+      'Multus 镜像 tag', kfTxt('multi_cni_tag', cl.multi_cni_tag, '可选, 默认 v4.3.0'))+
+    kfRow('Calico values 覆盖', '<textarea data-cft="calico_values" rows="5" placeholder="仅 CNI=calico 生效; 原样透传 helm -f, 可配置 ipipMode / vxlanMode / mtu 等, 如:\ninstallation:\n  calicoNetwork:\n    ipipMode: Always\n    vxlanMode: Never\n    mtu: 1440">'+esc(cl.calico_values||'')+'</textarea>')+
+    kHint('Calico 专属调优(ipipMode/vxlanMode/mtu 等)经此透传; 留空用 kk 默认 values')+
     kfRow('节点 hostname', kfChk('set_hostname', cl.set_hostname !== false, '由 kk 设置节点 hostname (容器验证等特殊场景可关)'),
         'K8s 镜像源前缀', kfTxt('k8s_image_registry', cl.k8s_image_registry, '如 hub.kubesphere.com.cn'))+
     kHint('镜像源前缀用于在线/镜像下载的仓库地址; 节点 containerd 侧的加速器即下方「镜像加速」')+
@@ -1303,6 +1349,12 @@ function renderInfraTopology(){
       '与 Docker 加速器同一批实测源; K8s 组件镜像在离线/zone=cn 模式下自动走集群内仓库或国内源')+
     kfRow('NTP 服务器', kfChk('ntp.enabled', ntp.enabled, '自定义时间同步 (默认关闭, 部署脚本只设时区)')+
       '<div style="margin-top:6px">'+kfLines('ntp.servers', ntp.servers, 2, '每行一台 NTP 服务器, 如 ntp.internal.corp')+'</div>')+
+    kfRow('CoreDNS 镜像 tag', kfTxt('dns.coredns_tag', (cl.dns||{}).coredns_tag, '可选, 默认跟随 kk 版本矩阵'),
+        'NodeLocalDNS', kfChk('dns.nodelocaldns_enabled', (cl.dns||{}).nodelocaldns_enabled !== false, '启用 NodeLocalDNS (默认开)')+
+      '<div style="margin-top:6px">'+kfTxt('dns.nodelocaldns_tag', (cl.dns||{}).nodelocaldns_tag, 'NodeLocalDNS 镜像 tag, 可选')+'</div>')+
+    kfRow('证书续期 crontab', kfTxt('certs_renew_cron', cl.certs_renew_cron, '如 0 0 1 * * (每月 1 号零点续期); 留空=不启用'),
+        '安装时证书续期', kfChk('certs_renew', cl.certs_renew !== false, '部署时执行一轮 kubeadm certs renew (默认开)'))+
+    kHint('crontab 在主部署机执行 kk certs renew 并自动重启控制面静态 Pod(日志 /var/log/kk-certs-renew.log); kk 侧安装续期由 kubernetes.certs.renew 控制')+
     kfRow('localpv 存储类', kfChk('storage.localpv_enabled', st.localpv_enabled, '启用 localpv 存储类')+
       '<div style="margin-top:6px">'+kfTxt('storage.localpv_path', st.localpv_path, '/var/openebs/local')+'</div>')+
     kfRow('NFS 存储类', kfChk('storage.nfs_enabled', st.nfs_enabled, '启用 NFS 存储类')+
@@ -1317,7 +1369,7 @@ function renderInfraTopology(){
       '<div style="margin-top:6px">'+kfTxt('image_registry.vip', ir.vip, 'HA VIP(可选)')+'</div>',
       '部署在分配了「镜像仓库」角色的节点; 多仓库节点自动 keepalived HA');
 
-  html += '<details style="margin-top:14px"><summary style="cursor:pointer"><h3 class="cat-h" style="margin:0">集群高级配置 <span class="hint">(数据目录 / 运行时参数 / 镜像加速 / NTP / 存储 / 私有镜像仓库)</span></h3></summary>'+
+  html += '<details style="margin-top:14px"><summary style="cursor:pointer"><h3 class="cat-h" style="margin:0">集群高级配置 <span class="hint">(运行时 / 数据目录 / etcd 调优 / Multi-CNI / Calico / DNS / 证书与备份 / 镜像加速 / NTP / 存储 / 私有镜像仓库)</span></h3></summary>'+
     '<div style="margin-top:10px"><div class="kform">'+adv+'</div></div></details>';
 
   box.innerHTML = html;
@@ -1370,6 +1422,7 @@ function bindInfraEvents(box){
   box.querySelectorAll('select[data-cf],input[data-cf]').forEach(i => i.oninput = () => {
     setPath(state.cluster, i.dataset.cf, i.value);
     if (i.dataset.cf === 'kube_version'){ renderClusterCard(); updateStat(); }
+    if (i.dataset.cf === 'ha_type'){ saveLocal(); renderInfraTopology(); return; }   // 重渲染以显示/隐藏 VIP 行
     saveLocal();
   });
   box.querySelectorAll('input[data-cfb]').forEach(c => c.onchange = () => {
@@ -2270,7 +2323,12 @@ function applyConfig(cfg){
   state.cluster = Object.assign({ enabled: false, kube_version: '', mode: 'cache', cni_type: 'calico',
     proxy_mode: 'iptables', pod_cidr: '10.233.64.0/18', service_cidr: '10.233.0.0/18',
     timezone: 'Asia/Shanghai', os_distros: [], roles: {}, ha_type: 'local', ha_vip: '', upgrade_to: '',
-    k8s_image_registry: '' }, cfg.cluster || {});
+    k8s_image_registry: '', container_manager: 'containerd', ipv4_mask_size: 24,
+    multi_cni: 'none', multi_cni_tag: '', calico_values: '',
+    dns: { coredns_tag: '', nodelocaldns_enabled: true, nodelocaldns_tag: '' },
+    certs_renew_cron: '', kubeadm_config_dir: '/etc/kubekey/backup/kubernetes' }, cfg.cluster || {});
+  state.cluster.dns = Object.assign({ coredns_tag: '', nodelocaldns_enabled: true, nodelocaldns_tag: '' },
+    (state.cluster.dns) || {});
   // artifact 模式已下线(界面只留 纯离线/在线), 旧配置归一为纯离线, 避免页面勾选与实际打包不符
   if (state.cluster.mode === 'artifact') state.cluster.mode = 'cache';
   const bd = cfg.backup || {};

@@ -64,12 +64,20 @@ export KUBECONFIG=/etc/kubernetes/admin.conf && kubectl get nodes
 ## 能力边界与回归
 
 - 集群暂仅支持 amd64;arm64(鲲鹏/飞腾)后续开放(kk 构建已备好, 页面勾选时给出提示)
-- **三种安装方式**: artifact(离线含镜像) / 二进制缓存(离线) / **在线安装**(联网, 国区自动 zone=cn 走国内源)
-- 控制面高可用:≥2 台控制面时页面出现 HA 表单(kube-vip/haproxy + VIP);单控制面用 local
-- **部署目录可定制**:containerd/docker 数据目录、etcd 数据目录(页面高级区)
+- 控制面高可用:≥2 台控制面时页面出现 HA 表单;**kube-vip 填同网段空闲 VIP**(kk 自动选网卡并漂移,
+  同步写入 `control_plane_endpoint.kube_vip.address`),**haproxy** 端点地址填域名或 127.0.0.2;单控制面用 local
+- **三种安装方式**: 纯离线(二进制+镜像全本地) / **在线安装**(联网, 国区自动 zone=cn 走国内源)
+- **CRI 运行时可选**: containerd(默认, 离线+在线均可) / docker(仅在线安装, K8s ≥1.24 由 kk 自动装 cri-dockerd)
+- **部署目录可定制**:containerd/docker 数据目录、etcd 数据目录(写入 `etcd.env.data_dir`, v4 只认 env 下的键)、kubelet root-dir
+- **etcd 调优**:心跳/选举/压缩/快照/配额/请求上限/日志级别等 9 个白名单参数(`etcd.env.*`, 见 kk etcd.env 模板)
+- **CNI 扩展**:每节点 Pod 子网掩码(`ipv4_mask_size`)、Multi-CNI multus(离线镜像自动收集)、
+  Calico values 原样透传 helm(`cni.calico.values`, 可配 ipipMode/vxlanMode/mtu 等)
+- **DNS 覆盖**:CoreDNS/NodeLocalDNS 镜像 tag 与启停(`dns.*`; 离线镜像清单同步用覆盖后的 tag)
 - **运行时参数**:kubelet max-pods/extra_args/extra_config;containerd 静态构建(glibc<2.35 老系统)与版本覆盖
 - **containerd 镜像加速**:页面配置(作用于 docker.io 拉取);K8s 组件镜像在离线/zone=cn 下自动走集群内仓库或国内源
-- NTP 自定义 / 存储类(localpv、NFS)/ 私有镜像仓库(Harbor/Docker Registry, 需 registry 角色节点)/ 证书自动续期 crontab —— 均在页面高级区
+- NTP 自定义 / 存储类(localpv、NFS)/ 私有镜像仓库(Harbor/Docker Registry, 需 registry 角色节点) —— 均在页面高级区
+- **证书与备份**:安装时 kubeadm certs renew 开关(`kubernetes.certs.renew`, 默认开)+ 续期 crontab
+  (部署后写入主部署机 crontab)+ kubeadm 配置带时间戳备份目录(`kubernetes.backup.kubeadm_config_dir`, 留空禁用)
 - 升级包:页面选目标版本 → 包内附带 kube 三件套 + upgrade-cluster.sh;目标版本二进制打包时自动下载
 - 离线完整性:cache 二进制随包携带 sha256 清单, 部署机校验通过才铺缓存
 - 下载源自定义:versions.json `cluster.download_mirrors.github_mirrors`(GitHub 资源镜像列表, 备料脚本与打包时自动下载共用)

@@ -36,6 +36,8 @@ import webbrowser
 from datetime import datetime
 from pathlib import Path
 
+import yaml
+
 BASE_DIR = Path(__file__).resolve().parent
 CATALOG_FILE = BASE_DIR / "versions.json"
 PLUGINS_DIR = BASE_DIR / "plugins"
@@ -189,6 +191,14 @@ def gen_nacos_token():
 
 
 # ---------------------------------------------------------------- 配置校验
+
+# etcd 高级参数白名单(kk builtin etcd.env 模板逐键消费; int 键做数值校验, log_level 为枚举)
+_ETCD_ENV_KEYS = {"heartbeat_interval": int, "election_timeout": int, "compaction_retention": int,
+                  "snapshot_count": int, "quota_backend_bytes": int, "max_request_bytes": int,
+                  "max_snapshots": int, "max_wals": int, "log_level": str}
+_ETCD_ENV_ORDER = ("heartbeat_interval", "election_timeout", "compaction_retention", "snapshot_count",
+                   "quota_backend_bytes", "max_request_bytes", "max_snapshots", "max_wals", "log_level")
+
 
 def validate_config(cfg, catalog):
     """校验+规范化配置, 返回 (norm_cfg, warnings)"""
@@ -344,6 +354,23 @@ def validate_config(cfg, catalog):
         if components["containerd_version_override"] and not re.match(r"^v\d+\.\d+", components["containerd_version_override"]):
             raise PackError("containerd 版本覆盖不合法: %s|Invalid containerd version override: %s"
                             % (components["containerd_version_override"], components["containerd_version_override"]))
+        # etcd 高级参数(etcd.env.*; 键为 kk etcd 模板认的白名单, 值类型受限)
+        etcd_env = {}
+        for kv in (comps_raw.get("etcd_env") or []):
+            k, _, v = str(kv).partition("=")
+            k, v = k.strip(), v.strip()
+            if not k or not v:
+                raise PackError("etcd 高级参数需为 key=value: %s|etcd advanced param must be key=value: %s" % (kv, kv))
+            if k not in _ETCD_ENV_KEYS:
+                raise PackError("etcd 高级参数不支持: %s (可选: %s)|Unsupported etcd param: %s (allowed: %s)"
+                                % (k, ", ".join(sorted(_ETCD_ENV_KEYS)), k, ", ".join(sorted(_ETCD_ENV_KEYS))))
+            if _ETCD_ENV_KEYS[k] is int:
+                try:
+                    v = int(v)
+                except ValueError:
+                    raise PackError("etcd 参数 %s 需为整数: %s|etcd param %s must be an integer: %s" % (k, v, k, v))
+            etcd_env[k] = v
+        components["etcd_env"] = etcd_env
         if mode == "online" and str(cluster_raw.get("zone") or "cn") == "cn" and components["static_binary"]:
             # 在线+国内源: qingstor 镜像只同步非 static 版 containerd(static-*.tar.gz 404),
             # 静态构建仅离线包/国际源(用户直连 GitHub)可信, 这里自动回退并提示
@@ -420,6 +447,43 @@ def validate_config(cfg, catalog):
         set_hostname = True if set_hostname is None else bool(set_hostname)
         # 证书自动续期 crontab(部署后写入; 空=不启用)
         certs_cron = str(cluster_raw.get("certs_renew_cron") or "").strip()
+        # CRI 运行时(kk cri.container_manager): docker 仅在线安装 — 纯离线物料与预装流程只含 containerd
+        container_manager = str(cluster_raw.get("container_manager") or "containerd").strip()
+        if container_manager not in ("containerd", "docker"):
+            raise PackError("运行时不合法: %s (containerd / docker)|Invalid container runtime: %s (containerd / docker)"
+                            % (container_manager, container_manager))
+        if container_manager == "docker" and mode != "online":
+            raise PackError("docker 运行时仅支持在线安装(纯离线物料与预装流程只含 containerd)|"
+                            "docker runtime is online-only (the offline bundle preinstalls containerd)")
+        # CNI 高级: 每节点 Pod 子网掩码(kk cni.ipv4_mask_size, 默认 24) + Multi-CNI
+        try:
+            ipv4_mask_size = int(cluster_raw.get("ipv4_mask_size") or 24)
+        except (TypeError, ValueError):
+            raise PackError("Pod 子网掩码需为整数: %s|IPv4 mask size must be an integer: %s"
+                            % (cluster_raw.get("ipv4_mask_size"), cluster_raw.get("ipv4_mask_size")))
+        if not (16 <= ipv4_mask_size <= 28):
+            raise PackError("Pod 子网掩码超出合理范围 16-28: %d|IPv4 mask size out of range 16-28: %d"
+                            % (ipv4_mask_size, ipv4_mask_size))
+        multi_cni = str(cluster_raw.get("multi_cni") or "none").strip()
+        if multi_cni not in ("none", "multus"):
+            raise PackError("Multi-CNI 不合法: %s (none / multus)|Invalid multi-CNI: %s (none / multus)" % (multi_cni, multi_cni))
+        multi_cni_tag = str(cluster_raw.get("multi_cni_tag") or "").strip()
+        if multi_cni_tag and multi_cni != "multus":
+            multi_cni_tag = ""   # 未启用 multus 时 tag 无意义, 不入库
+        # DNS 覆盖(镜像 tag; nodelocaldns_enabled 三态: None=不写, False=显式关闭)
+        dns_raw = cluster_raw.get("dns") or {}
+        dns = {"coredns_tag": str(dns_raw.get("coredns_tag") or "").strip(),
+               "nodelocaldns_tag": str(dns_raw.get("nodelocaldns_tag") or "").strip(),
+               "nodelocaldns_enabled": (bool(dns_raw["nodelocaldns_enabled"])
+                                        if dns_raw.get("nodelocaldns_enabled") is not None else None)}
+        # kubeadm 配置备份目录(kk post_install 带时间戳备份 /etc/kubernetes/kubeadm-config.yaml; 空=禁用备份)
+        kubeadm_config_dir = str(cluster_raw.get("kubeadm_config_dir") or "").strip()
+        if kubeadm_config_dir and not kubeadm_config_dir.startswith("/"):
+            raise PackError("kubeadm 备份目录需为绝对路径(留空禁用备份): %s|kubeadm backup dir must be an absolute path (empty disables backup): %s"
+                            % (kubeadm_config_dir, kubeadm_config_dir))
+        # 安装时证书续期(kk kubernetes.certs.renew, 默认开; 三态: None=不写跟随 kk 默认)
+        certs_renew = cluster_raw.get("certs_renew")
+        certs_renew = None if certs_renew is None else bool(certs_renew)
         cni_type = str(cluster_raw.get("cni_type") or (ccat["versions"][kube_ver]["cni_plugin"]["type"]))
         if cni_type not in ("calico", "cilium", "flannel", "kubeovn"):
             raise PackError("CNI 类型不合法: %s|Invalid CNI type: %s" % (cni_type, cni_type))
@@ -434,6 +498,20 @@ def validate_config(cfg, catalog):
                 raise PackError(
                     "CNI %s 不支持 Kubernetes %s (可选: %s)|CNI %s does not support Kubernetes %s (supported: %s)"
                     % (cni_type, kube_ver, sorted(ok_minors), cni_type, kube_ver, sorted(ok_minors)))
+        # Calico 自定义 values(kk cni.calico.values 透传 helm -f; 仅 CNI=calico 生效)
+        calico_values = str(cluster_raw.get("calico_values") or "").strip("\n")
+        if calico_values:
+            if cni_type != "calico":
+                warns.append("Calico values 覆盖仅在 CNI=calico 时生效, 当前 CNI=%s 已忽略|Calico values override only applies when CNI is calico (current: %s)"
+                             % (cni_type, cni_type))
+                calico_values = ""
+            else:
+                try:
+                    parsed = yaml.safe_load(calico_values)
+                    if not isinstance(parsed, dict):
+                        raise ValueError("not a mapping")
+                except Exception as e:
+                    raise PackError("Calico values 不是合法 YAML mapping: %s|Calico values is not a valid YAML mapping: %s" % (e, e))
         proxy_mode = str(cluster_raw.get("proxy_mode") or "iptables")
         if proxy_mode not in ("iptables", "nftables"):
             raise PackError("kube-proxy 模式不合法: %s (iptables / nftables)|Invalid kube-proxy mode: %s" % (proxy_mode, proxy_mode))
@@ -492,6 +570,10 @@ def validate_config(cfg, catalog):
                    "k8s_image_registry": k8s_image_registry, "set_hostname": set_hostname,
                    "ntp": ntp, "storage": storage, "image_registry": imgreg,
                    "certs_renew_cron": certs_cron,
+                   "container_manager": container_manager, "ipv4_mask_size": ipv4_mask_size,
+                   "multi_cni": multi_cni, "multi_cni_tag": multi_cni_tag,
+                   "calico_values": calico_values,
+                   "dns": dns, "kubeadm_config_dir": kubeadm_config_dir, "certs_renew": certs_renew,
                    "ha_type": ha_type, "ha_vip": ha_vip, "upgrade_to": upgrade_to,
                    "pod_cidr": cluster_raw.get("pod_cidr") or "10.233.64.0/18",
                    "service_cidr": cluster_raw.get("service_cidr") or "10.233.0.0/18",
@@ -603,6 +685,15 @@ def validate_config(cfg, catalog):
         # 多机时主部署机不运行 Kafka 容器, 单机端口键让位给节点端口组
         norm_ports.pop("kafka", None)
         norm_ports.pop("kafka_host", None)
+    # 多机形态下这些端口只存在于远端节点(主部署机不监听), 放开全局同端口冲突:
+    # 异机部署允许主库与从库同端口(每台机器端口空间独立); kafka 多机节点组端口本就每台一致。
+    # 单机主从/单机哨兵从库与主库同机, 仍走全局查重
+    mh_node_keys = set()
+    for ms in ("mysql8", "mysql57"):
+        if ms in mh:
+            mh_node_keys.add(ms + "_replica")
+    if "redis" in mh:
+        mh_node_keys |= {"redis_replica", "redis_sentinel"}
     seen_topo = set(norm_ports.values())
     for key, label, default in topo_port_defs:
         # 从用户原始 ports 取值(cfg["ports"] 已被目录归一化覆盖, 拓扑附加键不在 catalog 里会被丢掉)
@@ -613,9 +704,10 @@ def validate_config(cfg, catalog):
             raise PackError("端口 %s 不合法: %s|Invalid port for %s: %s" % (tr(label, "zh"), raw, tr(label, "en"), raw))
         if not (1 <= v <= 65535):
             raise PackError("端口 %s 超出范围 1-65535: %d|Port %s out of range 1-65535: %d" % (tr(label, "zh"), v, tr(label, "en"), v))
-        if v in seen_topo:
-            raise PackError("端口冲突: %s 与其他端口都用了 %d|Port conflict: %s conflicts on %d" % (tr(label, "zh"), v, tr(label, "en"), v))
-        seen_topo.add(v)
+        if key not in mh_node_keys and not key.startswith("kafka_mh_"):
+            if v in seen_topo:
+                raise PackError("端口冲突: %s 与其他端口都用了 %d|Port conflict: %s conflicts on %d" % (tr(label, "zh"), v, tr(label, "en"), v))
+            seen_topo.add(v)
         norm_ports[key] = v
 
     # ---- 密码/账号 ----
@@ -1646,6 +1738,9 @@ def gen_cluster_config(cfg, catalog):
     ]
     if ha_type in ("kube-vip", "haproxy") and cl.get("ha_vip"):
         lines += ["      host: %s" % _yq(cl["ha_vip"])]
+    if ha_type == "kube-vip" and cl.get("ha_vip"):
+        # kube-vip 静态 pod 的 vip_address 取 kube_vip.address(不能为空), 网卡按该地址所在网段自动发现
+        lines += ["      kube_vip:", "        address: %s" % _yq(cl["ha_vip"])]
 
     # kubelet 参数(可选覆盖); root_dir 通过 extra_args 的 root-dir 生效
     # 注意: kk 会给每个 arg 自动加 "--" 前缀, 这里不能自带横杠(否则变成 ----root-dir)
@@ -1670,51 +1765,97 @@ def gen_cluster_config(cfg, catalog):
     if kubelet_lines:
         lines += ["    kubelet:"] + kubelet_lines
 
-    # CRI: containerd 数据目录/静态构建(glibc 老系统)/版本覆盖 + docker data-root + registry mirrors
-    # kk config 结构: cri.containerd_version(直属 cri!) + cri.containerd.{static_binary, data_root},
-    #                 cri.docker.data_root, cri.registry.mirrors — containerd_version 写错层级会被 kk 忽略
+    # kubeadm 配置备份(kk post_install 每次部署带时间戳备份 /etc/kubernetes/kubeadm-config.yaml;
+    # 显式写出便于用户改路径, 空串=显式禁用 — kk 默认开启, 不写无法关闭)
+    lines += [
+        "    backup:",
+        "      kubeadm_config_dir: %s" % _yq(cl.get("kubeadm_config_dir") if cl.get("kubeadm_config_dir") is not None else "/etc/kubekey/backup/kubernetes"),
+    ]
+    if cl.get("certs_renew") is False:
+        lines += ["    certs:", "      renew: false"]
+
+    # CRI: 运行时选择 + containerd 数据目录/静态构建(glibc 老系统)/版本覆盖 + docker data-root + registry mirrors
+    # kk config 结构: cri.container_manager(containerd/docker) + cri.containerd_version(直属 cri!) +
+    #                 cri.containerd.{static_binary, data_root}, cri.docker.data_root, cri.registry.mirrors
     # data_root 是 kk containerd 模板认的键(模板里 set $config "root" data_root), 不能写 config.root
-    cd_lines = []
-    if comp.get("containerd_version_override"):
-        cd_lines.append("    containerd_version: %s" % _yq(comp["containerd_version_override"]))
-    cd_sub = []
-    if comp.get("static_binary"):
-        cd_sub.append("      static_binary: true")
-    if comp.get("containerd_root"):
-        cd_sub.append("      data_root: %s" % _yq(comp["containerd_root"]))
-    if not online:
-        # 纯离线: 部署脚本先预装 containerd 并导入镜像, config_policy=overwrite 让 kk 每次都重写
-        # 配置并重启(镜像落在 data_root 磁盘存储, 重启不丢); 否则版本一致时 kk 跳过配置,
-        # 节点会带着部署脚本的精简配置或默认配置进入 kubeadm(sandbox 镜像不对)
-        cd_sub.append("      config_policy: overwrite")
-    cri_lines = []
-    if cd_lines:
-        cri_lines += cd_lines
-    if cd_sub:
-        cri_lines += ["    containerd:"] + cd_sub
+    use_containerd = (cl.get("container_manager") or "containerd") == "containerd"
+    cri_lines = ["    container_manager: %s" % _yq(cl.get("container_manager") or "containerd")]
+    if use_containerd:
+        cd_lines = []
+        if comp.get("containerd_version_override"):
+            cd_lines.append("    containerd_version: %s" % _yq(comp["containerd_version_override"]))
+        cd_sub = []
+        if comp.get("static_binary"):
+            cd_sub.append("      static_binary: true")
+        if comp.get("containerd_root"):
+            cd_sub.append("      data_root: %s" % _yq(comp["containerd_root"]))
+        if not online:
+            # 纯离线: 部署脚本先预装 containerd 并导入镜像, config_policy=overwrite 让 kk 每次都重写
+            # 配置并重启(镜像落在 data_root 磁盘存储, 重启不丢); 否则版本一致时 kk 跳过配置,
+            # 节点会带着部署脚本的精简配置或默认配置进入 kubeadm(sandbox 镜像不对)
+            cd_sub.append("      config_policy: overwrite")
+        if cd_lines:
+            cri_lines += cd_lines
+        if cd_sub:
+            cri_lines += ["    containerd:"] + cd_sub
     if comp.get("docker_root"):
         cri_lines += ["    docker:", "      data_root: %s" % _yq(comp["docker_root"])]
     if cl.get("registry_mirrors"):
         cri_lines += ["    registry:", "      mirrors: [%s]" % ", ".join(_yq(m) for m in cl["registry_mirrors"])]
-    if cri_lines:
-        lines += ["  cri:"] + cri_lines
+    lines += ["  cri:"] + cri_lines
 
-    # etcd: 堆叠内部署 + 数据目录 + 版本(不写 deployment_type 时 kk 可能按外置集群处理)
+    # etcd: 堆叠内部署 + 数据目录/高级参数(必须挂在 env 下 — kk etcd 模板只读 .etcd.env.*,
+    # 顶层 etcd.data_dir 是旧版 kk 的键, v4 会静默忽略导致数据仍落 /var/lib/etcd)
     etcd_lines = ['    deployment_type: "internal"']
     etcd_ver = ((ver.get("components") or {}).get("etcd") or {}).get("version")
     if etcd_ver:
         etcd_lines.append("    etcd_version: %s" % _yq(etcd_ver))
+    etcd_env = comp.get("etcd_env") or {}
+    if isinstance(etcd_env, list):
+        # 容错: 未过 validate_config 的原始配置是 ["k=v", ...] 列表, 归一成 dict
+        etcd_env = {str(kv).partition("=")[0].strip(): str(kv).partition("=")[2].strip()
+                    for kv in etcd_env if str(kv).strip()}
+    env_lines = []
     if comp.get("etcd_dir"):
-        etcd_lines.append("    data_dir: %s" % _yq(comp["etcd_dir"]))
+        env_lines.append("      data_dir: %s" % _yq(comp["etcd_dir"]))
+    for k in _ETCD_ENV_ORDER:
+        if k in etcd_env:
+            env_lines.append("      %s: %s" % (k, _yq(etcd_env[k])))
+    if env_lines:
+        etcd_lines.append("    env:")
+        etcd_lines += env_lines
     lines += ["  etcd:"] + etcd_lines
 
-    lines += [
-        "  cni:",
+    cni_lines = [
         "    type: %s" % _yq(cni_type),
         "    %s: %s" % (cni_key, _yq(cni_version)),
         "    pod_cidr: %s" % _yq(cl["pod_cidr"]),
+        "    ipv4_mask_size: %d" % int(cl.get("ipv4_mask_size") or 24),
         "    service_cidr: %s" % _yq(cl["service_cidr"]),
     ]
+    if cl.get("multi_cni") == "multus":
+        # Multi-CNI: multus (kk cni.multi_cni + 镜像 tag 默认 v4.3.0, 见 roles/defaults 04-cni.yaml)
+        cni_lines += ["    multi_cni: multus"]
+        if cl.get("multi_cni_tag"):
+            cni_lines += ["    multus:", "      image:", "        tag: %s" % _yq(cl["multi_cni_tag"])]
+    if cni_type == "calico" and cl.get("calico_values"):
+        # Calico 专属调优走 helm values 透传(kk calico 任务以 -f 追加): ipipMode/vxlanMode/mtu 等
+        cni_lines.append("    calico:")
+        cni_lines.append("      values: |")
+        cni_lines += ["        " + ln for ln in cl["calico_values"].splitlines()]
+    lines += ["  cni:"] + cni_lines
+
+    # DNS 覆盖(coredns/nodelocaldns 镜像 tag 与启停; 不设置时跟随 kk per-minor 默认)
+    dns_cfg = cl.get("dns") or {}
+    dns_lines = []
+    if dns_cfg.get("coredns_tag"):
+        dns_lines += ["    coredns:", "      image:", "        tag: %s" % _yq(dns_cfg["coredns_tag"])]
+    if dns_cfg.get("nodelocaldns_enabled") is False:
+        dns_lines += ["    nodelocaldns:", "      enabled: false"]
+    elif dns_cfg.get("nodelocaldns_tag"):
+        dns_lines += ["    nodelocaldns:", "      image:", "        tag: %s" % _yq(dns_cfg["nodelocaldns_tag"])]
+    if dns_lines:
+        lines += ["  dns:"] + dns_lines
 
     # 私有镜像仓库部署(harbor/docker-registry; 部署在 registry 角色节点)
     if imgreg.get("type") in ("harbor", "docker-registry"):
@@ -2116,7 +2257,10 @@ def _auto_download_cluster_materials(cfg, catalog, cl_missing, prog):
                 img_dl, img_failed = pm.ensure_images(ccat, v, arch,
                                                       pm.k8s_image_specs(ccat, v, cl["cni_type"],
                                                                          ha_type=cl.get("ha_type") or "local",
-                                                                         storage=cl.get("storage") or {}, arch=arch),
+                                                                         storage=cl.get("storage") or {}, arch=arch,
+                                                                         dns=cl.get("dns") or {},
+                                                                         multi_cni=cl.get("multi_cni") or "none",
+                                                                         multi_cni_tag=cl.get("multi_cni_tag") or ""),
                                                       cl["cni_type"])
                 res["downloaded_mb"] += img_dl   # ensure_images 返回值已是 MB
                 if img_failed:

@@ -499,6 +499,28 @@ def test_topology_custom_ports_preserved(catalog):
     assert "MASTER_PORT=25332" in packer.gen_node_install_sh(cfg, rep)
 
 
+def test_multihost_replica_same_port_allowed(catalog):
+    """异机部署允许主库与从库同端口(每台机器端口空间独立); 单机主从仍全局查重;
+    redis 哨兵多机的从库/哨兵端口同理, kafka 多机节点组端口本就每台一致"""
+    # 多机: 从库端口 = 主库端口 → 放行
+    cfg = _mh_cfg(["mysql8"], {"mysql8": "master-slave"},
+                  {"mysql8": {"enabled": True, "master": 0, "replicas": [1]}},
+                  ports={"mysql8": 23306, "mysql8_replica": 23306})
+    cfg, _ = packer.validate_config(cfg, catalog)
+    assert cfg["ports"]["mysql8_replica"] == 23306
+    # 多机 redis 哨兵: 从库端口与主库相同 → 放行
+    cfg_r = _mh_cfg(["redis"], {"redis": "sentinel"},
+                    {"redis": {"enabled": True, "master": 0, "replicas": [1, 2]}},
+                    ports={"redis": 16379, "redis_replica": 16379, "redis_sentinel": 26379})
+    cfg_r, _ = packer.validate_config(cfg_r, catalog)
+    assert cfg_r["ports"]["redis_replica"] == 16379
+    # 单机主从: 同端口仍拒绝
+    with pytest.raises(packer.PackError, match="端口冲突"):
+        packer.validate_config(make_cfg(None, services=("mysql8",),
+                                        ports={"mysql8": 23306, "mysql8_replica": 23306},
+                                        topology={"mysql8": "master-slave"}), catalog)
+
+
 def test_multihost_dual_mysql_same_node(catalog):
     """mysql8+mysql57 同时多机主从且主/从各落同节点: 两服务 compose 键与容器名必须互异,
     健康等待/初始化 SQL 指向正确容器, 备份服务列表含全部主库, distribute 解到节点子目录"""

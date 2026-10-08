@@ -69,12 +69,99 @@ def test_config_custom_dirs():
     cfg = _base_cluster(components={"etcd_dir": "/data1/etcd", "containerd_root": "/data1/containerd"},
                         kubelet={"root_dir": "/data1/kubelet"})
     y = packer.gen_cluster_config(cfg, CATALOG)
-    check("etcd 自定义目录写入 data_dir", 'data_dir: "/data1/etcd"' in y)
+    check("etcd 自定义目录写入 env.data_dir", '  etcd:' in y and '    env:' in y and '      data_dir: "/data1/etcd"' in y)
     check("kubelet 自定义目录写入 root-dir", '"root-dir": "/data1/kubelet"' in y)
     check("containerd data_root 直写", 'data_root: "/data1/containerd"' in y)
     # 目录为空时不产生空值行(kk 会用默认路径)
     y2 = packer.gen_cluster_config(_base_cluster(), CATALOG)
     check("未配置时不残留 data_dir/root-dir", "data_dir:" not in y2 and "root-dir:" not in y2)
+
+
+def test_config_etcd_env_and_advance():
+    """etcd 数据目录/高级参数必须挂在 etcd.env 下(v4 只读 .etcd.env.*, 顶层 data_dir 是旧版键会被忽略)"""
+    cfg = _base_cluster(components={"etcd_dir": "/data1/etcd",
+                                    "etcd_env": ["heartbeat_interval=250", "election_timeout=5000",
+                                                 "compaction_retention=8", "snapshot_count=10000",
+                                                 "quota_backend_bytes=8589934592",
+                                                 "max_request_bytes=1572864", "max_snapshots=5",
+                                                 "max_wals=5", "log_level=info"]})
+    y = packer.gen_cluster_config(cfg, CATALOG)
+    check("env 块包含 data_dir", "    env:\n      data_dir: \"/data1/etcd\"" in y)
+    for k, v in (("heartbeat_interval", 250), ("election_timeout", 5000), ("compaction_retention", 8),
+                 ("snapshot_count", 10000), ("quota_backend_bytes", 8589934592),
+                 ("max_request_bytes", 1572864), ("max_snapshots", 5), ("max_wals", 5)):
+        check("env.%s=%s" % (k, v), ("      %s: %d" % (k, v)) in y)
+    check("env.log_level", '      log_level: "info"' in y)
+    check("顶层无 etcd.data_dir 残留", "\n    data_dir:" not in y)
+    _, warns = packer.validate_config(cfg, CATALOG)
+    check("validate 不告警", not warns)
+
+
+def test_config_ha_vip_and_backup():
+    """kube-vip 必须写 kube_vip.address(网卡自动发现依据); kubeadm 备份目录/证书续期显式落 config"""
+    y = packer.gen_cluster_config(_base_cluster(ha_type="kube-vip", ha_vip="10.0.0.100"), CATALOG)
+    check("kube-vip 写 host", '      host: "10.0.0.100"' in y)
+    check("kube-vip 写 kube_vip.address", "      kube_vip:\n        address: \"10.0.0.100\"" in y)
+    y2 = packer.gen_cluster_config(_base_cluster(ha_type="haproxy", ha_vip="127.0.0.2"), CATALOG)
+    check("haproxy 写 host 不写 kube_vip", 'host: "127.0.0.2"' in y2 and "kube_vip:" not in y2)
+    y3 = packer.gen_cluster_config(_base_cluster(), CATALOG)
+    check("默认 backup 目录(/etc/kubekey/backup/kubernetes)", 'kubeadm_config_dir: "/etc/kubekey/backup/kubernetes"' in y3)
+    y4 = packer.gen_cluster_config(_base_cluster(kubeadm_config_dir="/data1/kk-backup"), CATALOG)
+    check("自定义备份目录", 'kubeadm_config_dir: "/data1/kk-backup"' in y4)
+    y5 = packer.gen_cluster_config(_base_cluster(kubeadm_config_dir="", certs_renew=False), CATALOG)
+    check('空串禁用备份 + certs.renew: false', 'kubeadm_config_dir: ""' in y5 and "renew: false" in y5)
+
+
+def test_config_cri_cni_dns():
+    """container_manager 选择 / CNI 高级(掩码+multus+calico values) / DNS 覆盖必须落到对应键"""
+    y = packer.gen_cluster_config(_base_cluster(container_manager="docker"), CATALOG)
+    check("docker 运行时写 container_manager", 'container_manager: "docker"' in y)
+    check("docker 不写 containerd 子块", "    containerd:" not in y)
+    y2 = packer.gen_cluster_config(_base_cluster(ipv4_mask_size=25, multi_cni="multus", multi_cni_tag="v4.3.0",
+                                                 calico_values="installation:\n  calicoNetwork:\n    mtu: 1440",
+                                                 dns={"coredns_tag": "v1.12.1", "nodelocaldns_enabled": True,
+                                                      "nodelocaldns_tag": "1.26.4"}), CATALOG)
+    check("ipv4_mask_size 直写", "    ipv4_mask_size: 25" in y2)
+    check("multi_cni: multus + multus tag", "    multi_cni: multus" in y2 and 'tag: "v4.3.0"' in y2)
+    check("calico values 块透传(helm -f)", "    calico:\n      values: |\n        installation:" in y2)
+    check("coredns/nodelocaldns tag 覆盖", 'tag: "v1.12.1"' in y2 and 'tag: "1.26.4"' in y2)
+    y3 = packer.gen_cluster_config(_base_cluster(dns={"nodelocaldns_enabled": False}), CATALOG)
+    check("nodelocaldns 显式关闭", "    nodelocaldns:\n      enabled: false" in y3)
+    check("关闭时不写 nodelocaldns tag", "k8s-dns-node-cache" not in y3)
+    # 离线镜像清单跟随 DNS 覆盖/multus(导入镜像必须与 config 生成的 tag 一致)
+    prep = packer._prepare_module()
+    specs = prep.k8s_image_specs(CCAT, "v1.28.15", "flannel",
+                                 dns={"coredns_tag": "v1.12.1", "nodelocaldns_tag": "1.26.4"},
+                                 multi_cni="multus", multi_cni_tag="v4.4.0")
+    check("镜像清单用覆盖后的 coredns tag", "registry.k8s.io/coredns/coredns:v1.12.1" in specs)
+    check("镜像清单用覆盖后的 nodelocaldns tag", "k8s-dns-node-cache:1.26.4" in specs)
+    check("multus 镜像入清单", "ghcr.io/k8snetworkplumbingwg/multus-cni:v4.4.0" in specs)
+    specs_off = prep.k8s_image_specs(CCAT, "v1.28.15", "flannel", dns={"nodelocaldns_enabled": False})
+    check("nodelocaldns 关闭不出镜像", not any("k8s-dns-node-cache" in s for s in specs_off))
+
+
+def test_config_validation_matrix():
+    """新键非法值必须前置拦截(免得到部署时才被 kk 拦下)"""
+    def expect_err(name, over):
+        try:
+            packer.validate_config(_base_cluster(**over), CATALOG)
+            check(name, False)
+        except packer.PackError:
+            check(name, True)
+    expect_err("offline+docker 拒绝", {"container_manager": "docker"})
+    expect_err("运行时非法值", {"container_manager": "podman"})
+    expect_err("etcd 未知键", {"components": {"etcd_env": ["foo=1"]}})
+    expect_err("etcd 非整数", {"components": {"etcd_env": ["heartbeat_interval=abc"]}})
+    expect_err("mask 越界", {"ipv4_mask_size": 40})
+    expect_err("multi_cni 非法", {"multi_cni": "spiderpool"})
+    expect_err("calico values 非 YAML", {"calico_values": ": : :"})
+    expect_err("备份目录相对路径", {"kubeadm_config_dir": "rel/path"})
+    # 在线模式 docker 放行
+    out, _ = packer.validate_config(_base_cluster(mode="online", container_manager="docker"), CATALOG)
+    check("online+docker 放行", out["cluster"]["container_manager"] == "docker")
+    # calico values 仅 calico 生效(其他 CNI 静默忽略+告警)
+    out2, w2 = packer.validate_config(_base_cluster(cni_type="flannel", calico_values="a: 1"), CATALOG)
+    check("非 calico 忽略 values 并告警", out2["cluster"]["calico_values"] == "" and len(w2) == 1)
 
 
 def test_manifest_lifecycle_vars():
@@ -213,7 +300,9 @@ def test_scripts_bash_syntax():
 
 
 def main():
-    for fn in (test_online_cn_static_fallback, test_config_custom_dirs, test_manifest_lifecycle_vars, test_uninstall_flag_matrix,
+    for fn in (test_online_cn_static_fallback, test_config_custom_dirs, test_config_etcd_env_and_advance,
+               test_config_ha_vip_and_backup, test_config_cri_cni_dns, test_config_validation_matrix,
+               test_manifest_lifecycle_vars, test_uninstall_flag_matrix,
                test_upgrade_sh_content, test_deploy_sh_branches, test_scripts_bash_syntax):
         print(fn.__name__ + ":")
         fn()

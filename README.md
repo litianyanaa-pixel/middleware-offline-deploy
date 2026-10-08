@@ -269,9 +269,10 @@ cd /data/middleware
 上面的形态可以进一步落到**多台服务器**（打包器强校验节点互异）：
 
 - **MySQL 8.0 / 5.7 主从**：1 主 + 1~2 从，跨机器 GTID 自动同步（5.7 从库自动切换
-  `CHANGE MASTER TO` 旧语法）；从库置 `super_read_only`，root 也只读
+  `CHANGE MASTER TO` 旧语法）；从库置 `super_read_only`，root 也只读；**主库与从库允许用
+  相同宿主端口**（异机端口空间独立，打包器不再判冲突）
 - **Redis 哨兵**：1 主 + 2 从，共 3 台不同服务器（`sentinel monitor` 指向主库机 IP，
-  announce-ip 自动写本机地址）
+  announce-ip 自动写本机地址；多机时从库/哨兵端口同样允许与主库相同）
 - **Kafka 集群**：3 或 5 台 broker，每节点同一组宿主端口（互联/控制器/SASL），各机独立不冲突
 
 勾选形态后在**多机分配**里为每个服务指定主库/从库落在服务器池的哪台机器。打包产物会多出
@@ -412,6 +413,14 @@ warehouse/images/postgres/15.19/arm64.tar   ← postgres-15.19-arm64.tar 放这�
 服务器池里改别名/IP，下方角色分配的节点标签实时联动：
 
 ![集群参数与角色分配](docs/images/ui-cluster-form.png)
+
+**控制面 HA**：多控制面节点时可选 kube-vip（填同网段空闲 VIP，kk 自动选网卡并漂移）或
+haproxy（各节点静态 Pod 本机转发，端点地址填域名或 127.0.0.2）；「集群高级配置」还提供
+**运行时选择**（containerd 默认 / docker 仅在线安装）、**数据目录**（etcd/kubelet/containerd/docker
+可落数据盘，etcd 目录正确写入 `etcd.env.data_dir`）、**etcd 调优**（心跳/选举/压缩/配额等 9 个
+白名单参数）、**CNI 扩展**（每节点 Pod 子网掩码、Multi-CNI multus、Calico values 原样透传
+helm 覆盖 ipipMode/vxlanMode/mtu）、**DNS 覆盖**（CoreDNS/NodeLocalDNS 镜像 tag 与启停）、
+**证书与备份**（安装时续期开关、续期 crontab、kubeadm 配置带时间戳备份目录）。
 
 生成预览会多出「集群 inventory」「集群 config」两个标签页，实时展示将打进包里的
 inventory.yaml / config.yaml：
