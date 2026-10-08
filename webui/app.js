@@ -34,6 +34,7 @@ const EN_DICT = {
   "基础设施": "Infrastructure", "选择中间件": "Select Middleware", "端口与反代": "Ports & Proxy",
   "账号与数据": "Accounts & Data", "预览打包": "Preview & Pack", "关闭 (Esc)": "Close (Esc)",
   "重新检查": "Re-check", "类型": "Type", "架构": "Arch", "全部": "All", "安装包": "Packages", "镜像": "Images",
+  "中间件物料": "Middleware materials", "K8s 集群物料": "K8s cluster materials",
   "物料": "Item", "状态": "Status", "体积": "Size", "说明": "Notes", "文件": "File", "大小": "Size", "生成时间": "Generated at",
   "缺失项放入 wares/ 后重新检查": "Put missing items into wares/ then re-check",
   "补料脚本": "Pull script",
@@ -1936,7 +1937,7 @@ async function checkRunning(){
 }
 
 /* ================= 仓库状态 / 产物列表 ================= */
-const whFilter = { kind: 'all', arch: 'all' };
+const whFilter = { tab: 'mw', kind: 'all', arch: 'all' };
 function renderWarehouse(){
   if (typeof STATIC_MODE !== 'undefined' && STATIC_MODE){
     $('#whBody').innerHTML = '<tr><td colspan="5" class="hint">静态演示模式: 物料状态需在本地运行 python packer.py 后查看</td></tr>';
@@ -2007,9 +2008,15 @@ function renderWarehouse(){
 }
 function applyWhFilter(){
   $$('#whBody tr').forEach(tr => {
-    const okKind = whFilter.kind === 'all' || tr.dataset.kind === whFilter.kind;
-    const okArch = whFilter.arch === 'all' || tr.dataset.arch === whFilter.arch;
-    tr.classList.toggle('hide', !(okKind && okArch));
+    const kind = tr.dataset.kind;
+    if (!kind) return;   // 无类型行(如静态演示提示)始终显示
+    const isK8s = kind === 'k8s';
+    let ok = whFilter.tab === 'k8s' ? isK8s : !isK8s;
+    if (ok && whFilter.tab === 'mw'){
+      ok = (whFilter.kind === 'all' || kind === whFilter.kind) &&
+           (whFilter.arch === 'all' || tr.dataset.arch === whFilter.arch);
+    }
+    tr.classList.toggle('hide', !ok);
   });
 }
 function setupWhFilter(){
@@ -2022,6 +2029,13 @@ function setupWhFilter(){
   };
   wire('#fKind', 'kind', 'k');
   wire('#fArch', 'arch', 'a');
+  // K8s 页签独立展示集群物料; 其均为 amd64 且不分安装包/镜像, 类型与架构筛选只属于中间件页签
+  $$('#whTab button').forEach(b => b.onclick = () => {
+    whFilter.tab = b.dataset.t;
+    $$('#whTab button').forEach(x => x.classList.toggle('on', x === b));
+    $('#whFilters').style.display = whFilter.tab === 'mw' ? '' : 'none';
+    applyWhFilter();
+  });
 }
 async function loadBundles(){
   try {

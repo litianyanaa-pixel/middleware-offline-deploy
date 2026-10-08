@@ -45,18 +45,24 @@
           <button class="dw-x" data-dwclose title="关闭 (Esc)">×</button></div>
         <div class="dw-body">
           <div class="fbar">
-            <span class="flabel">类型</span>
-            <div class="fgroup" id="fKind">
-              <button data-k="all" class="on">全部</button>
-              <button data-k="pkg">安装包</button>
-              <button data-k="img">镜像</button>
+            <div class="fgroup" id="whTab">
+              <button data-t="mw" class="on">中间件物料</button>
+              <button data-t="k8s">K8s 集群物料</button>
             </div>
-            <span class="flabel">架构</span>
-            <div class="fgroup" id="fArch">
-              <button data-a="all" class="on">全部</button>
-              <button data-a="amd64">x86_64</button>
-              <button data-a="arm64">aarch64</button>
-            </div>
+            <span id="whFilters" style="display:inline-flex;align-items:center;gap:14px;flex-wrap:wrap">
+              <span class="flabel">类型</span>
+              <div class="fgroup" id="fKind">
+                <button data-k="all" class="on">全部</button>
+                <button data-k="pkg">安装包</button>
+                <button data-k="img">镜像</button>
+              </div>
+              <span class="flabel">架构</span>
+              <div class="fgroup" id="fArch">
+                <button data-a="all" class="on">全部</button>
+                <button data-a="amd64">x86_64</button>
+                <button data-a="arm64">aarch64</button>
+              </div>
+            </span>
           </div>
           <table>
             <thead><tr><th style="width:32%">物料</th><th>架构</th><th>状态</th><th>体积</th><th>说明</th></tr></thead>
