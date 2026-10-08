@@ -72,7 +72,7 @@ const EN_DICT = {
   "私钥文件": "Private key", "私钥": "Private key", ".key(暂不支持加密私钥)": ".key (encrypted keys unsupported)",
   "挂载于容器 /etc/nginx/ssl。": "mounted at /etc/nginx/ssl in the container",
   "部署即配好 SSL": "SSL configured on deploy", "证书随包分发到 nginx/ssl/": "certs ship to nginx/ssl/",
-  "生成的配置自动包含代理优化: upstream 长连接复用(keepalive) · 连接/读写超时 · 响应缓冲 · X-Real-IP / X-Forwarded-": "Generated config includes proxy tuning: upstream keepalive · timeouts · response buffering · X-Real-IP / X-Forwarded-",
+  "生成的配置自动包含代理优化: upstream 长连接复用(keepalive) · 连接/读写超时 · 响应缓冲 · X-Real-IP / X-Forwarded-* 透传 · WebSocket 升级; gzip 与安全响应头已在 nginx.conf 全局开启。证书随包分发到 nginx/ssl/, 挂载于容器 /etc/nginx/ssl。": "generated config includes proxy tuning: upstream keepalive · connect/read/write timeouts · response buffering · X-Real-IP / X-Forwarded-* passthrough · WebSocket upgrade; gzip and security headers are on globally in nginx.conf. certs ship to nginx/ssl/, mounted at /etc/nginx/ssl in the container",
   "前缀改写示例: 随 输入实时更新": "prefix rewrite preview updates live", "示例: 浏览器请求": "Example: browser requests",
   "后端实际收到": "backend receives", "还原出的 IP 写入": "restored IP written to",
   "账号密码": "Accounts", "账号": "Username", "密码": "Password", "显示": "Show", "隐藏": "Hide", "随机": "Random",
@@ -223,6 +223,78 @@ const EN_DICT = {
   "也可接入 plugins/ 插件扩展": "extensible via plugins/",
   "部署时自动把广播地址改写为服务器 IP; 镜像改用 bitnami/kafka 3.7.0 (双架构": "advertised host rewritten to the server IP on deploy; image switched to bitnami/kafka 3.7.0 (dual-arch",
   "点击下方": "Click ", "步骤勾选组件": " to select components in the steps",
+  /* -- 动态拼接提示的子串片段(整词替换按最长优先) -- */
+  "当前是 GitHub Pages ": "This is the GitHub Pages ",
+  ": 界面与配置流程可完整体验; 打包/预览/物料检查需要后端, 完整使用请克隆本仓库后本地运行 ": ": the UI and config flow are fully usable; packing/preview/warehouse checks need the backend — clone this repo and run ",
+  "。": ".",
+  "K8s 物料: ": "K8s materials: ",
+  " 二进制缓存: 点「开始打包」时自动下载, 或执行 ": " binary cache: auto-downloaded on \"Start Packing\", or run ",
+  "kk 二进制 (信创补丁构建)": "kk binary (Xinchuang-patched build)", "kk 二进制": "kk binary",
+  "artifact 产物": "artifact bundle",
+  "部分二进制缓存": "some binary caches missing",
+  "离线镜像包(k8s-": "offline image bundle (k8s-", ", 打包时自动收集)": ", collected at pack time)",
+  "正在打包: ": "Packing: ", "已取消打包": "Packing cancelled", "响应解析失败": "Failed to parse response",
+  "速度 ": "Speed ", " · 已用 ": " · elapsed ", " · 预计剩余 ": " · ETA ",
+  " · 含 ": " · contains ", " 个镜像包": " image archive(s)", " · 插件": " · plugins",
+  "演示": "Demo", "待配置": "pending", " 项": " item(s)",
+  "已加载: ": "Loaded: ", "已加载": "Loaded",
+  "已启用 ": "Enabled ", "已关闭 ": "Disabled ",
+  " 主从的读写分离 (独立 ProxySQL 实例, 镜像需补料: proxysql/proxysql 2.6.6)": " master-replica read/write splitting (separate ProxySQL instance, extra image needed: proxysql/proxysql 2.6.6)",
+  " 主从的读写分离": " master-replica read/write splitting",
+  " 从库数量: ": " replica count: ", "Kafka 多机节点数: ": "Kafka multi-host broker count: ",
+  "Kafka 控制器 (KRaft)": "Kafka controller (KRaft)", "Kafka SASL 对外": "Kafka SASL external",
+  "读写分离 ProxySQL (": "read/write splitting ProxySQL (", "读写分离入口 (": "read/write splitting entry (",
+  "角色分配": "role assignment", "中间件": "middleware",
+  "同机部署: 所有容器运行在同一台服务器": "Same-host deploy: all containers run on one server",
+  "多机部署: 请在服务器池中完成角色分配": "Multi-host deploy: assign node roles in the server pool first",
+  "私钥未选择": "No private key selected", "证书未选择": "No certificate selected",
+  "留空则用免密登录": "leave empty for passwordless SSH", "已勾选 + 主从形态": "selected + master-replica",
+  "可选, 默认 v4.3.0": "optional, default v4.3.0",
+  "可选, 默认跟随 kk 版本矩阵": "optional, defaults follow the kk version matrix",
+  "如 ": "e.g. ",
+  "服务器池为空, 请先在上方「部署服务器池」添加节点": "Server pool is empty; add nodes under \"Server pool\" above first",
+  "从库只读 (GTID 自动同步), 复制关系由节点安装脚本自动建立; 主库 IP 自动写入 Nacos/XXL-Job 配置": "Replica read-only (GTID auto-sync); replication is set up by the node install script; master IP is auto-written into Nacos/XXL-Job config",
+  ", 幂等可重跑": ", idempotent, safe to re-run",
+  ", 从库只读端口 ": ", replica read-only port ",
+  " 自动同步; 部署脚本自动配置复制关系": " auto-syncs; deploy script configures replication",
+  "2026-09 实测可用; 腾讯云源仅内网, 阿里云个人源已被官方限制, 中科大/163/百度/docker-cn/chenby/hpcloud/dockerhub.icu/ckyl/dockerproxy 已停服或不可达": "verified 2026-09; Tencent Cloud mirror is intranet-only, Aliyun personal mirrors are officially restricted; USTC/163/Baidu/docker-cn/chenby/hpcloud/dockerhub.icu/ckyl/dockerproxy are down or unreachable",
+  /* -- 物料仓库 K8s 行与缺料提示 -- */
+  "缺料": "missing items", "缺失物料: ": "missing items: ",
+  "二进制缓存": "binary cache", "离线镜像包": "offline image bundle",
+  "可选": "optional", "打包时下载": "downloaded at pack time", "、": ", ",
+  "打包可选; 构建: python prepare_cluster.py --artifact-export 后执行生成的 .bat": "optional to pack; build with python prepare_cluster.py --artifact-export, then run the generated .bat",
+  "缺失不影响打包: 点「开始打包」时自动从国内源下载 (": "doesn't block packing: auto-downloaded from CN mirrors on \"Start Packing\" (",
+  "纯离线模式必需: 打包时按原生 tag 自动收集 (docker pull+save), 或 ": "required for fully-offline mode: collected with native tags at pack time (docker pull+save), or ",
+  "闭源/无公开镜像: 需自行提取放置 (可选, 不影响其他发行版)": "closed-source / no public image: extract and place it yourself (optional, other distros unaffected)",
+  "缺失时「开始打包」自动下载或自备 (可选)": "auto-downloaded on \"Start Packing\" when missing, or bring your own (optional)",
+  "物料缺失时打包自动补齐: 二进制走国内源下载, 离线镜像包用 Docker Desktop 收集(或 python prepare_cluster.py --images flannel), chart 走 GitHub 镜像源": "missing items are auto-fetched at pack time: binaries from CN mirrors, offline image bundles collected with Docker Desktop (or python prepare_cluster.py --images flannel), charts via a GitHub mirror",
+  "运行 python prepare_cluster.py --download 补齐": "run python prepare_cluster.py --download to fetch",
+  /* -- 服务器池 -- */
+  "所有部署的节点清单 — K8s 集群与中间件多机部署从这里选择": "inventory of every node — both the K8s cluster and multi-host middleware pick their nodes here",
+  "别名": "Alias", "SSH 用户": "SSH user", "SSH 密码": "SSH password",
+  "(留空=免密)": "(empty = passwordless)", "服务器 IP (IPv4)": "Server IP (IPv4)",
+  "端口": "Port", "+ 添加服务器": "+ Add server", "写入 daemon.json;": "written to daemon.json;",
+  /* -- 集群卡片 / 拓扑 -- */
+  "勾选上方 Kubernetes 集群卡片后, 这里会出现集群参数与角色分配(节点从上方「部署服务器池」选择)": "after enabling the Kubernetes cluster card above, cluster settings and role assignment appear here (nodes picked from the Server pool above)",
+  "多机部署的节点在「基础平台」的部署服务器池中选择": "multi-host nodes are chosen from the Server pool under Platform",
+  "主从复制 (GTID)": "master-replica (GTID)", "1 从库": "1 replica", "2 从库": "2 replicas",
+  "同机部署": "same-host", "多机部署 (跨服务器)": "multi-host (across servers)",
+  "哨兵高可用 (主 + 从 + 3 哨兵)": "Sentinel HA (master + replica + 3 sentinels)",
+  "集群 (KRaft + SASL)": "cluster (KRaft + SASL)",
+  "单节点 KRaft (无 ZooKeeper), SASL/SCRAM 鉴权, 密码在「账号与数据」中设置": "single-node KRaft (no ZooKeeper), SASL/SCRAM auth; password set under Accounts & Data",
+  "(从服务器池中选择, 每台一角色)": "(pick from the server pool, one role per node)",
+  "主库": "master",
+  /* -- 步骤空态提示 -- */
+  "请先在「选择中间件」步骤勾选组件, 这里会出现端口与反代配置。": "select components in the Select Middleware step first; port & proxy config appears here.",
+  "勾选组件后, 点击下方「生成预览」查看 docker-compose / .env / manifest 最终内容; 确认无误后「开始打包」。": "select components first, then \"Generate Preview\" below inspects the final docker-compose / .env / manifest; \"Start Packing\" when confirmed.",
+  "左侧宿主机端口, 箭头后为容器内端口; 支持追加自定义映射": "left side is the host port, right side the container port; custom mappings supported",
+  "域名 / 前后端转发 / 真实IP / WebSocket, 自动生成 nginx 站点配置": "domains / proxying / real IP / WebSocket; nginx site configs generated automatically",
+  "禁止空格与 $ ` \" ' \\ ; | ; 部署后存于 .env (600)": "no spaces or $ ` \" ' \\ ; | ; stored in .env (600) after deploy",
+  "切换语言 / Switch language": "Switch language",
+  "包含: ": "includes: ",
+  "kube 三件套": "kube triad (kubeadm/kubelet/kubectl)",
+  "容器内端口": "container port",
+  "* XXL-Job 控制台初始账号 admin, 初始密码即上面登记的 XXL-Job admin 密码(打包时按该值初始化 SQL), 登录后请修改": "* XXL-Job console initial user admin; initial password is the XXL-Job admin password above (SQL initialized with it); change it after first login",
 };
 const EN_KEYS = Object.keys(EN_DICT).sort((a, b) => b.length - a.length);
 const EN_RE = new RegExp(EN_KEYS.map(k => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|'), 'g');
@@ -252,12 +324,12 @@ function applyI18n(root){
     const v = trText(n.nodeValue);
     if (v !== n.nodeValue) n.nodeValue = v;
   }
-  // 常用属性
+  // 常用属性(带 | 的先切语言半边, 再清残留中文)
   scope.querySelectorAll && scope.querySelectorAll('[title],[placeholder]').forEach(el => {
     for (const a of ['title', 'placeholder']){
       const v = el.getAttribute && el.getAttribute(a);
       if (v && /[\u4e00-\u9fff]/.test(v)){
-        const t = trText(v);
+        const t = trText(trLabel(v));
         if (t !== v) el.setAttribute(a, t);
       }
     }
@@ -281,16 +353,21 @@ new MutationObserver(muts => {
 
 function toast(text){
   const d = document.createElement('div');
-  d.className = 'toast'; d.textContent = trMsg(text);
+  d.className = 'toast'; d.textContent = trText(trMsg(text));
   $('#toast').appendChild(d);
   setTimeout(() => {
+    d.style.height = d.offsetHeight + 'px';   // 固定当前高度再收缩, 下方提示跟随平滑上移
+    void d.offsetHeight;
     d.classList.add('out');
-    setTimeout(() => d.remove(), 320);
+    d.style.height = '0px';
+    d.style.paddingTop = d.style.paddingBottom = '0px';
+    d.style.marginBottom = '-8px';            // 抵消 flex gap 残留的空隙
+    setTimeout(() => d.remove(), 400);
   }, 2600);
 }
 function fmtGB(mb){ return mb >= 1024 ? (mb/1024).toFixed(2) + ' GB' : mb + ' MB'; }
 function fmtTime(sec){ sec = Math.max(0, Math.round(sec)); return String(Math.floor(sec/60)).padStart(2,'0') + ':' + String(sec%60).padStart(2,'0'); }
-function msg(text, cls){ $('#msg').innerHTML = text ? '<div class="msg '+cls+'">'+esc(trMsg(text))+'</div>' : ''; }
+function msg(text, cls){ $('#msg').innerHTML = text ? '<div class="msg '+cls+'">'+esc(trText(trMsg(text)))+'</div>' : ''; }
 function svcColor(key){ const m = CATALOG.services[key]; return (m && m.color) || FALLBACK_COLORS[key] || '#6e6e73'; }
 function avatarHtml(key, cls){
   const m = CATALOG.services[key];
@@ -381,7 +458,7 @@ async function init(){
     const miss = Object.entries(CATALOG.files_present || {}).filter(function(e){
       return !e[1] && e[0].indexOf('cluster_') !== 0;   // k8s 物料单独提示
     }).length;
-    if (k8sMissing.length) toast('K8s 物料: ' + k8sMissing.join(' | '));
+    if (k8sMissing.length) toast('K8s 物料: ' + k8sMissing.join(' / '));
     if (!miss && k8sMissing.length) return;
     if (!miss){ toast('物料仓库无缺失, 无需补料'); return; }
     // 后端盘点缺失物料并返回补齐脚本(覆盖双架构), 保存到仓库根目录执行即可
