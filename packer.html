@@ -1717,13 +1717,26 @@ function renderDynamic(){
       pb.insertAdjacentHTML('beforeend', '');
       var _kh = hint;   // 注入到 grp 标题后(见下方 html 拼接)
     } else { var _kh = ''; }
-    if ((s === 'mysql8' || s === 'mysql57') && mhOn(s)){
-      portDefs = meta.ports.concat([{key:s+'_replica', label:'从库端口 (每台从机)', container:3306}]);
+    if ((s === 'mysql8' || s === 'mysql57') && (mhOn(s) || state.topology[s] === 'master-slave')){
+      const defs = meta.ports.slice();
+      defs[0] = Object.assign({}, defs[0], {label:'主库端口|Master port'});
+      defs.push({key:s+'_replica',
+                 label: mhOn(s) ? '从库端口 (每台从机)|Replica port (each replica host)' : '从库端口|Replica port',
+                 default: s === 'mysql8' ? 13308 : 13309, container:3306});
+      if (!mhOn(s) && (state.replicas[s]||1) === 2)
+        defs.push({key:s+'_replica2', label:'从库2端口|Replica-2 port',
+                   default: s === 'mysql8' ? 13310 : 13311, container:3306});
+      portDefs = defs;
     }
-    if (s === 'redis' && mhOn('redis')){
-      portDefs = meta.ports.concat([
-        {key:'redis_replica', label:'Redis 从库端口', container:6379},
-        {key:'redis_sentinel', label:'Redis 哨兵端口 (每节点)', container:26379}]);
+    if (s === 'redis' && (mhOn('redis') || state.topology.redis === 'sentinel')){
+      const defs = meta.ports.slice();
+      defs[0] = Object.assign({}, defs[0], {label:'主库端口|Master port'});
+      defs.push({key:'redis_replica',
+                 label: mhOn('redis') ? '从库端口 (每台从机)|Replica port (each replica host)' : '从库端口|Replica port',
+                 default:16380, container:6379});
+      if (mhOn('redis'))
+        defs.push({key:'redis_sentinel', label:'哨兵端口 (每节点)|Sentinel port (per node)', default:26379, container:26379});
+      portDefs = defs;
     }
     if (!portDefs.length && !(state.extra[s]||[]).length) continue;
     let html = '<div class="grp"><h3>'+logoSm(s)+esc(trLabel(meta.label))+(kCluster?' <span class="hint">'+(kMulti?'多机节点端口组':'3 节点集群 · SASL 端口')+'</span>':((mhOn(s))?' <span class="hint">多机 · 角色节点端口</span>':''))+'</h3>'+(_kh||'')+'<div class="map">'+

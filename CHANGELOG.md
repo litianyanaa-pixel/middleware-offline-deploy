@@ -4,6 +4,14 @@
 
 ## 2026-10-08（静态演示站同步机制 + 部署位置提醒）
 
+- **修复多机部署从库端口输入框显示 undefined**：端口映射卡片追加的从库/哨兵端口定义
+  缺 `default` 字段（mysql8_replica / mysql57_replica / redis_replica / redis_sentinel），
+  首次渲染把 undefined 写进输入框；现与后端默认值对齐（13308/13309/16380/26379）。
+  同时第一个端口标签由「MySQL 8.0 端口 / MySQL 5.7 端口 / Redis 端口」改为「主库端口」
+  （中英双语），从库端口标签区分多机（每台从机）与同机语境；
+  顺带补齐单机主从双从库的「从库2端口」（13310/13311）与单机哨兵的「从库端口」输入框
+  （此前 UI 未渲染、只能用后端静默默认值）
+
 - **修复 Pages demo 只显示最初 7 个应用**：docs/ 静态站此前是手工拷贝的陈旧副本
   （versions.json 只有内置 7 服务、packer.html 落后于纯离线/在线两模式产品化）。
   新增 `python packer.py --dump-catalog docs/versions.json` 一条命令导出合并服务目录
