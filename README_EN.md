@@ -114,6 +114,12 @@ cd <project>-offline
 ./deploy.sh                 # run as root, zero interaction
 ```
 
+> **⚠️ Where middleware lands**: by default **all middleware deploys on the server hosting the bundle** —
+> the machine where you run `./deploy.sh`; nginx/redis/mysql all run locally on it.
+> To spread across servers (MySQL replication / Redis sentinel / Kafka cluster), configure the
+> **multi-host topology** on the middleware cards in the packer UI and pick nodes from the
+> server pool — only then does the bundle include `distribute.sh`.
+
 Script behavior (numbers match the terminal's 【n/9】 output, all idempotent, safe to re-run):
 
 0. **Integrity check**: if the original archive and `.sha256` are found next to the extraction directory (copy both together), `sha256sum -c` runs automatically and aborts on mismatch; if not found it skips and prints the manual command

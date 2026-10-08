@@ -33,3 +33,4 @@ plugins/
 1. 把镜像按架构 save 到 `warehouse/images/<中间件>/<版本>/<amd64|arm64>.tar`
 2. 复制 `_template.py` 为 `plugins/<中间件>.py`，改 SERVICE_KEY/META/compose_block
 3. `python packer.py` 重新打开页面 —— 新中间件出现在勾选列表，仓库状态表会提示镜像缺失情况
+4. `python packer.py --dump-catalog docs/versions.json` 同步静态演示站目录 —— **不做这步 GitHub Pages demo 页看不到新中间件**（CI 测试 `test_docs_versions_json_has_plugins` 会拦截过期目录）

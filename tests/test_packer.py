@@ -568,4 +568,28 @@ def test_deploy_sh_retag_integration():
     assert "retag-mirrors.sh" in sh
     # 调用点必须在 load 循环之后、normalize 之前(顺序错则归一化找不到短名)
     assert sh.index("retag-mirrors.sh") > sh.index("docker load -i")
-    assert sh.index("retag-mirrors.sh") < sh.index("normalize_image \"$short\"")
+    assert sh.index("retag-mirrors.sh") < sh.index('normalize_image "$short"')
+
+
+def _norm_lf(p):
+    return p.read_bytes().replace(b"\r\n", b"\n")
+
+
+def test_docs_static_site_packer_html_sync():
+    """docs/ 静态演示站(GitHub Pages)的 packer.html 必须与根目录保持同步"""
+    root = Path(__file__).resolve().parent.parent
+    assert _norm_lf(root / "docs" / "packer.html") == _norm_lf(root / "packer.html")
+    assert _norm_lf(root / "docs" / "logos.js") == _norm_lf(root / "packer_logos.js")
+
+
+def test_docs_versions_json_has_plugins():
+    """docs/versions.json 必须是合并目录(内置+插件), 过期则 demo 页少应用。
+    重新生成: python packer.py --dump-catalog docs/versions.json"""
+    root = Path(__file__).resolve().parent.parent
+    dumped = json.loads((root / "docs" / "versions.json").read_text(encoding="utf-8"))
+    merged = packer.load_catalog()
+    assert dumped == merged
+    # 插件服务必须真实可见(防止空目录恰好相等的退化情形)
+    for key in ("kafka", "postgres", "prometheus", "grafana", "mongodb", "rabbitmq"):
+        assert key in dumped["services"]
+        assert dumped["services"][key].get("is_plugin") is True

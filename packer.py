@@ -4295,6 +4295,9 @@ def main():
     parser.add_argument("--config", help="按配置文件打包(JSON), 不启动 Web 界面|Pack from a JSON config file (no Web UI)")
     parser.add_argument("--out", default=None, help="打包输出目录, 默认 dist/|Output directory, default dist/")
     parser.add_argument("--example", action="store_true", help="生成配置文件样例 example-config.json|Write sample config example-config.json")
+    parser.add_argument("--dump-catalog", metavar="PATH", default=None,
+                        help="导出合并后的服务目录(内置+插件)为 JSON, 供静态演示页(Pages)使用; 常用: --dump-catalog docs/versions.json|"
+                             "Dump the merged catalog (builtin + plugins) as JSON for the static demo page; e.g. --dump-catalog docs/versions.json")
     parser.add_argument("--port", type=int, default=8765, help="Web 界面端口, 默认 8765|Web UI port, default 8765")
     parser.add_argument("--no-browser", action="store_true", help="启动 Web 时不自动打开浏览器|Do not open the browser automatically")
     parser.add_argument("--lang", default="zh", choices=("zh", "en"), help="CLI 消息语言|CLI message language")
@@ -4313,6 +4316,13 @@ def main():
                 json.dumps(EXAMPLE_CONFIG, ensure_ascii=False, indent=2), encoding="utf-8")
             log.info("已生成 example-config.json, 编辑后执行: python packer.py --config example-config.json|"
                      "example-config.json written; edit it then run: python packer.py --config example-config.json")
+            return 0
+        if args.dump_catalog:
+            cat = load_catalog()
+            Path(args.dump_catalog).write_bytes(
+                (json.dumps(cat, ensure_ascii=False, indent=2) + "\n").encode("utf-8"))
+            log.info("已导出合并服务目录(%d 个服务)到 %s|Merged catalog (%d services) dumped to %s",
+                     len(cat["services"]), args.dump_catalog, len(cat["services"]), args.dump_catalog)
             return 0
         if args.config:
             cfg = json.loads(Path(args.config).read_text(encoding="utf-8"))

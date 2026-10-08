@@ -135,6 +135,7 @@ cd xxx-offline
 <b>./deploy.sh</b>    # 全程零交互
 # 部署完成自动生成 部署报告.txt
 # 日志查看: docker compose logs -f</pre>
+        <p style="font-size:12.5px;color:var(--mut);margin-top:8px">⚠️ 中间件<b style="color:var(--txt)">默认部署在交付包所在服务器</b>（运行 deploy.sh 的机器）；需 MySQL 主从 / Redis 哨兵 / Kafka 集群等跨服务器部署，请在打包器中配置<b style="color:var(--txt)">多机拓扑</b>。</p>
       </div>
     </div>
     <div class="note">

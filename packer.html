@@ -467,6 +467,7 @@
             <div><label>Docker 数据目录 data-root</label>
               <input type="text" id="data_root" value="/data/docker"></div>
           </div>
+          <div class="hint" style="margin-top:6px">中间件默认部署在交付包所在服务器(运行 deploy.sh 的机器); 跨服务器部署请在中间件卡片配置多机拓扑</div>
           <div style="margin-top:12px">
             <label>镜像加速器 <span class="hint">写入 daemon.json; <span id="mirrorNote"></span></span></label>
             <textarea id="mirrors" rows="3" placeholder="https://... 每行一个"></textarea>
@@ -745,6 +746,7 @@ const EN_DICT = {
   "基础设施与中间件 → 生成编排 → 按需打包 → 服务器零交互部署": "Infrastructure & middleware → orchestration → pack on demand → zero-touch server deploy",
   "中间件底座": "Middleware base", "Docker/Compose 离线安装, 为 Kubernetes 与中间件提供运行底座": "Docker/Compose offline install; the runtime base for Kubernetes and middleware",
   "K8s 集群与中间件多机部署的节点均从本池选择; K8s 密码登录即可(kk 自带 SSH 客户端)": "Both K8s and multi-host middleware nodes come from this pool; password SSH is fine (kk ships its own client)",
+  "中间件默认部署在交付包所在服务器(运行 deploy.sh 的机器); 跨服务器部署请在中间件卡片配置多机拓扑": "Middleware deploys on the server hosting the bundle (the one running deploy.sh) by default; configure multi-host topology on the middleware cards to spread across servers",
   "已选 ": "Selected: ", "目标 ": "target ", "原始物料 ": "raw materials ", "打包后约为其": "packed ≈", "K8s 集群": "K8s cluster",
   "节点分发预览": "Node distribution", "集群 inventory": "Cluster inventory", "集群 config": "Cluster config",
   "工作节点": "Worker", "镜像仓库": "Image registry", "K8s 版本": "K8s version", "时区": "Timezone",
@@ -909,7 +911,8 @@ async function loadCatalog(){
     // 静态托管场景: 退化为仓库内的 versions.json, 关闭需要后端的功能
     const v = await (await fetch('versions.json')).json();
     CATALOG = { services: v.services || {}, secrets: v.secrets || [],
-                defaults: v.defaults || {}, files_present: {}, sizes: {docker:{},compose:{},images:{}} };
+                defaults: v.defaults || {}, cluster: v.cluster || {},
+                files_present: {}, sizes: {docker:{},compose:{},images:{}} };
     STATIC_MODE = true;
   }
 }
@@ -1173,7 +1176,8 @@ function renderPool(){
       '<button type="button" class="delrow" data-svdel="'+i+'" title="移除">×</button></div>';
   });
   html += '</div><button type="button" class="addport wide" data-svadd="1">+ 添加服务器</button>'+
-    '<div class="hint" style="margin-top:7px">K8s 集群与中间件多机部署的节点均从本池选择; K8s 密码登录即可(kk 自带 SSH 客户端)</div>';
+    '<div class="hint" style="margin-top:7px">K8s 集群与中间件多机部署的节点均从本池选择; K8s 密码登录即可(kk 自带 SSH 客户端)</div>'+
+    '<div class="hint" style="margin-top:4px">中间件默认部署在交付包所在服务器(运行 deploy.sh 的机器); 跨服务器部署请在中间件卡片配置多机拓扑</div>';
   box.innerHTML = html;
   bindPoolEvents(box);
 }

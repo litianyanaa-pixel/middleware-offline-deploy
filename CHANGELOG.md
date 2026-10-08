@@ -2,6 +2,21 @@
 
 按时间倒序记录每次功能与修复。`docs/` 演示站随前端改动同步更新。
 
+## 2026-10-08（静态演示站同步机制 + 部署位置提醒）
+
+- **修复 Pages demo 只显示最初 7 个应用**：docs/ 静态站此前是手工拷贝的陈旧副本
+  （versions.json 只有内置 7 服务、packer.html 落后于纯离线/在线两模式产品化）。
+  新增 `python packer.py --dump-catalog docs/versions.json` 一条命令导出合并服务目录
+  （内置 + 13 个插件中间件共 20 个），docs/packer.html 直接同步根目录版本，
+  静态退化逻辑补透传 cluster 字段（演示页恢复 K8s 集群卡片）；
+  新增防陈旧测试 `test_docs_static_site_packer_html_sync` /
+  `test_docs_versions_json_has_plugins`（新增插件忘记重新生成会被 CI 拦下）；
+  plugins/README 上线步骤补第 4 步
+- **部署位置提醒**：打包器界面（部署目录下方 + 部署服务器池）、README 中英版「服务器部署」
+  章节、落地页 docs/index.html 均明确提示——**中间件默认部署在交付包所在服务器**
+  （运行 deploy.sh 的机器），跨服务器部署需配置多机拓扑
+- 清理 test_packer.py 尾部重复定义的 test_deploy_sh_retag_integration（heredoc 编辑遗留）
+
 ## 2026-10-01（多机部署真机首验 + 异常总账整合）
 
 - **多机部署真机首验通过**：mysql8 + mysql57 双主从跨机（112 主部署机就地装双主库 +
