@@ -1004,6 +1004,7 @@ function renderTopology(){
       if (k === 'redis') state.mh[k] = { enabled:false, master:null, replicas:[null,null] };
       else state.mh[k] = { enabled:false, master:null, replicas:[null] };
     }
+    prunePx();
     saveLocal();
     const names = { mysql8: 'MySQL 8.0', mysql57: 'MySQL 5.7', redis: 'Redis', kafka: 'Kafka' };
     const modes = {
@@ -1068,15 +1069,29 @@ function renderTopology(){
   });
 }
 function updateSvcWarn(){}
+/* 读写分离只对"已勾选 + 主从形态"的 MySQL 生效; 失去前提时清掉开关和端口, 避免配置残留 */
+function pxApplicable(s){
+  return selected.has(s) && (state.topology[s] || 'single') === 'master-slave';
+}
+function prunePx(){
+  for (const s of ['mysql8', 'mysql57']){
+    if (pxApplicable(s)) continue;
+    delete state.features['proxysql_' + s];
+    delete state.ports['proxysql_' + s];
+    delete state.ports['proxysql_' + s + '_admin'];
+  }
+}
 function toggleSvc(key){
   if (key === 'mysql57' && $('#arch').value === 'arm64'){ toast('MySQL 5.7 不支持 arm64'); return; }
   if (selected.has(key)) selected.delete(key); else selected.add(key);
+  prunePx();
   renderSvcGridSync();
 }
 function onArchChange(){
   if ($('#arch').value === 'arm64' && selected.has('mysql57')){
     selected.delete('mysql57'); toast('已移除 MySQL 5.7 (arm64 不支持)');
   }
+  prunePx();
   renderSvcGridSync(); renderClusterCard();
 }
 
@@ -1234,7 +1249,7 @@ function renderDynamic(){
   }
   // ---- ProxySQL 读写分离端口(每个启用的主从 MySQL 一个实例) ----
   for (const s of ['mysql8', 'mysql57']){
-    if (!state.features['proxysql_' + s]) continue;
+    if (!state.features['proxysql_' + s] || !pxApplicable(s)) continue;
     const nm = s === 'mysql8' ? 'MySQL 8.0' : 'MySQL 5.7';
     const pxDefs = [
       {key:'proxysql_'+s, label:'读写分离入口 ('+nm+' 主从)', default: s === 'mysql8' ? 16033 : 16035, container:6033},
@@ -1779,6 +1794,7 @@ function applyConfig(cfg){
     trusted: Array.isArray(p.trusted_proxies) ? p.trusted_proxies.join(', ') : (p.trusted || '')
   }));
   if ($('#arch').value === 'arm64') selected.delete('mysql57');
+  prunePx();   // 旧配置里可能带着已取消服务的读写分离开关/端口, 恢复时对齐当前勾选
   renderSvcGridSync();
   // 集群卡片与角色分配区跟随恢复的配置重渲染(renderSvcGridSync 不覆盖这两块)
   renderClusterCard(); renderTopology(); renderPool(); renderInfraTopology();
