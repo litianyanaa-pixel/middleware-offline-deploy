@@ -17,6 +17,7 @@ from .compose import (backup_crons, gen_compose, gen_env, resolve_db,
                       validate_compose_with_docker)
 from .manifest import build_summary_lines, gen_images_txt, gen_manifest_sh
 from .multinode import gen_nodes, gen_proxysql_conf
+import prepare_java   # 顶层导入: 仓库状态需要 java 物料就绪判定(自身无重依赖)
 from .builder import (gen_pull_script, gen_retag_mirrors_sh, missing_materials, pack)
 from .paths import BASE_DIR, DIST_DIR, HTML_FILE, LOGOS_JS, log
 from .progress import PackProgress
@@ -156,6 +157,12 @@ def catalog_response(catalog):
         for distro in (ccat.get("distros") or {}):
             d_dir = BASE_DIR / ccat["os_packages_dir"].format(distro=distro, arch="amd64")
             present["cluster_os_%s" % distro] = d_dir.is_dir() and any(d_dir.iterdir())
+        # Java 运行时(Temurin JDK)物料就绪状态: 已 resolve 且 tar 在仓库
+        for major in (catalog.get("java") or {}).get("majors") or []:
+            for arch in ("amd64", "arm64"):
+                meta = prepare_java.resolved_of(catalog, str(major), arch)
+                present["java_%s_%s" % (major, arch)] = bool(meta) and (
+                    prepare_java.java_dir(arch) / meta["filename"]).is_file()
     return {"services": services, "secrets": catalog["secrets"],
             "cluster": ccat,
             "defaults": catalog["defaults"], "files_present": present, "sizes": sizes,

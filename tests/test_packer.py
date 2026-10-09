@@ -670,3 +670,75 @@ def test_docs_versions_json_has_plugins():
     for key in ("kafka", "postgres", "prometheus", "grafana", "mongodb", "rabbitmq"):
         assert key in dumped["services"]
         assert dumped["services"][key].get("is_plugin") is True
+
+
+# ---------------------------------------------------------------- Java 运行时
+
+def test_java_disabled_by_default(catalog):
+    """旧配置无 java 键 -> 默认关闭(基础中间件可选启用)"""
+    cfg = make_cfg(None, services=("nginx",))
+    cfg, _ = packer.validate_config(cfg, catalog)
+    assert cfg["java"]["enabled"] is False
+
+
+def test_java_config_normalized(catalog):
+    """java 归一化: 版本按 majors 排序/非法默认版本纠偏/越界目标丢弃"""
+    cfg = make_cfg(None, services=("nginx",),
+                   java={"enabled": True, "versions": ["21", "8"], "default": "99",
+                         "targets": ["local", 7]})
+    cfg, _ = packer.validate_config(cfg, catalog)
+    j = cfg["java"]
+    assert j["enabled"] is True
+    assert j["versions"] == ["8", "21"]
+    assert j["default"] == "21"          # 99 不在勾选列表 -> 回退最后勾选
+    assert j["targets"] == ["local"]     # 索引 7 越界(服务器池空) -> 丢弃
+
+
+def test_java_multihost_nodes_and_scripts(catalog):
+    """多机: targets 节点计划带 java 版本; 纯 Java 节点脚本无 docker 依赖; 分发脚本传 java/"""
+    cfg = make_cfg(None, services=("mysql8", "nginx"), topology={"mysql8": "master-slave"},
+                   servers=[{"name": "n1", "user": "root", "ip": "10.0.0.1", "ssh": 22, "password": "p"},
+                            {"name": "n2", "user": "root", "ip": "10.0.0.2", "ssh": 22, "password": "p"},
+                            {"name": "n3", "user": "root", "ip": "10.0.0.3", "ssh": 22, "password": ""}],
+                   multihost={"mysql8": {"enabled": True, "master": 0, "replicas": [1]}},
+                   java={"enabled": True, "versions": ["17"], "default": "17",
+                         "targets": ["local", 0, 2]})
+    cfg, _ = packer.validate_config(cfg, catalog)
+    nodes = packer.gen_nodes(cfg, catalog)
+    by_name = {n["name"]: n for n in nodes}
+    assert by_name["n1"]["java_versions"] == ["jdk17"]
+    assert by_name["n3"]["java_versions"] == ["jdk17"] and by_name["n3"]["roles"] == ["java"]
+    assert by_name["n2"]["java_versions"] == []
+    # 纯 Java 节点: 不要求 Docker, 无 compose 段
+    ins_pure = packer.gen_node_install_sh(cfg, by_name["n3"])
+    assert "JAVA_VERSIONS=(jdk17)" in ins_pure and "--strip-components=1" in ins_pure
+    assert "docker" not in ins_pure.lower()
+    # 混合节点: java 段在 docker 检查之前
+    ins_mix = packer.gen_node_install_sh(cfg, by_name["n1"])
+    assert "install Java" not in ins_mix   # 英文误写守卫
+    assert ins_mix.index("JAVA_VERSIONS=") < ins_mix.index("command -v docker")
+    # 分发脚本: java 目录传输 + 预检条件化
+    dist = packer.gen_distribute_sh(cfg, nodes, catalog)
+    assert "tar czf - -C java ." in dist and "HAS_JAVA" in dist and "HAS_SVCS" in dist
+
+
+def test_java_manifest_vars_local(catalog):
+    """manifest.sh: 本机启用时写 JAVA_ENABLED/JAVA_VERSIONS/JAVA_DEFAULT"""
+    cfg = make_cfg(None, services=("nginx",),
+                   java={"enabled": True, "versions": ["8", "17"], "default": "17", "targets": ["local"]})
+    cfg, _ = packer.validate_config(cfg, catalog)
+    mf = packer.gen_manifest_sh(cfg, catalog, "", [])
+    assert "JAVA_ENABLED=1" in mf
+    assert "JAVA_VERSIONS=(jdk8 jdk17)" in mf
+    assert "JAVA_DEFAULT=jdk17" in mf
+
+
+def test_java_manifest_vars_not_local_target(catalog):
+    """多机 targets 不含 local -> 主部署机不装(节点由 install-node.sh 装)"""
+    cfg = make_cfg(None, services=("nginx",),
+                   servers=[{"name": "n1", "user": "root", "ip": "10.0.0.1", "ssh": 22, "password": "p"}],
+                   java={"enabled": True, "versions": ["17"], "default": "17", "targets": [0]})
+    cfg, _ = packer.validate_config(cfg, catalog)
+    mf = packer.gen_manifest_sh(cfg, catalog, "", [])
+    assert "JAVA_ENABLED=0" in mf
+    assert "JAVA_VERSIONS=()" in mf and "JAVA_DEFAULT=" in mf

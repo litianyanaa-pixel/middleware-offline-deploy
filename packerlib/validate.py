@@ -411,6 +411,41 @@ def validate_config(cfg, catalog):
             warns.append("kube-proxy nftables 模式要求节点内核 >= 5.13, 旧内核(麒麟 4.19/阿里云 5.10)请用 iptables|nftables proxy mode needs kernel >= 5.13; use iptables on old kernels")
     cfg["cluster"] = cluster
 
+    # ---- Java 运行时(可选基础中间件): 版本多选 + 默认版本 + 部署目标 ----
+    # targets 元素: "local"(运行 deploy.sh 的主部署机) 或服务器池索引; 版本集合全局统一
+    jraw = cfg.get("java") or {}
+    java = {"enabled": bool(jraw.get("enabled")), "versions": [], "default": "", "targets": []}
+    if java["enabled"]:
+        all_majors = [str(m) for m in ((catalog.get("java") or {}).get("majors") or ["8", "17", "21"])]
+        vs = sorted({str(v) for v in (jraw.get("versions") or []) if str(v) in all_majors},
+                    key=all_majors.index)
+        if not vs:
+            warns.append("已启用 Java 运行时但未勾选版本, 已按默认 %s 处理|Java runtime enabled but no version "
+                         "selected; defaulting to %s" % (all_majors[-1], all_majors[-1]))
+            vs = [all_majors[-1]]
+        java["versions"] = vs
+        dft = str(jraw.get("default") or "") or vs[-1]
+        if dft not in vs:
+            warns.append("Java 默认版本 %s 不在勾选列表, 已改用 %s|Java default version %s is not selected; "
+                         "switched to %s" % (dft, vs[-1], dft, vs[-1]))
+            dft = vs[-1]
+        java["default"] = dft
+        for t in (jraw.get("targets") or []):
+            if t == "local":
+                java["targets"].append("local")
+                continue
+            try:
+                idx = int(t)
+            except (TypeError, ValueError):
+                continue
+            if 0 <= idx < len(servers) and idx not in java["targets"]:
+                java["targets"].append(idx)
+        if not java["targets"]:
+            java["targets"] = ["local"]
+            warns.append("Java 部署目标为空, 默认仅安装到主部署机|Empty Java targets; installing on the "
+                         "primary host only")
+    cfg["java"] = java
+
     mh_raw = cfg.get("multihost") or {}
     mh = {}
 

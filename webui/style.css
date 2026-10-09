@@ -186,6 +186,14 @@
   #topoInfraBox .kform .kinline{display:flex;gap:14px;flex-wrap:wrap;align-items:center;min-height:32px}
   #topoInfraBox .kform .kinline label{display:inline-flex;align-items:center;gap:5px;cursor:pointer;font-size:13px}
   #topoInfraBox .kform .kchips label{display:inline-flex;align-items:center;gap:5px;margin:2px 0;cursor:pointer;font-size:13px}
+  /* ---- 服务器池: Java 运行时区块(与集群表单同规范) ---- */
+  #poolBox .jbox{max-width:820px;margin:0 0 14px;padding:10px 12px;border:1px solid rgba(120,120,128,.18);border-radius:12px;background:rgba(120,120,128,.05)}
+  #poolBox .jbox .krow{display:flex;align-items:flex-start;gap:12px;margin-bottom:6px}
+  #poolBox .jbox .krow>label{flex:0 0 140px;text-align:right;line-height:32px;font-size:13px;color:var(--txt2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #poolBox .jbox .krow .kfield{flex:1;min-width:0;line-height:32px}
+  #poolBox .jbox .krow .kfield .khint{line-height:1.5}
+  #poolBox .jbox .kchips{display:grid;grid-template-columns:repeat(4,max-content);justify-content:start;gap:4px 18px}
+  #poolBox .jbox .kchips label{display:inline-flex;align-items:center;gap:5px;margin:2px 0;cursor:pointer;font-size:13px}
   #topoInfraBox details{border:1px solid rgba(255,255,255,.7);border-radius:12px;padding:10px 14px;background:rgba(120,120,128,.05)}
   #topoInfraBox details summary{list-style:none;display:flex;align-items:center;gap:6px}
   #topoInfraBox details summary::before{content:"▸";color:var(--acc);transition:transform .2s}

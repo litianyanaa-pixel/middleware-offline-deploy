@@ -6,6 +6,14 @@ from .multinode import gen_nodes
 from .util import bash_quote, is_multihost, master_server_ip, proxysql_name, tr
 
 
+def _java_local_enabled(cfg):
+    """Java 是否安装到主部署机(deploy.sh 所在机): 启用且(单机 或 targets 含 local)"""
+    j = cfg.get("java") or {}
+    if not j.get("enabled") or not j.get("versions"):
+        return False
+    return (not cfg.get("servers")) or ("local" in (j.get("targets") or []))
+
+
 def gen_manifest_sh(cfg, catalog, client_img, summary_lines, bundle_name=None):
     ports = cfg["ports"]
     db = cfg["db"]
@@ -158,6 +166,9 @@ def gen_manifest_sh(cfg, catalog, client_img, summary_lines, bundle_name=None):
         "MYSQL_MULTIHOST_HOST=%s" % bash_quote(next((master_server_ip(cfg, s) for s in ("mysql8", "mysql57") if is_multihost(cfg, s)), "")),
         "MYSQL_MULTIHOST_PORT=%s" % next((str(ports[s]) for s in ("mysql8", "mysql57") if is_multihost(cfg, s)), "0"),
         "NODES_COUNT=%d" % len(gen_nodes(cfg, catalog)),
+        "JAVA_ENABLED=%d" % (1 if _java_local_enabled(cfg) else 0),
+        "JAVA_VERSIONS=(%s)" % " ".join("jdk%s" % v for v in (cfg.get("java") or {}).get("versions", []) if _java_local_enabled(cfg)),
+        "JAVA_DEFAULT=%s" % ("jdk%s" % (cfg.get("java") or {}).get("default", "") if _java_local_enabled(cfg) else ""),
         "MYSQL_ROOT_PASSWORD=%s" % bash_quote(cfg["secrets"].get("MYSQL_ROOT_PASSWORD", "")),
         "MYSQL_CLIENT_IMG=%s" % bash_quote(client_img),
         "HEALTH_WAIT=(%s)" % " ".join(bash_quote(n) for n in health_wait),

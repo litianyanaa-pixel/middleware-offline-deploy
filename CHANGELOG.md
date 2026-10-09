@@ -2,6 +2,28 @@
 
 按时间倒序记录每次功能与修复。`docs/` 演示站随前端改动同步更新。
 
+## 2026-10-09（新增: Java 运行时作为基础中间件）
+
+- **Java 运行时(Temurin JDK 8/17/21, 双架构)作为基础中间件集成**, 非插件形式(不进 compose
+  服务网格), 与 Docker 同层的宿主机运行时; 配置区块在「部署服务器池」卡片顶部: 启用开关 +
+  版本多选 + 默认版本 + 部署目标(本机/每台服务器勾选), arm64 完整支持。
+- **物料下载器 `prepare_java.py`**: Adoptium API 运行时解析各 major 最新 GA(文件名/sha256/
+  链接), 下载走清华 TUNA → GitHub → GH 三镜像, 4 连接分段下载 + sha256 校验, 结果回填
+  versions.json 的 `java.resolved` 供离线打包复用; `--check`/`--download` CLI; 打包时缺料
+  自动补齐(与集群物料同模式)。
+- **部署链路**: 包内顶层 `java/jdk<N>.tar.gz` 共享单份 + `jdk.sha256` 清单; deploy.sh 新增
+  `install_java()`(【0.3/9】, 集群部署前执行): sha256 校验 → 解压 `/usr/local/java/jdk<N>`
+  (`--strip-components=1`, 幂等跳过已装) → 写 `/etc/profile.d/java.sh`(JAVA_HOME 指向默认
+  版本) → `java -version` 实测; 多版本共存, 未勾选部署目标的主部署机自动跳过。
+- **多机支持**: 服务器池按勾选分发(可勾纯 Java 节点——该节点无需 Docker); 纯 Java 节点生成
+  精简 install-node.sh(不含容器段), 混合节点 Java 段置于 Docker 检查之前; distribute.sh 预检
+  按节点类型条件化(docker 检查/仅 SSH), Java 物料随 tar 管道分发到节点。
+- **校验与测试**: pytest 新增 5 个 Java 用例(归一化/多机节点计划/纯 Java 脚本/manifest 变量/
+  目标豁免), 真实打包验证(java/ 产物结构 + manifest 变量 + 三版本 sha256 逐一致); 物料仓库
+  页签新增「Java 运行时包」状态行(就绪/打包时下载); 演示站快照同步。
+- **新依赖**: prepare_java.py 需打包机联网(仅首次), api.adoptium.net 获取元数据 + 清华/GitHub
+  镜像下载; resolved 回填后离线打包不再需要外网。
+
 ## 2026-10-09（代码复查: 六处小修复）
 
 - **物料仓库「离线镜像包」行误显示就绪**：后端 catalog 接口把该键从布尔改为"已收集 CNI 名数组"

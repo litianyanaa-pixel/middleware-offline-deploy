@@ -2,6 +2,7 @@ let CATALOG = null;
 const selected = new Set();
 const state = { ports: {}, secrets: {}, db: {}, extra: {}, backup: null, proxies: [], topology: { mysql8: 'single', mysql57: 'single', redis: 'single', kafka: 'single' }, svcFilter: 'all',
   servers: [],
+  java: { enabled: false, versions: ['17'], default: '17', targets: ['local'] },
   cluster: { enabled: false, kube_version: '', mode: 'cache', cni_type: 'calico', proxy_mode: 'iptables',
              pod_cidr: '10.233.64.0/18', service_cidr: '10.233.0.0/18', timezone: 'Asia/Shanghai', os_distros: [], roles: {},
              ha_type: 'local', ha_vip: '', upgrade_to: '', k8s_image_registry: '',
@@ -307,6 +308,11 @@ const EN_DICT = {
   "运行 python prepare_cluster.py --download 补齐": "run python prepare_cluster.py --download to fetch",
   /* -- 服务器池 -- */
   "所有部署的节点清单 — K8s 集群与中间件多机部署从这里选择": "inventory of every node — both the K8s cluster and multi-host middleware pick their nodes here",
+  "Java 运行时": "Java runtime",
+  "启用 (Temurin JDK 随包离线分发)": "enable (Temurin JDK bundled offline)",
+  "版本": "versions", "默认版本": "default", "部署目标": "deploy targets",
+  "本机 (运行 deploy.sh)": "this host (runs deploy.sh)", "IP未填": "IP empty",
+  "JDK 以 tar.gz 随包内置; 部署时校验 sha256 后解压到 /usr/local/java/jdk<N> 并写入 /etc/profile.d/java.sh; 多版本共存, 所选默认版本生成 JAVA_HOME; 多机部署按勾选分发到对应节点(纯 Java 节点无需 Docker)": "JDK tar.gz bundled in the package; on deploy, sha256 is verified then extracted to /usr/local/java/jdk<N> and /etc/profile.d/java.sh is written; multiple versions coexist with JAVA_HOME pointing at the default; multi-host distributes to checked nodes (Java-only nodes need no Docker)",
   "别名": "Alias", "SSH 用户": "SSH user", "SSH 密码": "SSH password",
   "(留空=免密)": "(empty = passwordless)", "服务器 IP (IPv4)": "Server IP (IPv4)",
   "端口": "Port", "+ 添加服务器": "+ Add server", "写入 daemon.json;": "written to daemon.json;",
@@ -715,7 +721,27 @@ function renderClusterCard(){
 /* ---- 基础设施拓扑(第 1 步: 部署服务器池独立成块 + 集群参数/角色) ---- */
 function renderPool(){
   const box = $('#poolBox'); if (!box) return;
-  let html = '<div class="map">'+
+  const ja = state.java;
+  const jmajors = ((CATALOG.java || {}).majors || ['8','17','21']).map(String);
+  let jhtml = '<div class="jbox">'+
+    '<div class="krow"><label>'+esc(trText('Java 运行时'))+'</label><div class="kfield">'+
+      '<label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-jen="1"'+(ja.enabled?' checked':'')+'> '+
+      esc(trText('启用 (Temurin JDK 随包离线分发)'))+'</label>'+
+      (ja.enabled ? '<span style="margin-left:14px">'+esc(trText('版本'))+': '+ jmajors.map(v =>
+          '<label style="display:inline-flex;align-items:center;gap:4px;cursor:pointer;margin:0 6px 0 0"><input type="checkbox" data-jv="'+v+'"'+(ja.versions.includes(v)?' checked':'')+'> Java '+v+'</label>').join('') +
+        '<select data-jd style="margin-left:10px;min-width:110px">' + ja.versions.map(v =>
+          '<option value="'+v+'"'+(ja.default===v?' selected':'')+'>'+esc(trText('默认版本'))+': Java '+v+'</option>').join('') + '</select>' : '') +
+    '</div></div>';
+  if (ja.enabled){
+    jhtml += '<div class="krow"><label>'+esc(trText('部署目标'))+'</label><div class="kfield kchips" style="grid-template-columns:repeat(4,max-content)">' +
+      '<label><input type="checkbox" data-jt="local"'+(ja.targets.includes('local')?' checked':'')+'> '+esc(trText('本机 (运行 deploy.sh)'))+'</label>' +
+      state.servers.map((sv,i) => '<label><input type="checkbox" data-jt="'+i+'"'+(ja.targets.includes(i)?' checked':'')+'> '+
+        esc((sv.name || ('node'+(i+1))) + ' · ' + (sv.ip || trText('IP未填')))+'</label>').join('') +
+      '</div></div>' +
+      '<div class="krow"><label></label><div class="kfield"><div class="khint">'+esc(trText('JDK 以 tar.gz 随包内置; 部署时校验 sha256 后解压到 /usr/local/java/jdk<N> 并写入 /etc/profile.d/java.sh; 多版本共存, 所选默认版本生成 JAVA_HOME; 多机部署按勾选分发到对应节点(纯 Java 节点无需 Docker)'))+'</div></div></div>';
+  }
+  jhtml += '</div>';
+  let html = jhtml + '<div class="map">'+
     '<div class="map-cols svcols"><span>别名</span><span>SSH 用户</span><span>SSH 密码 <em style="font-style:normal;opacity:.75">(留空=免密)</em></span><span>服务器 IP (IPv4)</span><span style="text-align:center">端口</span><span></span></div>';
   state.servers.forEach((sv, i) => {
     html += '<div class="map-row svrow">'+
@@ -944,6 +970,30 @@ function bindPoolEvents(box){
     state.servers.push({ name: 'node'+(state.servers.length+1), user: 'root', ip: '', ssh: 22, pass: '' });
     saveLocal(); renderPool(); renderInfraTopology();
   });
+  // ---- Java 运行时 ----
+  box.querySelectorAll('[data-jen]').forEach(c => c.onchange = () => {
+    state.java.enabled = c.checked; saveLocal(); renderPool();
+  });
+  box.querySelectorAll('[data-jv]').forEach(c => c.onchange = () => {
+    const v = String(c.dataset.jv);
+    if (c.checked){ if (!state.java.versions.includes(v)) state.java.versions.push(v); }
+    else state.java.versions = state.java.versions.filter(x => x !== v);
+    if (!state.java.versions.length){ state.java.versions = ['17']; }   // 至少保留一个版本
+    state.java.versions.sort((a,b) => jmajorsOrder().indexOf(a) - jmajorsOrder().indexOf(b));
+    if (!state.java.versions.includes(state.java.default))
+      state.java.default = state.java.versions[state.java.versions.length - 1];
+    saveLocal(); renderPool();
+  });
+  box.querySelectorAll('[data-jd]').forEach(s => s.onchange = () => { state.java.default = s.value; saveLocal(); });
+  box.querySelectorAll('[data-jt]').forEach(c => c.onchange = () => {
+    const t = c.dataset.jt === 'local' ? 'local' : +c.dataset.jt;
+    if (c.checked){ if (!state.java.targets.includes(t)) state.java.targets.push(t); }
+    else state.java.targets = state.java.targets.filter(x => x !== t);
+    saveLocal();
+  });
+}
+function jmajorsOrder(){
+  return (((CATALOG.java || {}).majors) || ['8','17','21']).map(String);
 }
 
 function bindInfraEvents(box){
@@ -1838,6 +1888,7 @@ function buildConfig(){
     db: JSON.parse(JSON.stringify(state.db)),
     topology: JSON.parse(JSON.stringify(state.topology || {})),
     servers: JSON.parse(JSON.stringify(state.servers || [])),
+    java: JSON.parse(JSON.stringify(state.java || {})),
     multihost: (() => {
       const out = {};
       for (const k of Object.keys(state.mh || {})){
@@ -1875,6 +1926,17 @@ function applyConfig(cfg){
   state.topology = Object.assign({ mysql8: 'single', mysql57: 'single', redis: 'single', kafka: 'single' }, cfg.topology || {});
   state.servers = (Array.isArray(cfg.servers) ? cfg.servers : []).map(v =>
     Object.assign({ name: '', user: 'root', ip: '', ssh: 22, pass: '' }, v || {}));
+  // Java 运行时: 旧配置无 java 键 -> 默认关闭; 恢复时归一化(版本防空/默认版本合法性/目标类型)
+  state.java = Object.assign({ enabled: false, versions: ['17'], default: '17', targets: ['local'] }, cfg.java || {});
+  state.java.versions = (Array.isArray(state.java.versions) ? state.java.versions : ['17']).map(String)
+    .filter(v => jmajorsOrder().includes(v));
+  if (!state.java.versions.length) state.java.versions = ['17'];
+  state.java.versions.sort((a,b) => jmajorsOrder().indexOf(a) - jmajorsOrder().indexOf(b));
+  if (!state.java.versions.includes(state.java.default))
+    state.java.default = state.java.versions[state.java.versions.length - 1];
+  state.java.targets = (Array.isArray(state.java.targets) ? state.java.targets : ['local'])
+    .map(t => t === 'local' ? 'local' : +t).filter(t => t === 'local' || t < state.servers.length);
+  if (!state.java.targets.length) state.java.targets = ['local'];
   const mhIn = cfg.multihost || {};
   state.mh = {
     kafka: Object.assign({ enabled:false, count:3, brokers:[null,null,null] }, mhIn.kafka || {}),
@@ -2069,6 +2131,15 @@ function renderWarehouse(){
   for (const arch of ['amd64','arm64']){
     row('docker 安装包', arch, p['docker_'+arch], sz.docker[arch], 'Docker 静态二进制', 'pkg');
     row('docker-compose 插件', arch, p['compose_'+arch], sz.compose[arch], 'compose v2 二进制', 'pkg');
+  }
+  // ---- Java 运行时物料(Temurin JDK; 未 resolve 的在打包时自动下载, 不计入缺料徽章) ----
+  for (const v of ((CATALOG.java||{}).majors || ['8','17','21'])){
+    const a = p['java_'+v+'_amd64'], b = p['java_'+v+'_arm64'];
+    const ok = a === true && b === true;
+    rows += '<tr data-kind="pkg" data-arch="amd64"><td class="mono">Java 运行时包 (Temurin JDK '+v+')</td><td>x86_64+aarch64</td>'+
+      '<td><span class="dot '+(ok?'ok':'no')+'"></span>'+(ok?'就绪':'打包时下载')+'</td>'+
+      '<td>-</td><td class="hint">'+(LANG==='en'?'python prepare_java.py --download to pre-fetch (auto-fetched at pack time otherwise)'
+                                        :'python prepare_java.py --download 可预下载 (打包时也会自动补齐)')+'</td></tr>';
   }
   // ---- K8s 集群物料(基础平台; 集群暂仅 amd64) ----
   const cc = CATALOG.cluster || {};

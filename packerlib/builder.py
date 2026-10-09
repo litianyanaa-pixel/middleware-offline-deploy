@@ -177,6 +177,36 @@ def pack(cfg, catalog, out_dir=None, progress=None):
                 big_files.append(("%s/cluster/upgrade/%s/%s/%s" % (bundle_name, up_to, arch, b), kube_src / b))
             cluster_small["upgrade-cluster.sh"] = gen_upgrade_sh(cfg)
 
+    # ---- Java 运行时物料(Temurin JDK): 缺料时打包机自动下载, 包内顶层 java/ 共享单份 ----
+    java_on = bool((cfg.get("java") or {}).get("enabled"))
+    java_sha_lines = []
+    if java_on:
+        prog.stage("收集 Java 运行时物料")
+        import prepare_java
+        jwarns, jmissing = [], []
+        try:
+            jmissing, jwarns = prepare_java.ensure(cfg["java"]["versions"], arch)
+        except ImportError:
+            jmissing = ["prepare_java.py 模块加载失败"]
+        warns += ["%s|%s" % (w, w) for w in jwarns]
+        if jmissing:
+            raise PackError("Java 运行时物料不全(自动下载失败):\n" + "\n".join("  - %s" % m for m in jmissing) +
+                            "\n可手动执行: python prepare_java.py --download 后重新打包"
+                            "|Incomplete Java runtime materials; run: python prepare_java.py --download then repack")
+        vers_json = prepare_java._load_versions()
+        for v in cfg["java"]["versions"]:
+            meta = prepare_java.resolved_of(vers_json, v, arch)
+            if not meta or not (prepare_java.java_dir(arch) / meta["filename"]).is_file():
+                raise PackError("Java %s 物料元数据缺失(resolve 失败): %s|Missing Java %s material metadata"
+                                % (v, meta, v))
+            big_files.append(("%s/java/jdk%s.tar.gz" % (bundle_name, v),
+                              prepare_java.java_dir(arch) / meta["filename"]))
+            java_sha_lines.append("%s  jdk%s.tar.gz" % (meta.get("sha256", ""), v))
+        if not cfg["services"]:
+            warns.append("纯集群包不安装 Java 运行时(deploy.sh 链路未包含): JDK 包已置于包内 java/ 目录可手动解压, "
+                         "或勾选至少一个中间件|Cluster-only bundle does not auto-install Java; JDK tars are under "
+                         "java/ for manual install, or select at least one middleware")
+
     total_bytes = sum(p.stat().st_size for _, p in big_files)
     prog.begin(total_bytes)
 
@@ -313,6 +343,9 @@ def pack(cfg, catalog, out_dir=None, progress=None):
         small_files.append(("%s/%s" % (bundle_name, rel), content.encode("utf-8"), mode))
     for rel, content in sql_files.items():
         small_files.append(("%s/%s" % (bundle_name, rel), content.encode("utf-8"), 0o644))
+    if java_on:
+        small_files.append(("%s/java/jdk.sha256" % bundle_name,
+                            ("\n".join(java_sha_lines) + "\n").encode("utf-8"), 0o644))
     for rel, src in conf_files.items():
         data = src.read_text(encoding="utf-8") if isinstance(src, Path) else src
         small_files.append(("%s/%s" % (bundle_name, rel), data.encode("utf-8"), 0o644))
@@ -336,13 +369,14 @@ def pack(cfg, catalog, out_dir=None, progress=None):
             node_compose = nd["compose"]
             small_files.append(("%s/install-node.sh" % base,
                                 gen_node_install_sh(cfg, nd).encode("utf-8"), 0o755))
-            small_files.append(("%s/docker-compose.yml" % base, node_compose.encode("utf-8"), 0o644))
-            small_files.append(("%s/.env" % base, nd["env"].encode("utf-8"), 0o600))
-            small_files.append(("%s/images.txt" % base,
-                                ("# tar文件|统一短名\n" + "".join("%s|%s\n" % (f, s) for f, _, s in nd["images"])).encode("utf-8"),
-                                0o644))
-            small_files.append(("%s/images/retag-mirrors.sh" % base,
-                                gen_retag_mirrors_sh().encode("utf-8"), 0o755))
+            if nd["compose_parts"]:   # 纯 Java 节点无容器服务, 不写 compose/.env/镜像清单
+                small_files.append(("%s/docker-compose.yml" % base, node_compose.encode("utf-8"), 0o644))
+                small_files.append(("%s/.env" % base, nd["env"].encode("utf-8"), 0o600))
+                small_files.append(("%s/images.txt" % base,
+                                    ("# tar文件|统一短名\n" + "".join("%s|%s\n" % (f, s) for f, _, s in nd["images"])).encode("utf-8"),
+                                    0o644))
+                small_files.append(("%s/images/retag-mirrors.sh" % base,
+                                    gen_retag_mirrors_sh().encode("utf-8"), 0o755))
             small_files.append(("%s/uninstall.sh" % base,
                                 (TPL_DIR / "uninstall.sh").read_text(encoding="utf-8").encode("utf-8"), 0o755))
             for rel, src in nd["conf_files"].items():

@@ -254,7 +254,7 @@ def gen_nodes(cfg, catalog):
                 "name": servers[idx]["name"], "server": servers[idx], "roles": [],
                 "compose_parts": [], "env_keys": set(), "images": [], "conf_files": {},
                 "post_sql": [], "health_wait": [], "data_dirs": [], "chown_dirs": [],
-                "port_checks": [], "backup": None,
+                "port_checks": [], "backup": None, "java_versions": [],
             }
         return acc[idx]
 
@@ -364,6 +364,16 @@ def gen_nodes(cfg, catalog):
             rp["chown_dirs"] += ["redis/log", "redis/sentinel.conf:999"]
             rp["port_checks"] += [ports["redis_replica"], ports.get("redis_sentinel", 26379)]
 
+    # ---- Java 运行时节点 (勾选 Java 部署目标的服务器; 可与中间件角色共存, 也可独立成纯 Java 节点) ----
+    jcfg = cfg.get("java") or {}
+    if jcfg.get("enabled") and jcfg.get("versions"):
+        for idx in (jcfg.get("targets") or []):
+            if idx == "local":
+                continue
+            p = acc_of(int(idx))
+            p["java_versions"] = ["jdk%s" % v for v in jcfg["versions"]]
+            p["roles"].append("java")
+
     # ---- 组装 (主节点优先: mysql master > redis master > kafka > 其余) ----
     def role_rank(idx):
         r = acc[idx]["roles"]
@@ -378,6 +388,7 @@ def gen_nodes(cfg, catalog):
         # 主库节点备份配置(该节点全部主库服务一次性生成, mysql8/mysql57 同节点都进 MYSQL_SERVICES)
         if p.get("backup_svcs"):
             p["backup"] = _node_backup_files(cfg, p["backup_svcs"])
+        p["java_default"] = ("jdk%s" % (jcfg.get("default") or "")) if p["java_versions"] else ""
         p["compose"] = ("# 由 packer.py 自动生成 (多机节点: %s)\nname: %s-%s\n\nservices:\n" % (
             p["name"], cfg["project"], p["name"])) + "\n".join(p["compose_parts"]) + \
             "\n\nnetworks:\n  app-network:\n    driver: bridge\n"
@@ -411,8 +422,59 @@ def _node_sentinel_conf(cfg, master_ip, master_port, self_ip):
             "sentinel announce-port %d\n" % (master_ip, master_port, pw, self_ip, port))
 
 
+def _java_install_sh(node):
+    """Java 运行时安装段 (Temurin JDK, 解压至 /usr/local/java/jdk<N>, profile.d 生效; 幂等, 不依赖 Docker)"""
+    if not node.get("java_versions"):
+        return ""
+    return """# ---- Java 运行时 (Temurin JDK, 解压 /usr/local/java/jdk<N>, 写 /etc/profile.d/java.sh) ----
+JAVA_VERSIONS=(%(jvers)s)
+JAVA_DEFAULT=%(jdef)s
+if [ ${#JAVA_VERSIONS[@]} -gt 0 ]; then
+  log "安装 Java 运行时..."
+  ( cd java 2>/dev/null && sha256sum -c jdk.sha256 --quiet ) || die "Java 包 sha256 校验失败 (java/jdk.sha256)"
+  mkdir -p /usr/local/java
+  for v in "${JAVA_VERSIONS[@]}"; do
+    [ -f "./java/$v.tar.gz" ] || die "缺少 java/$v.tar.gz"
+    dest="/usr/local/java/$v"
+    if [ -x "$dest/bin/java" ]; then
+      log "  $v 已安装, 跳过 ($("$dest/bin/java" -version 2>&1 | head -1))"
+      continue
+    fi
+    log "  解压 $v -> $dest ..."
+    rm -rf "$dest"; mkdir -p "$dest"
+    tar -xzf "./java/$v.tar.gz" -C "$dest" --strip-components=1
+    "$dest/bin/java" -version >/dev/null 2>&1 || die "$v 解压后无法运行 (架构与节点不符?)"
+    log "  $v 就绪 ($("$dest/bin/java" -version 2>&1 | head -1))"
+  done
+  printf 'export JAVA_HOME=/usr/local/java/%%s\\nexport PATH=$JAVA_HOME/bin:$PATH\\n' "$JAVA_DEFAULT" > /etc/profile.d/java.sh
+  chmod 644 /etc/profile.d/java.sh
+  export JAVA_HOME="/usr/local/java/$JAVA_DEFAULT"; export PATH="$JAVA_HOME/bin:$PATH"
+  log "Java 默认版本 $JAVA_DEFAULT ($(java -version 2>&1 | head -1))"
+fi
+""" % {"jvers": " ".join(node["java_versions"]), "jdef": node.get("java_default") or ""}
+
+
+def _java_only_install_sh(node):
+    """纯 Java 节点安装脚本 (无容器服务: 不要求节点已装 Docker/compose)"""
+    return """#!/usr/bin/env bash
+# 由 packer.py 自动生成 — 节点 %(name)s 安装脚本 (Java 运行时专用, 无容器服务, 可重复执行)
+set -euo pipefail
+cd "$(dirname "$0")"
+NODE_NAME=%(name)s
+log(){ printf '[node-%%s] %%s\\n' "$NODE_NAME" "$*"; }
+die(){ printf '[node-%%s] 错误: %%s\\n' "$NODE_NAME" "$*" >&2; exit 1; }
+
+%(java_sh)s
+
+log "节点 $NODE_NAME 安装完成 (Java 运行时)"
+""" % {"name": bash_quote(node["name"]), "java_sh": _java_install_sh(node)}
+
+
 def gen_node_install_sh(cfg, node):
-    """生成单节点安装脚本 (自包含: 配置桥接 -> load 镜像 -> compose up -> 健康等待 -> 初始化 SQL -> 备份 crontab)"""
+    """生成单节点安装脚本 (自包含: Java 运行时 -> 配置桥接 -> load 镜像 -> compose up -> 健康等待 -> 初始化 SQL -> 备份 crontab)"""
+    if not node["compose_parts"] and node.get("java_versions"):
+        return _java_only_install_sh(node)   # 纯 Java 节点: 无容器段
+    java_sh = _java_install_sh(node)
     b = node.get("backup")
     backup_cron = b["CRON"] if b else ""
     backup_lines = ""
@@ -436,6 +498,8 @@ BACKUP_CRON=%(backup_cron)s
 
 log(){ printf '[node-%%s] %%s\\n' "$NODE_NAME" "$*"; }
 die(){ printf '[node-%%s] 错误: %%s\\n' "$NODE_NAME" "$*" >&2; exit 1; }
+
+%(java_sh)s
 
 command -v docker >/dev/null 2>&1 || die "本机未安装 Docker, 请先安装 Docker 再执行"
 docker compose version >/dev/null 2>&1 || docker-compose version >/dev/null 2>&1 \\
@@ -519,6 +583,7 @@ log "节点 $NODE_NAME 安装完成"
 docker compose ps --format 'table {{.Name}}\\t{{.Status}}' 2>/dev/null || docker ps
 """ % {
         "name": bash_quote(node["name"]),
+        "java_sh": java_sh,
         "health_wait": " ".join(bash_quote(n) for n in node["health_wait"]),
         "data_dirs": " ".join(bash_quote(d) for d in node["data_dirs"]),
         "chown_dirs": " ".join(bash_quote(d) for d in node["chown_dirs"]),
@@ -579,11 +644,15 @@ for NODE in "${NODES[@]}"; do
     SCPC=(scp -P "$RSSH" -q)
   fi
   log "[$NAME] 预检 $RUSER@$RIP:$RSSH ..."
-  if ! "${SSHC[@]}" -o ConnectTimeout=8 "$RUSER@$RIP" \\
-      "command -v docker >/dev/null 2>&1" 2>/dev/null; then
+  HAS_JAVA=0; HAS_SVCS=0
+  [ -d "nodes/$NAME/java" ] && [ -n "$(ls "nodes/$NAME/java" 2>/dev/null)" ] && HAS_JAVA=1
+  [ -f "nodes/$NAME/docker-compose.yml" ] && HAS_SVCS=1
+  PRECHECK="true"; [ "$HAS_SVCS" = 1 ] && PRECHECK="command -v docker >/dev/null 2>&1"
+  if ! "${SSHC[@]}" -o ConnectTimeout=8 "$RUSER@$RIP" "$PRECHECK" 2>/dev/null; then
     warn "[$NAME] SSH 连接失败或未安装 Docker, 已跳过 (密码模式请确认 sshpass 已安装; 免密模式请先 ssh-copy-id)"
     FAILED+=("$NAME"); continue
   fi
+  if [ "$HAS_SVCS" = 1 ]; then
   if ! "${SSHC[@]}" "$RUSER@$RIP" \\
       "docker compose version >/dev/null 2>&1 || docker-compose version >/dev/null 2>&1" 2>/dev/null; then
     log "[$NAME] 节点缺少 compose, 从包内安装二进制..."
@@ -595,6 +664,7 @@ for NODE in "${NODES[@]}"; do
       warn "[$NAME] compose 传输失败, 继续尝试安装"
     fi
   fi
+  fi
   ND_SRC="$(pwd)/nodes/$NAME"
   ND_DST="$DEPLOY_DIR/nodes/$NAME"
   if is_local_ip "$RIP"; then
@@ -602,6 +672,10 @@ for NODE in "${NODES[@]}"; do
     log "[$NAME] 本机节点($RIP), 就地安装 (免传输)"
     if [ ! "$ND_SRC" -ef "$ND_DST" ]; then
       mkdir -p "$ND_DST" && cp -a "$ND_SRC/." "$ND_DST/" || { warn "[$NAME] 节点目录准备失败"; FAILED+=("$NAME"); continue; }
+    fi
+    # Java 物料在包根 java/ (共享单份), 节点安装脚本按 ./java/ 取用
+    if [ "$HAS_JAVA" = 1 ] && [ ! -d "$ND_DST/java" ]; then
+      mkdir -p "$ND_DST" && cp -a java "$ND_DST/java" || { warn "[$NAME] Java 物料准备失败"; FAILED+=("$NAME"); continue; }
     fi
     if (cd "$ND_DST" && PATH="$HOME/.local/bin:$PATH" bash install-node.sh); then
       log "[$NAME] 完成"
@@ -616,6 +690,12 @@ for NODE in "${NODES[@]}"; do
   # 每节点独立子目录: 解到 $DEPLOY_DIR 根会覆盖主包 compose/.env
   if ! tar czf - -C "nodes/$NAME" . | "${SSHC[@]}" "$RUSER@$RIP" "tar xzf - -C '$ND_DST'"; then
     warn "[$NAME] 传输失败"; FAILED+=("$NAME"); continue
+  fi
+  if [ "$HAS_JAVA" = 1 ]; then
+    log "[$NAME] 传输 Java 运行时物料 ..."
+    if ! tar czf - -C java . | "${SSHC[@]}" "$RUSER@$RIP" "mkdir -p '$ND_DST/java' && tar xzf - -C '$ND_DST/java'"; then
+      warn "[$NAME] Java 物料传输失败"; FAILED+=("$NAME"); continue
+    fi
   fi
   log "[$NAME] 执行节点安装..."
   if "${SSHC[@]}" "$RUSER@$RIP" "cd '$ND_DST' && PATH=\\$HOME/.local/bin:\\$PATH bash install-node.sh"; then

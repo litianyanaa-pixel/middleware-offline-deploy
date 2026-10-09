@@ -220,6 +220,36 @@ write_daemon_json() { # $1=目标路径
   } > "$dest"
 }
 
+install_java() {
+  # Java 运行时(Temurin JDK): sha256 校验 -> 解压 /usr/local/java/jdk<N> -> profile.d(java.sh)
+  # 幂等: 目标目录可执行即跳过; 不依赖 Docker, 放在集群部署/Docker 之前执行
+  [ "${JAVA_ENABLED:-0}" = "1" ] || return 0
+  [ -n "${JAVA_DEFAULT:-}" ] || return 0
+  hr; log "【0.3/9】安装 Java 运行时 (Temurin JDK)"
+  ( cd "$BASE_DIR/java" 2>/dev/null && sha256sum -c jdk.sha256 --quiet ) \
+    || die "Java 包 sha256 校验失败 (java/jdk.sha256)"
+  mkdir -p /usr/local/java
+  local v dest
+  for v in "${JAVA_VERSIONS[@]}"; do
+    [ -f "$BASE_DIR/java/$v.tar.gz" ] || die "缺少离线包: java/$v.tar.gz"
+    dest="/usr/local/java/$v"
+    if [ -x "$dest/bin/java" ]; then
+      log "$v 已安装, 跳过 ($("$dest/bin/java" -version 2>&1 | head -1))"
+      continue
+    fi
+    log "解压 $v -> $dest ..."
+    rm -rf "$dest"; mkdir -p "$dest"
+    tar -xzf "$BASE_DIR/java/$v.tar.gz" -C "$dest" --strip-components=1
+    "$dest/bin/java" -version >/dev/null 2>&1 || die "$v 解压后无法运行 (架构不符? 本包: $PKG_SUBDIR)"
+    log "  $v 就绪 ($("$dest/bin/java" -version 2>&1 | head -1))"
+  done
+  printf 'export JAVA_HOME=/usr/local/java/%s\nexport PATH=$JAVA_HOME/bin:$PATH\n' "$JAVA_DEFAULT" > /etc/profile.d/java.sh
+  chmod 644 /etc/profile.d/java.sh
+  export JAVA_HOME="/usr/local/java/$JAVA_DEFAULT"
+  export PATH="$JAVA_HOME/bin:$PATH"
+  log "Java 默认版本 $JAVA_DEFAULT 已写入 /etc/profile.d/java.sh ($(java -version 2>&1 | head -1))"
+}
+
 install_docker() {
   hr; log "【1/9】检查 / 安装 Docker"
   mkdir -p /etc/docker
@@ -1247,6 +1277,7 @@ deploy_cluster() {
 
 main() {
   verify_bundle_integrity
+  install_java
   deploy_cluster
   install_docker
   install_compose
