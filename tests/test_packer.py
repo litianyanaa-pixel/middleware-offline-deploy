@@ -742,3 +742,38 @@ def test_java_manifest_vars_not_local_target(catalog):
     mf = packer.gen_manifest_sh(cfg, catalog, "", [])
     assert "JAVA_ENABLED=0" in mf
     assert "JAVA_VERSIONS=()" in mf and "JAVA_DEFAULT=" in mf
+
+
+def test_java_install_dir_custom_and_invalid(catalog):
+    """自定义安装目录: manifest 与节点脚本一致使用; 非法路径报错"""
+    cfg = make_cfg(None, services=("nginx",),
+                   java={"enabled": True, "versions": ["17"], "default": "17",
+                         "install_dir": "/opt/jdk", "targets": ["local"]})
+    cfg, _ = packer.validate_config(cfg, catalog)
+    assert cfg["java"]["install_dir"] == "/opt/jdk"
+    mf = packer.gen_manifest_sh(cfg, catalog, "", [])
+    assert "JAVA_HOME_DIR='/opt/jdk'" in mf
+    # 节点脚本同样使用自定义目录
+    cfg2 = make_cfg(None, services=("nginx",),
+                    servers=[{"name": "n1", "user": "root", "ip": "10.0.0.1", "ssh": 22, "password": "p"}],
+                    java={"enabled": True, "versions": ["17"], "default": "17",
+                          "install_dir": "/opt/jdk", "targets": [0]})
+    cfg2, _ = packer.validate_config(cfg2, catalog)
+    node = packer.gen_nodes(cfg2, catalog)[0]
+    ins = packer.gen_node_install_sh(cfg2, node)
+    assert "JDIR='/opt/jdk'" in ins and '$JDIR/$v' in ins
+    # 非法路径: 相对路径拒绝
+    from packerlib.util import PackError
+    bad = make_cfg(None, services=("nginx",),
+                   java={"enabled": True, "versions": ["17"], "default": "17",
+                         "install_dir": "relative/path", "targets": ["local"]})
+    try:
+        packer.validate_config(bad, catalog)
+        assert False, "相对路径应被拒绝"
+    except PackError:
+        pass
+    # 默认值归一: 未填时 /usr/local/java
+    cfg3 = make_cfg(None, services=("nginx",),
+                    java={"enabled": True, "versions": ["17"], "default": "17", "targets": ["local"]})
+    cfg3, _ = packer.validate_config(cfg3, catalog)
+    assert cfg3["java"]["install_dir"] == "/usr/local/java"

@@ -242,7 +242,11 @@ def gen_nodes(cfg, catalog):
     返回 [{name, server, roles, compose, env, images, conf_files, post_sql,
            health_wait, data_dirs, chown_dirs, port_checks, backup}]"""
     nodes = []
-    if not has_multihost(cfg):
+    # 纯 Java 目标节点也需建计划(勾选了服务器目标但无任何多机拓扑时同样要分发安装)
+    jcfg0 = cfg.get("java") or {}
+    jnodes_on = bool(jcfg0.get("enabled") and
+                     any(t != "local" for t in (jcfg0.get("targets") or [])))
+    if not has_multihost(cfg) and not jnodes_on:
         return nodes
     ports = cfg["ports"]
     servers = cfg["servers"]
@@ -389,6 +393,7 @@ def gen_nodes(cfg, catalog):
         if p.get("backup_svcs"):
             p["backup"] = _node_backup_files(cfg, p["backup_svcs"])
         p["java_default"] = ("jdk%s" % (jcfg.get("default") or "")) if p["java_versions"] else ""
+        p["java_install_dir"] = (jcfg.get("install_dir") or "/usr/local/java") if p["java_versions"] else ""
         p["compose"] = ("# 由 packer.py 自动生成 (多机节点: %s)\nname: %s-%s\n\nservices:\n" % (
             p["name"], cfg["project"], p["name"])) + "\n".join(p["compose_parts"]) + \
             "\n\nnetworks:\n  app-network:\n    driver: bridge\n"
@@ -423,19 +428,20 @@ def _node_sentinel_conf(cfg, master_ip, master_port, self_ip):
 
 
 def _java_install_sh(node):
-    """Java 运行时安装段 (Temurin JDK, 解压至 /usr/local/java/jdk<N>, profile.d 生效; 幂等, 不依赖 Docker)"""
+    """Java 运行时安装段 (Temurin JDK, 解压至 <安装目录>/jdk<N>, profile.d 生效; 幂等, 不依赖 Docker)"""
     if not node.get("java_versions"):
         return ""
-    return """# ---- Java 运行时 (Temurin JDK, 解压 /usr/local/java/jdk<N>, 写 /etc/profile.d/java.sh) ----
+    return """# ---- Java 运行时 (Temurin JDK, 解压 %(jdir)s/jdk<N>, 写 /etc/profile.d/java.sh) ----
+JDIR=%(jdir_q)s
 JAVA_VERSIONS=(%(jvers)s)
 JAVA_DEFAULT=%(jdef)s
 if [ ${#JAVA_VERSIONS[@]} -gt 0 ]; then
   log "安装 Java 运行时..."
   ( cd java 2>/dev/null && sha256sum -c jdk.sha256 --quiet ) || die "Java 包 sha256 校验失败 (java/jdk.sha256)"
-  mkdir -p /usr/local/java
+  mkdir -p "$JDIR"
   for v in "${JAVA_VERSIONS[@]}"; do
     [ -f "./java/$v.tar.gz" ] || die "缺少 java/$v.tar.gz"
-    dest="/usr/local/java/$v"
+    dest="$JDIR/$v"
     if [ -x "$dest/bin/java" ]; then
       log "  $v 已安装, 跳过 ($("$dest/bin/java" -version 2>&1 | head -1))"
       continue
@@ -446,12 +452,14 @@ if [ ${#JAVA_VERSIONS[@]} -gt 0 ]; then
     "$dest/bin/java" -version >/dev/null 2>&1 || die "$v 解压后无法运行 (架构与节点不符?)"
     log "  $v 就绪 ($("$dest/bin/java" -version 2>&1 | head -1))"
   done
-  printf 'export JAVA_HOME=/usr/local/java/%%s\\nexport PATH=$JAVA_HOME/bin:$PATH\\n' "$JAVA_DEFAULT" > /etc/profile.d/java.sh
+  printf 'export JAVA_HOME=%%s/%%s\\nexport PATH=$JAVA_HOME/bin:$PATH\\n' "$JDIR" "$JAVA_DEFAULT" > /etc/profile.d/java.sh
   chmod 644 /etc/profile.d/java.sh
-  export JAVA_HOME="/usr/local/java/$JAVA_DEFAULT"; export PATH="$JAVA_HOME/bin:$PATH"
+  export JAVA_HOME="$JDIR/$JAVA_DEFAULT"; export PATH="$JAVA_HOME/bin:$PATH"
   log "Java 默认版本 $JAVA_DEFAULT ($(java -version 2>&1 | head -1))"
 fi
-""" % {"jvers": " ".join(node["java_versions"]), "jdef": node.get("java_default") or ""}
+""" % {"jdir": node.get("java_install_dir") or "/usr/local/java",
+       "jdir_q": bash_quote(node.get("java_install_dir") or "/usr/local/java"),
+       "jvers": " ".join(node["java_versions"]), "jdef": node.get("java_default") or ""}
 
 
 def _java_only_install_sh(node):

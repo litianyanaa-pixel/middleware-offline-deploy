@@ -186,14 +186,23 @@
   #topoInfraBox .kform .kinline{display:flex;gap:14px;flex-wrap:wrap;align-items:center;min-height:32px}
   #topoInfraBox .kform .kinline label{display:inline-flex;align-items:center;gap:5px;cursor:pointer;font-size:13px}
   #topoInfraBox .kform .kchips label{display:inline-flex;align-items:center;gap:5px;margin:2px 0;cursor:pointer;font-size:13px}
-  /* ---- 服务器池: Java 运行时区块(与集群表单同规范) ---- */
-  #poolBox .jbox{max-width:820px;margin:0 0 14px;padding:10px 12px;border:1px solid rgba(120,120,128,.18);border-radius:12px;background:rgba(120,120,128,.05)}
-  #poolBox .jbox .krow{display:flex;align-items:flex-start;gap:12px;margin-bottom:6px}
-  #poolBox .jbox .krow>label{flex:0 0 140px;text-align:right;line-height:32px;font-size:13px;color:var(--txt2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  #poolBox .jbox .krow .kfield{flex:1;min-width:0;line-height:32px}
-  #poolBox .jbox .krow .kfield .khint{line-height:1.5}
-  #poolBox .jbox .kchips{display:grid;grid-template-columns:repeat(4,max-content);justify-content:start;gap:4px 18px}
-  #poolBox .jbox .kchips label{display:inline-flex;align-items:center;gap:5px;margin:2px 0;cursor:pointer;font-size:13px}
+  /* ---- 服务器池: Java 运行时折叠区块(样式与集群高级配置 details / kform 同规范) ---- */
+  #poolBox .jdetails{max-width:820px;margin:14px 0 4px;padding:10px 14px;border:1px solid rgba(255,255,255,.7);border-radius:12px;background:rgba(120,120,128,.05)}
+  #poolBox .jdetails summary{list-style:none;display:flex;align-items:center;gap:6px;cursor:pointer}
+  #poolBox .jdetails summary::before{content:"▸";color:var(--acc);transition:transform .2s}
+  #poolBox .jdetails[open] summary::before{transform:rotate(90deg)}
+  #poolBox .jdetails .cat-h{font-size:14px;font-weight:600}
+  #poolBox .jbadge{display:inline-flex;align-items:center;font-size:11px;line-height:1;border-radius:99px;padding:3px 10px;margin-left:6px;background:rgba(120,120,128,.16);color:var(--txt2);border:1px solid transparent;vertical-align:middle}
+  #poolBox .jbadge.on{background:rgba(0,122,255,.12);color:var(--acc);border-color:rgba(0,122,255,.25)}
+  #poolBox .kform{max-width:780px}
+  #poolBox .kform .krow{display:flex;align-items:flex-start;gap:12px;margin-bottom:8px}
+  #poolBox .kform .krow>label{flex:0 0 140px;text-align:right;line-height:32px;font-size:13px;color:var(--txt2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #poolBox .kform .kfield{flex:1;min-width:0}
+  #poolBox .kform .kchips{display:grid;justify-content:start;gap:4px 18px}
+  #poolBox .kform .kchips label{display:inline-flex;align-items:center;gap:5px;margin:2px 0;cursor:pointer;font-size:13px;line-height:28px}
+  #poolBox .kform input[type=text],#poolBox .kform select{height:32px;border:1px solid rgba(120,120,128,.28);border-radius:8px;padding:0 10px;font-size:13px;background:#fff;color:var(--txt)}
+  #poolBox .kform input[type=text]:focus,#poolBox .kform select:focus{outline:none;border-color:var(--acc);box-shadow:0 0 0 2px rgba(0,122,255,.15)}
+  #poolBox .kform .khint{font-size:12px;color:var(--txt2);margin-top:4px;line-height:1.5}
   #topoInfraBox details{border:1px solid rgba(255,255,255,.7);border-radius:12px;padding:10px 14px;background:rgba(120,120,128,.05)}
   #topoInfraBox details summary{list-style:none;display:flex;align-items:center;gap:6px}
   #topoInfraBox details summary::before{content:"▸";color:var(--acc);transition:transform .2s}

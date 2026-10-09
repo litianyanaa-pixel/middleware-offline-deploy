@@ -194,14 +194,23 @@
   #topoInfraBox .kform .kinline{display:flex;gap:14px;flex-wrap:wrap;align-items:center;min-height:32px}
   #topoInfraBox .kform .kinline label{display:inline-flex;align-items:center;gap:5px;cursor:pointer;font-size:13px}
   #topoInfraBox .kform .kchips label{display:inline-flex;align-items:center;gap:5px;margin:2px 0;cursor:pointer;font-size:13px}
-  /* ---- 服务器池: Java 运行时区块(与集群表单同规范) ---- */
-  #poolBox .jbox{max-width:820px;margin:0 0 14px;padding:10px 12px;border:1px solid rgba(120,120,128,.18);border-radius:12px;background:rgba(120,120,128,.05)}
-  #poolBox .jbox .krow{display:flex;align-items:flex-start;gap:12px;margin-bottom:6px}
-  #poolBox .jbox .krow>label{flex:0 0 140px;text-align:right;line-height:32px;font-size:13px;color:var(--txt2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  #poolBox .jbox .krow .kfield{flex:1;min-width:0;line-height:32px}
-  #poolBox .jbox .krow .kfield .khint{line-height:1.5}
-  #poolBox .jbox .kchips{display:grid;grid-template-columns:repeat(4,max-content);justify-content:start;gap:4px 18px}
-  #poolBox .jbox .kchips label{display:inline-flex;align-items:center;gap:5px;margin:2px 0;cursor:pointer;font-size:13px}
+  /* ---- 服务器池: Java 运行时折叠区块(样式与集群高级配置 details / kform 同规范) ---- */
+  #poolBox .jdetails{max-width:820px;margin:14px 0 4px;padding:10px 14px;border:1px solid rgba(255,255,255,.7);border-radius:12px;background:rgba(120,120,128,.05)}
+  #poolBox .jdetails summary{list-style:none;display:flex;align-items:center;gap:6px;cursor:pointer}
+  #poolBox .jdetails summary::before{content:"▸";color:var(--acc);transition:transform .2s}
+  #poolBox .jdetails[open] summary::before{transform:rotate(90deg)}
+  #poolBox .jdetails .cat-h{font-size:14px;font-weight:600}
+  #poolBox .jbadge{display:inline-flex;align-items:center;font-size:11px;line-height:1;border-radius:99px;padding:3px 10px;margin-left:6px;background:rgba(120,120,128,.16);color:var(--txt2);border:1px solid transparent;vertical-align:middle}
+  #poolBox .jbadge.on{background:rgba(0,122,255,.12);color:var(--acc);border-color:rgba(0,122,255,.25)}
+  #poolBox .kform{max-width:780px}
+  #poolBox .kform .krow{display:flex;align-items:flex-start;gap:12px;margin-bottom:8px}
+  #poolBox .kform .krow>label{flex:0 0 140px;text-align:right;line-height:32px;font-size:13px;color:var(--txt2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #poolBox .kform .kfield{flex:1;min-width:0}
+  #poolBox .kform .kchips{display:grid;justify-content:start;gap:4px 18px}
+  #poolBox .kform .kchips label{display:inline-flex;align-items:center;gap:5px;margin:2px 0;cursor:pointer;font-size:13px;line-height:28px}
+  #poolBox .kform input[type=text],#poolBox .kform select{height:32px;border:1px solid rgba(120,120,128,.28);border-radius:8px;padding:0 10px;font-size:13px;background:#fff;color:var(--txt)}
+  #poolBox .kform input[type=text]:focus,#poolBox .kform select:focus{outline:none;border-color:var(--acc);box-shadow:0 0 0 2px rgba(0,122,255,.15)}
+  #poolBox .kform .khint{font-size:12px;color:var(--txt2);margin-top:4px;line-height:1.5}
   #topoInfraBox details{border:1px solid rgba(255,255,255,.7);border-radius:12px;padding:10px 14px;background:rgba(120,120,128,.05)}
   #topoInfraBox details summary{list-style:none;display:flex;align-items:center;gap:6px}
   #topoInfraBox details summary::before{content:"▸";color:var(--acc);transition:transform .2s}
@@ -601,7 +610,7 @@ let CATALOG = null;
 const selected = new Set();
 const state = { ports: {}, secrets: {}, db: {}, extra: {}, backup: null, proxies: [], topology: { mysql8: 'single', mysql57: 'single', redis: 'single', kafka: 'single' }, svcFilter: 'all',
   servers: [],
-  java: { enabled: false, versions: ['17'], default: '17', targets: ['local'] },
+  java: { enabled: false, versions: ['17'], default: '17', install_dir: '/usr/local/java', targets: ['local'] },
   cluster: { enabled: false, kube_version: '', mode: 'cache', cni_type: 'calico', proxy_mode: 'iptables',
              pod_cidr: '10.233.64.0/18', service_cidr: '10.233.0.0/18', timezone: 'Asia/Shanghai', os_distros: [], roles: {},
              ha_type: 'local', ha_vip: '', upgrade_to: '', k8s_image_registry: '',
@@ -908,10 +917,14 @@ const EN_DICT = {
   /* -- 服务器池 -- */
   "所有部署的节点清单 — K8s 集群与中间件多机部署从这里选择": "inventory of every node — both the K8s cluster and multi-host middleware pick their nodes here",
   "Java 运行时": "Java runtime",
-  "启用 (Temurin JDK 随包离线分发)": "enable (Temurin JDK bundled offline)",
-  "版本": "versions", "默认版本": "default", "部署目标": "deploy targets",
+  "启用": "Enable",
+  "已启用: Java ": "enabled: Java ",
+  "未启用": "off",
+  "启用 Java 运行时 (随包离线分发)": "enable Java runtime (bundled offline)",
+  "版本": "versions", "默认版本": "default", "部署目标": "deploy targets", "安装目录": "install dir",
   "本机 (运行 deploy.sh)": "this host (runs deploy.sh)", "IP未填": "IP empty",
-  "JDK 以 tar.gz 随包内置; 部署时校验 sha256 后解压到 /usr/local/java/jdk<N> 并写入 /etc/profile.d/java.sh; 多版本共存, 所选默认版本生成 JAVA_HOME; 多机部署按勾选分发到对应节点(纯 Java 节点无需 Docker)": "JDK tar.gz bundled in the package; on deploy, sha256 is verified then extracted to /usr/local/java/jdk<N> and /etc/profile.d/java.sh is written; multiple versions coexist with JAVA_HOME pointing at the default; multi-host distributes to checked nodes (Java-only nodes need no Docker)",
+  "各版本解压至 安装目录/jdk8、/jdk17…(多版本共存), 所选默认版本写入 JAVA_HOME(/etc/profile.d/java.sh)": "each version extracts to <dir>/jdk8, /jdk17…(coexisting); the default one goes into JAVA_HOME (/etc/profile.d/java.sh)",
+  "JDK 以 tar.gz 随包内置(Eclipse Temurin, Adoptium 发行版); 部署时先 sha256 校验再解压; 多机部署按勾选分发到对应节点(纯 Java 节点无需 Docker)": "JDK tar.gz bundled (Eclipse Temurin, the Adoptium distribution); sha256 verified before extraction on deploy; multi-host distributes to checked nodes (Java-only nodes need no Docker)",
   "别名": "Alias", "SSH 用户": "SSH user", "SSH 密码": "SSH password",
   "(留空=免密)": "(empty = passwordless)", "服务器 IP (IPv4)": "Server IP (IPv4)",
   "端口": "Port", "+ 添加服务器": "+ Add server", "写入 daemon.json;": "written to daemon.json;",
@@ -1320,27 +1333,38 @@ function renderClusterCard(){
 /* ---- 基础设施拓扑(第 1 步: 部署服务器池独立成块 + 集群参数/角色) ---- */
 function renderPool(){
   const box = $('#poolBox'); if (!box) return;
+  // Java 运行时(可折叠, 仿集群高级配置; 重渲染时保持折叠状态; 区块置于「+ 添加服务器」下方)
   const ja = state.java;
-  const jmajors = ((CATALOG.java || {}).majors || ['8','17','21']).map(String);
-  let jhtml = '<div class="jbox">'+
-    '<div class="krow"><label>'+esc(trText('Java 运行时'))+'</label><div class="kfield">'+
-      '<label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-jen="1"'+(ja.enabled?' checked':'')+'> '+
-      esc(trText('启用 (Temurin JDK 随包离线分发)'))+'</label>'+
-      (ja.enabled ? '<span style="margin-left:14px">'+esc(trText('版本'))+': '+ jmajors.map(v =>
-          '<label style="display:inline-flex;align-items:center;gap:4px;cursor:pointer;margin:0 6px 0 0"><input type="checkbox" data-jv="'+v+'"'+(ja.versions.includes(v)?' checked':'')+'> Java '+v+'</label>').join('') +
-        '<select data-jd style="margin-left:10px;min-width:110px">' + ja.versions.map(v =>
-          '<option value="'+v+'"'+(ja.default===v?' selected':'')+'>'+esc(trText('默认版本'))+': Java '+v+'</option>').join('') + '</select>' : '') +
-    '</div></div>';
+  const jmajors = jmajorsOrder();
+  const jnodeLabel = i => { const sv = state.servers[i] || {}; return (sv.name || ('node'+(i+1))) + ' · ' + (sv.ip || 'IP未填'); };
+  const jadvOpen = !!(box.querySelector('.jdetails') || {}).open;
+  let jhtml = '<details class="jdetails"'+(jadvOpen?' open':'')+'><summary><h3 class="cat-h" style="margin:0">Java 运行时 '+
+    '<span class="hint">(Eclipse Temurin JDK 8 / 17 / 21 · amd64+aarch64 · 按台分发)</span> '+
+    '<span class="jbadge'+(ja.enabled?' on':'')+'">'+esc(trText(ja.enabled ? ('已启用: Java '+ja.versions.join(', ')) : '未启用'))+'</span></h3></summary>'+
+    '<div class="kform" style="margin-top:10px">'+
+      '<div class="krow"><label>'+esc(trText('启用'))+'</label><div class="kfield">'+
+        '<label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">'+
+        '<input type="checkbox" data-jen="1"'+(ja.enabled?' checked':'')+'> '+esc(trText('启用 Java 运行时 (随包离线分发)'))+'</label>'+
+      '</div></div>';
   if (ja.enabled){
-    jhtml += '<div class="krow"><label>'+esc(trText('部署目标'))+'</label><div class="kfield kchips" style="grid-template-columns:repeat(4,max-content)">' +
-      '<label><input type="checkbox" data-jt="local"'+(ja.targets.includes('local')?' checked':'')+'> '+esc(trText('本机 (运行 deploy.sh)'))+'</label>' +
-      state.servers.map((sv,i) => '<label><input type="checkbox" data-jt="'+i+'"'+(ja.targets.includes(i)?' checked':'')+'> '+
-        esc((sv.name || ('node'+(i+1))) + ' · ' + (sv.ip || trText('IP未填')))+'</label>').join('') +
-      '</div></div>' +
-      '<div class="krow"><label></label><div class="kfield"><div class="khint">'+esc(trText('JDK 以 tar.gz 随包内置; 部署时校验 sha256 后解压到 /usr/local/java/jdk<N> 并写入 /etc/profile.d/java.sh; 多版本共存, 所选默认版本生成 JAVA_HOME; 多机部署按勾选分发到对应节点(纯 Java 节点无需 Docker)'))+'</div></div></div>';
+    jhtml +=
+      '<div class="krow"><label>'+esc(trText('版本'))+'</label><div class="kfield kchips" style="grid-template-columns:repeat(3,max-content)">'+
+        jmajors.map(v => '<label><input type="checkbox" data-jv="'+v+'"'+(ja.versions.includes(v)?' checked':'')+'> Java '+v+'</label>').join('')+
+      '</div></div>'+
+      '<div class="krow"><label>'+esc(trText('默认版本'))+'</label><div class="kfield"><select data-jd style="width:220px">'+
+        ja.versions.map(v => '<option value="'+v+'"'+(ja.default===v?' selected':'')+'>'+esc(trText('默认版本'))+': Java '+v+'</option>').join('')+
+      '</select></div></div>'+
+      '<div class="krow"><label>'+esc(trText('安装目录'))+'</label><div class="kfield"><input type="text" data-jdir value="'+esc(ja.install_dir||'/usr/local/java')+'" style="width:320px">'+
+        '<div class="khint">'+esc(trText('各版本解压至 安装目录/jdk8、/jdk17…(多版本共存), 所选默认版本写入 JAVA_HOME(/etc/profile.d/java.sh)'))+'</div></div></div>'+
+      '<div class="krow"><label>'+esc(trText('部署目标'))+'</label><div class="kfield kchips" style="grid-template-columns:repeat(4,max-content)">'+
+        '<label><input type="checkbox" data-jt="local"'+(ja.targets.includes('local')?' checked':'')+'> '+esc(trText('本机 (运行 deploy.sh)'))+'</label>'+
+        state.servers.map((sv,i) => '<label><input type="checkbox" data-jt="'+i+'"'+(ja.targets.includes(i)?' checked':'')+'>'+
+          '<span data-jlabel="'+i+'">'+esc(jnodeLabel(i))+'</span></label>').join('')+
+      '</div></div>'+
+      '<div class="krow"><label></label><div class="kfield"><div class="khint">'+esc(trText('JDK 以 tar.gz 随包内置(Eclipse Temurin, Adoptium 发行版); 部署时先 sha256 校验再解压; 多机部署按勾选分发到对应节点(纯 Java 节点无需 Docker)'))+'</div></div></div>';
   }
-  jhtml += '</div>';
-  let html = jhtml + '<div class="map">'+
+  jhtml += '</div></details>';
+  let html = '<div class="map">'+
     '<div class="map-cols svcols"><span>别名</span><span>SSH 用户</span><span>SSH 密码 <em style="font-style:normal;opacity:.75">(留空=免密)</em></span><span>服务器 IP (IPv4)</span><span style="text-align:center">端口</span><span></span></div>';
   state.servers.forEach((sv, i) => {
     html += '<div class="map-row svrow">'+
@@ -1352,6 +1376,7 @@ function renderPool(){
       '<button type="button" class="delrow" data-svdel="'+i+'" title="移除">×</button></div>';
   });
   html += '</div><button type="button" class="addport wide" data-svadd="1">+ 添加服务器</button>'+
+    jhtml +
     '<div class="hint" style="margin-top:7px">K8s 集群与中间件多机部署的节点均从本池选择; K8s 密码登录即可(kk 自带 SSH 客户端)</div>'+
     '<div class="hint" style="margin-top:4px">中间件默认部署在交付包所在服务器(运行 deploy.sh 的机器); 跨服务器部署请在中间件卡片配置多机拓扑</div>';
   box.innerHTML = html;
@@ -1546,13 +1571,16 @@ function bindPoolEvents(box){
     state.servers[+idx][field] = i.value;
     saveLocal();
     if (field === 'name' || field === 'ip'){
+      const sv = state.servers[+idx] || {};
+      const lab = (sv.name || ('node'+(+idx+1))) + ' · ' + (sv.ip || 'IP未填');
       // 同步下方 K8s 角色分配的节点标签(只改文字, 不重渲染, 避免丢失输入焦点)
       const sel = document.querySelector('#topoInfraBox select[data-crole="'+idx+'"]');
       if (sel){
-        const sv = state.servers[+idx] || {};
-        sel.closest('.krow').querySelector('label').textContent =
-          (sv.name || ('node'+(+idx+1))) + ' · ' + (sv.ip || 'IP未填');
+        sel.closest('.krow').querySelector('label').textContent = lab;
       }
+      // 同步 Java 运行时「部署目标」的节点标签
+      const jt = box.querySelector('[data-jlabel="'+idx+'"]');
+      if (jt) jt.textContent = lab;
     }
   });
   box.querySelectorAll('[data-svdel]').forEach(b => b.onclick = () => {
@@ -1584,6 +1612,7 @@ function bindPoolEvents(box){
     saveLocal(); renderPool();
   });
   box.querySelectorAll('[data-jd]').forEach(s => s.onchange = () => { state.java.default = s.value; saveLocal(); });
+  box.querySelectorAll('[data-jdir]').forEach(i => i.oninput = () => { state.java.install_dir = i.value.trim(); saveLocal(); });
   box.querySelectorAll('[data-jt]').forEach(c => c.onchange = () => {
     const t = c.dataset.jt === 'local' ? 'local' : +c.dataset.jt;
     if (c.checked){ if (!state.java.targets.includes(t)) state.java.targets.push(t); }
@@ -2525,8 +2554,9 @@ function applyConfig(cfg){
   state.topology = Object.assign({ mysql8: 'single', mysql57: 'single', redis: 'single', kafka: 'single' }, cfg.topology || {});
   state.servers = (Array.isArray(cfg.servers) ? cfg.servers : []).map(v =>
     Object.assign({ name: '', user: 'root', ip: '', ssh: 22, pass: '' }, v || {}));
-  // Java 运行时: 旧配置无 java 键 -> 默认关闭; 恢复时归一化(版本防空/默认版本合法性/目标类型)
-  state.java = Object.assign({ enabled: false, versions: ['17'], default: '17', targets: ['local'] }, cfg.java || {});
+  // Java 运行时: 旧配置无 java 键 -> 默认关闭; 恢复时归一化(版本防空/默认版本合法性/目标类型/安装目录)
+  state.java = Object.assign({ enabled: false, versions: ['17'], default: '17', install_dir: '/usr/local/java', targets: ['local'] }, cfg.java || {});
+  state.java.install_dir = String(state.java.install_dir || '/usr/local/java').trim() || '/usr/local/java';
   state.java.versions = (Array.isArray(state.java.versions) ? state.java.versions : ['17']).map(String)
     .filter(v => jmajorsOrder().includes(v));
   if (!state.java.versions.length) state.java.versions = ['17'];

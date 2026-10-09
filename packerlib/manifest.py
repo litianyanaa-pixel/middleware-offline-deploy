@@ -167,6 +167,8 @@ def gen_manifest_sh(cfg, catalog, client_img, summary_lines, bundle_name=None):
         "MYSQL_MULTIHOST_PORT=%s" % next((str(ports[s]) for s in ("mysql8", "mysql57") if is_multihost(cfg, s)), "0"),
         "NODES_COUNT=%d" % len(gen_nodes(cfg, catalog)),
         "JAVA_ENABLED=%d" % (1 if _java_local_enabled(cfg) else 0),
+        "JAVA_HOME_DIR=%s" % (bash_quote((cfg.get("java") or {}).get("install_dir") or "/usr/local/java")
+                              if _java_local_enabled(cfg) else ""),
         "JAVA_VERSIONS=(%s)" % " ".join("jdk%s" % v for v in (cfg.get("java") or {}).get("versions", []) if _java_local_enabled(cfg)),
         "JAVA_DEFAULT=%s" % ("jdk%s" % (cfg.get("java") or {}).get("default", "") if _java_local_enabled(cfg) else ""),
         "MYSQL_ROOT_PASSWORD=%s" % bash_quote(cfg["secrets"].get("MYSQL_ROOT_PASSWORD", "")),
