@@ -1115,7 +1115,7 @@ function renderTopology(){
     if (r.value !== 'cluster' && r.value !== 'master-slave' && r.value !== 'sentinel'){
       state.mh[k] = { enabled:false, count:3, master:null, replicas:[null,null], brokers:[null,null,null] };
       if (k === 'kafka') state.mh[k] = { enabled:false, count:3, brokers:[null,null,null] };
-      if (k === 'redis') state.mh[k] = { enabled:false, master:null, replicas:[null,null] };
+      else if (k === 'redis') state.mh[k] = { enabled:false, master:null, replicas:[null,null] };
       else state.mh[k] = { enabled:false, master:null, replicas:[null] };
     }
     prunePx();
@@ -2090,7 +2090,8 @@ function renderWarehouse(){
           '打包可选; 构建: python prepare_cluster.py --artifact-export 后执行生成的 .bat');
       k8sRow('K8s '+ver+' 二进制缓存', p['cluster_cache_ready_'+ver] !== false,
           '缺失不影响打包: 点「开始打包」时自动从国内源下载 ('+compNames+')');
-      k8sRow('K8s '+ver+' 离线镜像包', p['cluster_images_'+ver+'_amd64'] !== false,
+      // 后端该键为已收集 CNI 名数组(web.py catalog_response): 空数组=尚未收集, 显示"打包时下载"
+      k8sRow('K8s '+ver+' 离线镜像包', (p['cluster_images_'+ver+'_amd64'] || []).length > 0,
           '纯离线模式必需: 打包时按原生 tag 自动收集 (docker pull+save), 或 python prepare_cluster.py --images '+
           (vm.cni_versions ? 'flannel' : ''));
     }

@@ -36,8 +36,6 @@
       radial-gradient(44% 50% at 14% 8%, rgba(142,160,188,.16), transparent 62%),
       radial-gradient(40% 46% at 86% 90%, rgba(168,180,200,.12), transparent 64%);
     filter:blur(64px)}
-    50%{transform:translate3d(1.6%,-1.4%,0) rotate(2.2deg) scale(1.045)}
-    100%{transform:translate3d(-1.5%,1.5%,0) rotate(-2deg) scale(1.02)}}
   input[type=checkbox],input[type=radio]{accent-color:var(--acc)}
   input[type=file]{font-size:12px;color:var(--mut)}
   input[type=file]::file-selector-button{border:0;background:var(--grad-acc);border-radius:999px;
@@ -1708,7 +1706,7 @@ function renderTopology(){
     if (r.value !== 'cluster' && r.value !== 'master-slave' && r.value !== 'sentinel'){
       state.mh[k] = { enabled:false, count:3, master:null, replicas:[null,null], brokers:[null,null,null] };
       if (k === 'kafka') state.mh[k] = { enabled:false, count:3, brokers:[null,null,null] };
-      if (k === 'redis') state.mh[k] = { enabled:false, master:null, replicas:[null,null] };
+      else if (k === 'redis') state.mh[k] = { enabled:false, master:null, replicas:[null,null] };
       else state.mh[k] = { enabled:false, master:null, replicas:[null] };
     }
     prunePx();
@@ -2683,7 +2681,8 @@ function renderWarehouse(){
           '打包可选; 构建: python prepare_cluster.py --artifact-export 后执行生成的 .bat');
       k8sRow('K8s '+ver+' 二进制缓存', p['cluster_cache_ready_'+ver] !== false,
           '缺失不影响打包: 点「开始打包」时自动从国内源下载 ('+compNames+')');
-      k8sRow('K8s '+ver+' 离线镜像包', p['cluster_images_'+ver+'_amd64'] !== false,
+      // 后端该键为已收集 CNI 名数组(web.py catalog_response): 空数组=尚未收集, 显示"打包时下载"
+      k8sRow('K8s '+ver+' 离线镜像包', (p['cluster_images_'+ver+'_amd64'] || []).length > 0,
           '纯离线模式必需: 打包时按原生 tag 自动收集 (docker pull+save), 或 python prepare_cluster.py --images '+
           (vm.cni_versions ? 'flannel' : ''));
     }

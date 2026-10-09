@@ -28,8 +28,6 @@
       radial-gradient(44% 50% at 14% 8%, rgba(142,160,188,.16), transparent 62%),
       radial-gradient(40% 46% at 86% 90%, rgba(168,180,200,.12), transparent 64%);
     filter:blur(64px)}
-    50%{transform:translate3d(1.6%,-1.4%,0) rotate(2.2deg) scale(1.045)}
-    100%{transform:translate3d(-1.5%,1.5%,0) rotate(-2deg) scale(1.02)}}
   input[type=checkbox],input[type=radio]{accent-color:var(--acc)}
   input[type=file]{font-size:12px;color:var(--mut)}
   input[type=file]::file-selector-button{border:0;background:var(--grad-acc);border-radius:999px;

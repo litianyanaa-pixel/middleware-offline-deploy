@@ -2,6 +2,29 @@
 
 按时间倒序记录每次功能与修复。`docs/` 演示站随前端改动同步更新。
 
+## 2026-10-09（代码复查: 六处小修复）
+
+- **物料仓库「离线镜像包」行误显示就绪**：后端 catalog 接口把该键从布尔改为"已收集 CNI 名数组"
+  后，物料仓库页签仍用 `!== false` 判定——空数组(尚未收集任何镜像包)会被当成"就绪"；现按数组
+  长度判定，与集群卡片「缺料徽章」同口径（卡片侧 `clusterMaterialStatus()` 本就按 `includes(cni)`）。
+- **部署形态切回单机时 kafka multihost 状态被错误覆盖**：重置块的 `else` 挂在了 redis 判断上，
+  kafka 切回 single 会被重置成 mysql 形状（丢 count/brokers 结构，下游有兜底未产生坏产物）；
+  改为 `else if` 三分支明确归位。
+- **style.css 孤儿关键帧碎片清理**：`body::before` 环境光后残留的两个裸 `50%{...} 100%{...}`
+  关键帧选择器（历史删除 @keyframes 只删了头尾），浏览器静默丢弃，已删除。
+- **web.py CNI 段提取健壮化**：离线镜像包文件名 `k8s-<ver>-<cni>-amd64-images.tar` 的 CNI 段
+  此前用 `split("-")[2]`（依赖 CNI 名无短横线，当前四个 CNI 均满足），改为剥固定前缀/后缀提取，
+  未来新增含短横线的 CNI 名也不会切错；顺带修整该行被压缩成单行的书写异常。
+- **nginx 整站反代 upstream 防御加固**：`mode=proxy` 的 `location /` 直接引用 `px_<n>` upstream，
+  但 upstream 只在 `api_prefix` 非空时生成——现被 validate_config 兜住（proxy 模式强制
+  `api_prefix="/"`），仅绕过校验直调才会生成坏配置；现 proxy 模式无条件生成 upstream。
+- **打包 arcname 去版本硬编码**：docker/compose 安装包在包内的路径此前硬编码
+  `docker-29.8.0.tgz`/`docker-compose-linux-<sub>`，与 versions.json 登记路径存在双份版本号；
+  现从 catalog 路径取实际文件名（deploy.sh 本就按 `docker-*.tgz`/`docker-compose-linux-*`
+  通配引用），未来升级版本只改 versions.json 一处。
+- 测试：pytest 53 passed 1 skipped；真实打包冒烟 11 项 + 集群场景 11 项全绿；
+  build_webui 同步校验通过。
+
 ## 2026-10-09（修复演示站主页截图 404）
 
 - **docs/index.html 截图更新**：演示站（GitHub Pages，发布源为 `docs/` 目录）主页「界面一览」

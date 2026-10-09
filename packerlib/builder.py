@@ -83,10 +83,12 @@ def pack(cfg, catalog, out_dir=None, progress=None):
     pkg_sub = "x86_64" if arch == "amd64" else "aarch64"
     big_files = []
     if cfg["services"]:
+        # 包内文件名取 catalog 登记的实际文件名(deploy.sh 按 docker-*.tgz / docker-compose-linux-* 通配引用,
+        # 版本升级只改 versions.json 即可, 不再有第二处版本号要同步)
         big_files += [
-            ("%s/packages/%s/docker-29.8.0.tgz" % (bundle_name, pkg_sub),
+            ("%s/packages/%s/%s" % (bundle_name, pkg_sub, Path(catalog["docker"]["packages"][arch]).name),
              BASE_DIR / catalog["docker"]["packages"][arch]),
-            ("%s/packages/%s/docker-compose-linux-%s" % (bundle_name, pkg_sub, pkg_sub),
+            ("%s/packages/%s/%s" % (bundle_name, pkg_sub, Path(catalog["compose"]["packages"][arch]).name),
              BASE_DIR / catalog["compose"]["packages"][arch]),
         ]
     _mirror_tars = []

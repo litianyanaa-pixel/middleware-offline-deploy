@@ -126,7 +126,9 @@ def gen_nginx_confs(cfg, catalog):
         mode_txt = "整站反代" if s["mode"] == "proxy" else "静态+接口"
         ssl_txt = ", HTTPS" if s["ssl"] else ""
         out.append("# ---- 站点 %d: %s (listen %d, %s%s) ----" % (no, s["server_name"], s["listen"], mode_txt, ssl_txt))
-        if s["api_prefix"]:
+        # 整站反代(proxy)的 location / 直接引用 px_<n>: 即使无接口前缀也必须生成 upstream
+        # (validate_config 会把 proxy 模式的 api_prefix 归一为 "/", 这里兜底防绕过校验直调)
+        if s["api_prefix"] or s["mode"] == "proxy":
             out.append("upstream %s {" % up)
             out.append("    server %s:%d;" % (s["target_host"], s["target_port"]))
             out.append("    keepalive 32;          # upstream 长连接池, 配合 proxy_set_header Connection \"\" 复用")

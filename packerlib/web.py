@@ -143,9 +143,14 @@ def catalog_response(catalog):
                         if f.is_file() and not re.search(r"\.(p\d+|part\d*|tmp)$", f.name))):
                     all_ok = False
             present["cluster_cache_ready_%s" % ver] = all_ok
-            # 纯离线镜像包就绪状态(值为已收集的 CNI 列表, 页面按选中 CNI 精确校验)
+            # 纯离线镜像包就绪状态(值为已收集的 CNI 列表, 页面按选中 CNI 精确校验);
+            # CNI 段 = 文件名剥掉 k8s-<ver>- 前缀与 -amd64-images.tar 后缀(不依赖 CNI 名无短横线)
             img_dir = BASE_DIR / "warehouse" / "cluster" / "images"
-            cnis = sorted({t.name.split("-")[2] for t in img_dir.glob("k8s-%s-*-amd64-images.tar" % ver.lstrip("v"))})                 if img_dir.is_dir() else []
+            cnis = []
+            if img_dir.is_dir():
+                prefix, suffix = "k8s-%s-" % ver.lstrip("v"), "-amd64-images.tar"
+                cnis = sorted(t.name[len(prefix):-len(suffix)]
+                              for t in img_dir.glob("*%s" % suffix) if t.name.startswith(prefix))
             present["cluster_images_%s_amd64" % ver] = cnis
         # OS 依赖包就绪状态(按发行版×amd64; arm64 暂不开放集群)
         for distro in (ccat.get("distros") or {}):
