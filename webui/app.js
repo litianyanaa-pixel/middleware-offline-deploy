@@ -215,7 +215,7 @@ const EN_DICT = {
   "中间件默认部署在交付包所在服务器(运行 deploy.sh 的机器); 跨服务器部署请在中间件卡片配置多机拓扑": "Middleware deploys on the server hosting the bundle (the one running deploy.sh) by default; configure multi-host topology on the middleware cards to spread across servers",
   "已选 ": "Selected: ", "目标 ": "target ", "原始物料 ": "raw materials ", "打包后约为其": "packed ≈", "K8s 集群": "K8s cluster",
   "节点分发预览": "Node distribution", "集群 inventory": "Cluster inventory", "集群 config": "Cluster config",
-  "工作节点": "Worker", "镜像仓库": "Image registry", "K8s 版本": "K8s version", "时区": "Timezone",
+  "工作节点": "Worker", "镜像仓库": "Image registry", "未分配": "Unassigned", "K8s 版本": "K8s version", "时区": "Timezone",
   "离线物料": "Offline materials", "OS 依赖包": "OS packages", "部署服务器池": "Server pool",
   "artifact 产物 (含镜像, 推荐)": "artifact bundle (with images, recommended)",
   "二进制缓存 (镜像走内网仓库)": "binary cache (images via intranet registry)",
@@ -830,12 +830,21 @@ function renderInfraTopology(){
 
   let html = '';
 
-  // ---- 1. 集群角色分配(最先看到) ----
-  html += '<h3 class="cat-h">集群角色分配 <span class="hint">(至少 1 台控制面; 主部署机必须是集群节点之一)</span></h3>'+
-    '<div class="kform" style="max-width:420px">'+
+  // ---- 1. 集群角色分配(可折叠, 仿集群高级配置; 重渲染保持展开状态) ----
+  const cpN = state.servers.filter(function(sv, i) { return (cl.roles||{})[i]==='control-plane'; }).length;
+  const wkN = state.servers.filter(function(sv, i) { return (cl.roles||{})[i]==='worker'; }).length;
+  const rgN = state.servers.filter(function(sv, i) { return (cl.roles||{})[i]==='registry'; }).length;
+  const rolesBadge = (cpN+wkN+rgN)
+    ? [cpN+' '+trText('控制面'), wkN+' '+trText('工作节点')].concat(rgN ? [rgN+' '+trText('镜像仓库')] : []).join(' · ')
+    : trText('未分配');
+  const rolesOpen = !!(box.querySelector('details[data-dtl="roles"]') || {}).open;
+  html += '<details data-dtl="roles"'+(rolesOpen?' open':'')+'><summary style="cursor:pointer"><h3 class="cat-h" style="margin:0">集群角色分配 '+
+    '<span class="hint">(至少 1 台控制面; 主部署机必须是集群节点之一)</span> '+
+    '<span class="jbadge'+(cpN+wkN+rgN?' on':'')+'">'+esc(rolesBadge)+'</span></h3></summary>'+
+    '<div class="kform" style="max-width:420px;margin-top:10px">'+
     (state.servers.length ? state.servers.map(function(sv, i) { return roleSel(i, (cl.roles||{})[i]); }).join('') :
       '<div class="khint">服务器池为空, 请先在上方「部署服务器池」添加节点</div>')+
-    '<div class="khint">镜像仓库角色: 部署私有镜像仓库时必需; etcd 默认堆叠在控制面</div></div>';
+    '<div class="khint">镜像仓库角色: 部署私有镜像仓库时必需; etcd 默认堆叠在控制面</div></div></details>';
 
   // ---- 2. 基础参数 ----
   const verOpts = Object.keys(cc.versions || {}).map(function(v) {
@@ -845,7 +854,7 @@ function renderInfraTopology(){
     return '<option value="'+c+'" '+(cl.cni_type===c?'selected':'')+'>'+c+'</option>';
   }).join('');
   const haType = cl.ha_type || 'local';
-  const cpCount = state.servers.filter(function(sv, i) { return (cl.roles||{})[i]==='control-plane'; }).length;
+  const cpCount = cpN;
   const haField = cpCount > 1
     ? '<select data-cf="ha_type">'+
       '<option value="local" '+(haType==='local'?'selected':'')+'>local (仅单控制面可用)</option>'+
@@ -892,7 +901,11 @@ function renderInfraTopology(){
     return '<textarea data-cfl="'+cf+'" rows="'+rows+'" placeholder="'+esc(ph||'')+'">'+esc((val||[]).join('\n'))+'</textarea>';
   };
 
-  html += '<h3 class="cat-h" style="margin-top:16px">集群基础配置</h3><div class="kform">'+
+  const basicOpen = !!(box.querySelector('details[data-dtl="basic"]') || {}).open;
+  html += '<details data-dtl="basic"'+(basicOpen?' open':'')+' style="margin-top:12px"><summary style="cursor:pointer"><h3 class="cat-h" style="margin:0">集群基础配置 '+
+    '<span class="hint">(版本 / CNI / 网段 / HA / 时区 / 安装方式 / OS 依赖包)</span> '+
+    '<span class="jbadge on">'+esc((cl.kube_version||'')+' · '+(cl.cni_type||''))+'</span></h3></summary>'+
+    '<div style="margin-top:10px"><div class="kform">'+
     kfRow('K8s 版本', '<select data-cf="kube_version">'+verOpts+'</select>',
         'CNI 插件', '<select data-cf="cni_type">'+cniOpts+'</select>')+
     kfRow('Pod CIDR', kfTxt('pod_cidr', cl.pod_cidr), 'Service CIDR', kfTxt('service_cidr', cl.service_cidr))+
@@ -910,7 +923,7 @@ function renderInfraTopology(){
     kfRow('OS 依赖包', '<div class="kchips">'+distroChips+'</div>')+
     kHint('开源发行版依赖包已内置')+
     kHint('⚠ 闭源/无公开镜像(麒麟/统信/阿里云)需自行提取放置, 详见 docs/k8s-信创离线部署.md')+
-    '</div>';
+    '</div></div></details>';
 
   // ---- 3. 集群高级配置(折叠) ----
   const comp = cl.components || {};
@@ -973,8 +986,8 @@ function renderInfraTopology(){
       '部署在分配了「镜像仓库」角色的节点; 多仓库节点自动 keepalived HA');
 
   // 联动重渲染频繁重建本区块, 折叠展开状态由用户控制, 不随重建被重置
-  const advOpen = !!(box.querySelector('details') || {}).open;
-  html += '<details'+(advOpen?' open':'')+' style="margin-top:14px"><summary style="cursor:pointer"><h3 class="cat-h" style="margin:0">集群高级配置 <span class="hint">(运行时 / 数据目录 / etcd 调优 / Multi-CNI / Calico / DNS / 证书与备份 / 镜像加速 / NTP / 存储 / 私有镜像仓库)</span></h3></summary>'+
+  const advOpen = !!(box.querySelector('details[data-dtl="adv"]') || {}).open;
+  html += '<details data-dtl="adv"'+(advOpen?' open':'')+' style="margin-top:14px"><summary style="cursor:pointer"><h3 class="cat-h" style="margin:0">集群高级配置 <span class="hint">(运行时 / 数据目录 / etcd 调优 / Multi-CNI / Calico / DNS / 证书与备份 / 镜像加速 / NTP / 存储 / 私有镜像仓库)</span></h3></summary>'+
     '<div style="margin-top:10px"><div class="kform">'+adv+'</div></div></details>';
 
   box.innerHTML = html;

@@ -192,8 +192,8 @@
   #javaBox .jdetails summary::before{content:"▸";color:var(--acc);transition:transform .2s}
   #javaBox .jdetails[open] summary::before{transform:rotate(90deg)}
   #javaBox .jdetails .cat-h{font-size:14px;font-weight:600}
-  #javaBox .jbadge{display:inline-flex;align-items:center;font-size:11px;line-height:1;border-radius:99px;padding:3px 10px;margin-left:6px;background:rgba(120,120,128,.16);color:var(--txt2);border:1px solid transparent;vertical-align:middle}
-  #javaBox .jbadge.on{background:rgba(0,122,255,.12);color:var(--acc);border-color:rgba(0,122,255,.25)}
+  #javaBox .jbadge,#topoInfraBox .jbadge{display:inline-flex;align-items:center;font-size:11px;line-height:1;border-radius:99px;padding:3px 10px;margin-left:6px;background:rgba(120,120,128,.16);color:var(--txt2);border:1px solid transparent;vertical-align:middle}
+  #javaBox .jbadge.on,#topoInfraBox .jbadge.on{background:rgba(0,122,255,.12);color:var(--acc);border-color:rgba(0,122,255,.25)}
   #javaBox .kform{max-width:780px}
   #javaBox .kform .krow{display:flex;align-items:flex-start;gap:12px;margin-bottom:8px}
   #javaBox .kform .krow>label{flex:0 0 140px;text-align:right;line-height:32px;font-size:13px;color:var(--txt2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
