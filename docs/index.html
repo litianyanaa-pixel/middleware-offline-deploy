@@ -93,12 +93,19 @@
 
   <section>
     <h2>界面一览</h2>
-    <div class="sub">以下为打包器实际界面（本仓库 docs/images/ 内截图）</div>
+    <div class="sub">以下为打包器实际界面（中文版截图；英文版见 <a href="https://github.com/litianyanaa-pixel/middleware-offline-deploy/blob/main/README_EN.md" target="_blank">README_EN</a>）</div>
     <div class="shots">
-      <figure class="shot"><img src="images/ui-basic.png" alt="基础设置与选择中间件"><figcaption>基础设置 + 按卡片勾选中间件，自动识别架构与体积</figcaption></figure>
-      <figure class="shot"><img src="images/ui-proxy.png" alt="反向代理向导"><figcaption>反向代理向导：域名 / 前后端转发 / WebSocket / HTTPS 证书随包分发</figcaption></figure>
-      <figure class="shot"><img src="images/ui-port.png" alt="端口映射"><figcaption>端口映射：宿主机 → 容器，支持自定义映射与全局查重</figcaption></figure>
-      <figure class="shot"><img src="images/ui-db-backup.png" alt="数据库来源与备份"><figcaption>Nacos / XXL-Job 数据库来源 + crontab 定时备份策略</figcaption></figure>
+      <figure class="shot"><img src="images/zh/ui-basic.png" alt="基础设置与选择中间件"><figcaption>基础设置 + 按卡片勾选中间件，自动识别架构与体积</figcaption></figure>
+      <figure class="shot"><img src="images/zh/ui-port.png" alt="端口映射"><figcaption>端口映射：宿主机 → 容器，支持自定义映射与全局查重</figcaption></figure>
+      <figure class="shot"><img src="images/zh/ui-proxy.png" alt="反向代理向导"><figcaption>反向代理向导：静态前端 + 接口转发或整站反代，WebSocket / HTTPS 证书随包分发</figcaption></figure>
+      <figure class="shot"><img src="images/zh/ui-secrets.png" alt="账号密码"><figcaption>账号密码：随机生成 + 强度提示，部署后以 600 权限存于 .env</figcaption></figure>
+      <figure class="shot"><img src="images/zh/ui-db-backup.png" alt="数据库来源与备份"><figcaption>Nacos / XXL-Job 数据库来源 + crontab 定时备份策略随包分发</figcaption></figure>
+      <figure class="shot"><img src="images/zh/ui-warehouse.png" alt="物料仓库状态"><figcaption>物料仓库状态：安装包与镜像按架构盘点，缺什么一目了然</figcaption></figure>
+      <figure class="shot"><img src="images/zh/ui-preview.png" alt="生成预览"><figcaption>生成预览：打包前直接查看 docker-compose.yml / .env / manifest.sh</figcaption></figure>
+      <figure class="shot"><img src="images/zh/ui-cluster-card.png" alt="Kubernetes 集群卡片"><figcaption>K8s 集群部署：纯集群包或「集群 + 中间件」一键打包</figcaption></figure>
+      <figure class="shot"><img src="images/zh/ui-cluster-form.png" alt="集群参数与角色分配"><figcaption>集群参数与角色分配：节点标签与服务器池实时联动</figcaption></figure>
+      <figure class="shot"><img src="images/zh/ui-cluster-preview.png" alt="K8s 预览标签页"><figcaption>生成预览多出「集群 inventory」「集群 config」标签页</figcaption></figure>
+      <figure class="shot"><img src="images/zh/ui-cluster-packdone.png" alt="打包完成"><figcaption>打包完成：离线镜像包按原生 tag 自动收集（docker pull+save）</figcaption></figure>
     </div>
   </section>
 
