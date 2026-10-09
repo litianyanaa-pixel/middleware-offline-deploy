@@ -45,7 +45,9 @@ const EN_DICT = {
   "dist/ 目录 · 传输后可用 .sha256 校验完整性": "dist/ directory · verify with .sha256 after transfer",
   "暂无产物": "No artifacts yet",
   "compose 项目名与包名": "Compose project & bundle name", "项目名": "Project", "目标服务器架构": "Target server arch",
-  "部署目录": "Deploy dir", "Docker 数据目录 data-root": "Docker data-root", "镜像加速器": "Registry mirrors",
+  "部署目录": "Deploy dir", "中间件部署目录": "Middleware deploy dir",
+  "docker-compose 应用安装于此: compose / .env / 数据 / 日志 / 配置": "where docker-compose apps live: compose / .env / data / logs / config",
+  "Docker 数据目录 data-root": "Docker data-root", "镜像加速器": "Registry mirrors",
   "https://... 每行一个": "https://... one per line", "一键填入实测可用源": "Fill verified mirrors",
   "compose / .env / 数据 / 日志 / 配置都在这里": "compose / .env / data / logs / config all live here",
   "一键勾选一组配套组件, 也可在下方单独增删": "One click for a curated suite; fine-tune below",
@@ -314,10 +316,10 @@ const EN_DICT = {
   "已启用: Java ": "enabled: Java ",
   "未启用": "off",
   "启用 Java 运行时 (随包离线分发)": "enable Java runtime (bundled offline)",
-  "版本": "versions", "默认版本": "default", "部署目标": "deploy targets", "安装目录": "install dir",
+  "版本": "versions", "默认版本": "default", "部署目标": "deploy targets", "安装目录": "install dir", "Java 安装目录": "Java install dir",
   "本机 (运行 deploy.sh)": "this host (runs deploy.sh)", "IP未填": "IP empty",
-  "各版本解压至 安装目录/jdk8、/jdk17…(多版本共存), 所选默认版本写入 JAVA_HOME(/etc/profile.d/java.sh)": "each version extracts to <dir>/jdk8, /jdk17…(coexisting); the default one goes into JAVA_HOME (/etc/profile.d/java.sh)",
-  "JDK 以 tar.gz 随包内置(Eclipse Temurin, Adoptium 发行版); 部署时先 sha256 校验再解压; 多机部署按勾选分发到对应节点(纯 Java 节点无需 Docker)": "JDK tar.gz bundled (Eclipse Temurin, the Adoptium distribution); sha256 verified before extraction on deploy; multi-host distributes to checked nodes (Java-only nodes need no Docker)",
+  "各版本解压至 安装目录/jdk8、/jdk17…(多版本共存), 所选默认版本写入 JAVA_HOME(/etc/profile.d/java.sh, 登录时 /etc/profile 自动加载)": "each version extracts to <dir>/jdk8, /jdk17…(coexisting); the default one goes into JAVA_HOME (/etc/profile.d/java.sh, auto-loaded by /etc/profile at login)",
+  "JDK 以 tar.gz 随包内置(Eclipse Temurin, Adoptium 发行版); 部署时先 sha256 校验再解压; 部署目标从上方「部署服务器池」选择, 多机按勾选分发(纯 Java 节点无需 Docker)": "JDK tar.gz bundled (Eclipse Temurin, the Adoptium distribution); sha256 verified before extraction; deploy targets pick from the server pool above, distributed per selection (Java-only nodes need no Docker)",
   "别名": "Alias", "SSH 用户": "SSH user", "SSH 密码": "SSH password",
   "(留空=免密)": "(empty = passwordless)", "服务器 IP (IPv4)": "Server IP (IPv4)",
   "端口": "Port", "+ 添加服务器": "+ Add server", "写入 daemon.json;": "written to daemon.json;",
@@ -757,7 +759,7 @@ function renderJavaCard(){
     '<span class="jbadge'+(ja.enabled?' on':'')+'">'+esc(trText(ja.enabled ? ('已启用: Java '+ja.versions.join(', ')) : '未启用'))+'</span></h3></summary>'+
     '<div class="kform" style="margin-top:10px">'+
       '<div class="krow"><label>'+esc(trText('启用'))+'</label><div class="kfield">'+
-        '<label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">'+
+        '<label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;height:32px">'+
         '<input type="checkbox" data-jen="1"'+(ja.enabled?' checked':'')+'> '+esc(trText('启用 Java 运行时 (随包离线分发)'))+'</label>'+
       '</div></div>';
   if (ja.enabled){
@@ -768,7 +770,7 @@ function renderJavaCard(){
       '<div class="krow"><label>'+esc(trText('默认版本'))+'</label><div class="kfield"><select data-jd style="width:220px">'+
         ja.versions.map(v => '<option value="'+v+'"'+(ja.default===v?' selected':'')+'>'+esc(trText('默认版本'))+': Java '+v+'</option>').join('')+
       '</select></div></div>'+
-      '<div class="krow"><label>'+esc(trText('安装目录'))+'</label><div class="kfield"><input type="text" data-jdir value="'+esc(ja.install_dir||'/data/java')+'" style="width:320px">'+
+      '<div class="krow"><label>'+esc(trText('Java 安装目录'))+'</label><div class="kfield"><input type="text" data-jdir value="'+esc(ja.install_dir||'/data/java')+'" style="width:320px">'+
         '<div class="khint">'+esc(trText('各版本解压至 安装目录/jdk8、/jdk17…(多版本共存), 所选默认版本写入 JAVA_HOME(/etc/profile.d/java.sh, 登录时 /etc/profile 自动加载)'))+'</div></div></div>'+
       '<div class="krow"><label>'+esc(trText('部署目标'))+'</label><div class="kfield kchips" style="grid-template-columns:repeat(4,max-content)">'+
         '<label><input type="checkbox" data-jt="local"'+(ja.targets.includes('local')?' checked':'')+'> '+esc(trText('本机 (运行 deploy.sh)'))+'</label>'+
