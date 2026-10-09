@@ -482,8 +482,6 @@
                 <option value="arm64">ARM (aarch64)</option>
               </select></div>
           </div>
-          <!-- Java 运行时: 紧跟架构选择之下(物料按架构准备), 部署目标引用上方服务器池 -->
-          <div id="javaBox" style="margin-top:12px"></div>
           <div class="row" style="margin-top:12px">
             <div><label>中间件部署目录 <span class="hint">docker-compose 应用安装于此: compose / .env / 数据 / 日志 / 配置</span></label>
               <input type="text" id="deploy_dir" value="/data/middleware"></div>
@@ -496,6 +494,8 @@
             <textarea id="mirrors" rows="3" placeholder="https://... 每行一个"></textarea>
             <div style="margin-top:8px"><button class="mini" id="btnFillMirrors">一键填入实测可用源</button></div>
           </div>
+          <!-- Java 运行时: 卡片最底部(基础底座配置之后), 部署目标引用上方服务器池 -->
+          <div id="javaBox" style="margin-top:12px"></div>
         </div>
       </div>
 
