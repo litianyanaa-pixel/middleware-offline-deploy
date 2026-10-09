@@ -96,7 +96,7 @@
       </div>
 
       <div class="card" id="sec-basic">
-        <h2><span class="num">2</span>中间件底座 <span class="hint">Docker/Compose 离线安装, 为 Kubernetes 与中间件提供运行底座</span></h2>
+        <h2><span class="num">2</span>中间件底座 <span class="hint">Docker/Compose 与 Java 运行时离线安装, 为 Kubernetes 与中间件提供运行底座</span></h2>
         <div class="body">
           <div class="row">
             <div><label>项目名 <span class="hint">compose 项目名与包名</span></label>
@@ -107,6 +107,8 @@
                 <option value="arm64">ARM (aarch64)</option>
               </select></div>
           </div>
+          <!-- Java 运行时: 紧跟架构选择之下(物料按架构准备), 部署目标引用上方服务器池 -->
+          <div id="javaBox" style="margin-top:12px"></div>
           <div class="row" style="margin-top:12px">
             <div><label>部署目录 <span class="hint">compose / .env / 数据 / 日志 / 配置都在这里</span></label>
               <input type="text" id="deploy_dir" value="/data/middleware"></div>

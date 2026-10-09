@@ -2,6 +2,17 @@
 
 按时间倒序记录每次功能与修复。`docs/` 演示站随前端改动同步更新。
 
+## 2026-10-09（Java 运行时: 移入中间件底座卡片）
+
+- **区块位置再调整**: Java 运行时折叠块从「部署服务器池」移入「中间件底座」卡片, 紧跟
+  「目标服务器架构」选择之下——先选架构再配 Java 的顺序更自然(物料按架构准备); 卡片标题
+  说明同步改为「Docker/Compose 与 Java 运行时离线安装」。
+- 实现拆分: `renderPool` 只渲染服务器池, 新增 `renderJavaCard`(渲染 #javaBox)与
+  `bindJavaEvents`(Java 事件); 服务器池增删/改名/改 IP 仍联动刷新 Java 部署目标标签;
+  CSS 作用域 `#poolBox .jdetails/.jbadge/.kform` → `#javaBox`。
+- 部署目标提示补充「从上方部署服务器池选择」; jsdom 端到端验证: 区块位置/启用表单/折叠
+  状态保持/版本多选/池→Java 标签实时同步/localStorage 持久化全部通过, 无 JS 报错。
+
 ## 2026-10-09（Java 运行时: 第二轮反馈修正）
 
 - **默认安装目录改为 `/data/java`**（原 `/usr/local/java`）: 前端默认值/兜底、validate 归一化、

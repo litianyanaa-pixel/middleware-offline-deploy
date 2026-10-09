@@ -207,7 +207,8 @@ const EN_DICT = {
   "Alibaba Cloud Linux": "Alibaba Cloud Linux",
   "上一步": "Prev", "下一步": "Next",
   "基础设施与中间件 → 生成编排 → 按需打包 → 服务器零交互部署": "Infrastructure & middleware → orchestration → pack on demand → zero-touch server deploy",
-  "中间件底座": "Middleware base", "Docker/Compose 离线安装, 为 Kubernetes 与中间件提供运行底座": "Docker/Compose offline install; the runtime base for Kubernetes and middleware",
+  "中间件底座": "Middleware base", "Docker/Compose 离线安装, 为 Kubernetes 与中间件提供运行底座": "Docker/Compose & Java runtime offline install; the runtime base for Kubernetes and middleware",
+  "Docker/Compose 与 Java 运行时离线安装, 为 Kubernetes 与中间件提供运行底座": "Docker/Compose & Java runtime offline install; the runtime base for Kubernetes and middleware",
   "K8s 集群与中间件多机部署的节点均从本池选择; K8s 密码登录即可(kk 自带 SSH 客户端)": "Both K8s and multi-host middleware nodes come from this pool; password SSH is fine (kk ships its own client)",
   "中间件默认部署在交付包所在服务器(运行 deploy.sh 的机器); 跨服务器部署请在中间件卡片配置多机拓扑": "Middleware deploys on the server hosting the bundle (the one running deploy.sh) by default; configure multi-host topology on the middleware cards to spread across servers",
   "已选 ": "Selected: ", "目标 ": "target ", "原始物料 ": "raw materials ", "打包后约为其": "packed ≈", "K8s 集群": "K8s cluster",
@@ -725,7 +726,28 @@ function renderClusterCard(){
 /* ---- 基础设施拓扑(第 1 步: 部署服务器池独立成块 + 集群参数/角色) ---- */
 function renderPool(){
   const box = $('#poolBox'); if (!box) return;
-  // Java 运行时(可折叠, 仿集群高级配置; 重渲染时保持折叠状态; 区块置于「+ 添加服务器」下方)
+  let html = '<div class="map">'+
+    '<div class="map-cols svcols"><span>别名</span><span>SSH 用户</span><span>SSH 密码 <em style="font-style:normal;opacity:.75">(留空=免密)</em></span><span>服务器 IP (IPv4)</span><span style="text-align:center">端口</span><span></span></div>';
+  state.servers.forEach((sv, i) => {
+    html += '<div class="map-row svrow">'+
+      '<input type="text" data-sv="'+i+':name" value="'+esc(sv.name)+'" placeholder="node'+(i+1)+'">'+
+      '<input type="text" data-sv="'+i+':user" value="'+esc(sv.user)+'" placeholder="root">'+
+      '<input type="password" data-sv="'+i+':pass" value="'+esc(sv.pass||'')+'" placeholder="留空则用免密登录" autocomplete="new-password">'+
+      '<input type="text" data-sv="'+i+':ip" value="'+esc(sv.ip)+'" placeholder="如 10.0.0.1'+i+'">'+
+      '<input type="text" data-sv="'+i+':ssh" value="'+esc(sv.ssh)+'" placeholder="22" style="text-align:center">'+
+      '<button type="button" class="delrow" data-svdel="'+i+'" title="移除">×</button></div>';
+  });
+  html += '</div><button type="button" class="addport wide" data-svadd="1">+ 添加服务器</button>'+
+    '<div class="hint" style="margin-top:7px">K8s 集群与中间件多机部署的节点均从本池选择; K8s 密码登录即可(kk 自带 SSH 客户端)</div>'+
+    '<div class="hint" style="margin-top:4px">中间件默认部署在交付包所在服务器(运行 deploy.sh 的机器); 跨服务器部署请在中间件卡片配置多机拓扑</div>';
+  box.innerHTML = html;
+  bindPoolEvents(box);
+  renderJavaCard();   // Java 运行时在「中间件底座」卡片(架构选择之下), 随服务器池联动刷新
+}
+
+/* ---- Java 运行时(「中间件底座」卡片内, 紧跟架构选择之下; 可折叠, 样式仿集群高级配置) ---- */
+function renderJavaCard(){
+  const box = $('#javaBox'); if (!box) return;
   const ja = state.java;
   const jmajors = jmajorsOrder();
   const jnodeLabel = i => { const sv = state.servers[i] || {}; return (sv.name || ('node'+(i+1))) + ' · ' + (sv.ip || 'IP未填'); };
@@ -753,26 +775,36 @@ function renderPool(){
         state.servers.map((sv,i) => '<label><input type="checkbox" data-jt="'+i+'"'+(ja.targets.includes(i)?' checked':'')+'>'+
           '<span data-jlabel="'+i+'">'+esc(jnodeLabel(i))+'</span></label>').join('')+
       '</div></div>'+
-      '<div class="krow"><label></label><div class="kfield"><div class="khint">'+esc(trText('JDK 以 tar.gz 随包内置(Eclipse Temurin, Adoptium 发行版); 部署时先 sha256 校验再解压; 多机部署按勾选分发到对应节点(纯 Java 节点无需 Docker)'))+'</div></div></div>';
+      '<div class="krow"><label></label><div class="kfield"><div class="khint">'+esc(trText('JDK 以 tar.gz 随包内置(Eclipse Temurin, Adoptium 发行版); 部署时先 sha256 校验再解压; 部署目标从上方「部署服务器池」选择, 多机按勾选分发(纯 Java 节点无需 Docker)'))+'</div></div></div>';
   }
   jhtml += '</div></details>';
-  let html = '<div class="map">'+
-    '<div class="map-cols svcols"><span>别名</span><span>SSH 用户</span><span>SSH 密码 <em style="font-style:normal;opacity:.75">(留空=免密)</em></span><span>服务器 IP (IPv4)</span><span style="text-align:center">端口</span><span></span></div>';
-  state.servers.forEach((sv, i) => {
-    html += '<div class="map-row svrow">'+
-      '<input type="text" data-sv="'+i+':name" value="'+esc(sv.name)+'" placeholder="node'+(i+1)+'">'+
-      '<input type="text" data-sv="'+i+':user" value="'+esc(sv.user)+'" placeholder="root">'+
-      '<input type="password" data-sv="'+i+':pass" value="'+esc(sv.pass||'')+'" placeholder="留空则用免密登录" autocomplete="new-password">'+
-      '<input type="text" data-sv="'+i+':ip" value="'+esc(sv.ip)+'" placeholder="如 10.0.0.1'+i+'">'+
-      '<input type="text" data-sv="'+i+':ssh" value="'+esc(sv.ssh)+'" placeholder="22" style="text-align:center">'+
-      '<button type="button" class="delrow" data-svdel="'+i+'" title="移除">×</button></div>';
+  box.innerHTML = jhtml;
+  bindJavaEvents(box);
+}
+
+function bindJavaEvents(box){
+  // ---- 事件: Java 运行时(区块在 sec-basic 卡片, 但依赖服务器池状态, 随 renderPool 联动重渲染) ----
+  box.querySelectorAll('[data-jen]').forEach(c => c.onchange = () => {
+    state.java.enabled = c.checked; saveLocal(); renderPool();
   });
-  html += '</div><button type="button" class="addport wide" data-svadd="1">+ 添加服务器</button>'+
-    jhtml +
-    '<div class="hint" style="margin-top:7px">K8s 集群与中间件多机部署的节点均从本池选择; K8s 密码登录即可(kk 自带 SSH 客户端)</div>'+
-    '<div class="hint" style="margin-top:4px">中间件默认部署在交付包所在服务器(运行 deploy.sh 的机器); 跨服务器部署请在中间件卡片配置多机拓扑</div>';
-  box.innerHTML = html;
-  bindPoolEvents(box);
+  box.querySelectorAll('[data-jv]').forEach(c => c.onchange = () => {
+    const v = String(c.dataset.jv);
+    if (c.checked){ if (!state.java.versions.includes(v)) state.java.versions.push(v); }
+    else state.java.versions = state.java.versions.filter(x => x !== v);
+    if (!state.java.versions.length){ state.java.versions = ['17']; }   // 至少保留一个版本
+    state.java.versions.sort((a,b) => jmajorsOrder().indexOf(a) - jmajorsOrder().indexOf(b));
+    if (!state.java.versions.includes(state.java.default))
+      state.java.default = state.java.versions[state.java.versions.length - 1];
+    saveLocal(); renderPool();
+  });
+  box.querySelectorAll('[data-jd]').forEach(s => s.onchange = () => { state.java.default = s.value; saveLocal(); });
+  box.querySelectorAll('[data-jdir]').forEach(i => i.oninput = () => { state.java.install_dir = i.value.trim(); saveLocal(); });
+  box.querySelectorAll('[data-jt]').forEach(c => c.onchange = () => {
+    const t = c.dataset.jt === 'local' ? 'local' : +c.dataset.jt;
+    if (c.checked){ if (!state.java.targets.includes(t)) state.java.targets.push(t); }
+    else state.java.targets = state.java.targets.filter(x => x !== t);
+    saveLocal();
+  });
 }
 
 function renderInfraTopology(){
@@ -970,8 +1002,9 @@ function bindPoolEvents(box){
       if (sel){
         sel.closest('.krow').querySelector('label').textContent = lab;
       }
-      // 同步 Java 运行时「部署目标」的节点标签
-      const jt = box.querySelector('[data-jlabel="'+idx+'"]');
+      // 同步 Java 运行时「部署目标」的节点标签(区块在底座卡片的 javaBox 内)
+      const jb = document.getElementById('javaBox');
+      const jt = jb && jb.querySelector('[data-jlabel="'+idx+'"]');
       if (jt) jt.textContent = lab;
     }
   });
@@ -988,28 +1021,6 @@ function bindPoolEvents(box){
   box.querySelectorAll('[data-svadd]').forEach(b => b.onclick = () => {
     state.servers.push({ name: 'node'+(state.servers.length+1), user: 'root', ip: '', ssh: 22, pass: '' });
     saveLocal(); renderPool(); renderInfraTopology();
-  });
-  // ---- Java 运行时 ----
-  box.querySelectorAll('[data-jen]').forEach(c => c.onchange = () => {
-    state.java.enabled = c.checked; saveLocal(); renderPool();
-  });
-  box.querySelectorAll('[data-jv]').forEach(c => c.onchange = () => {
-    const v = String(c.dataset.jv);
-    if (c.checked){ if (!state.java.versions.includes(v)) state.java.versions.push(v); }
-    else state.java.versions = state.java.versions.filter(x => x !== v);
-    if (!state.java.versions.length){ state.java.versions = ['17']; }   // 至少保留一个版本
-    state.java.versions.sort((a,b) => jmajorsOrder().indexOf(a) - jmajorsOrder().indexOf(b));
-    if (!state.java.versions.includes(state.java.default))
-      state.java.default = state.java.versions[state.java.versions.length - 1];
-    saveLocal(); renderPool();
-  });
-  box.querySelectorAll('[data-jd]').forEach(s => s.onchange = () => { state.java.default = s.value; saveLocal(); });
-  box.querySelectorAll('[data-jdir]').forEach(i => i.oninput = () => { state.java.install_dir = i.value.trim(); saveLocal(); });
-  box.querySelectorAll('[data-jt]').forEach(c => c.onchange = () => {
-    const t = c.dataset.jt === 'local' ? 'local' : +c.dataset.jt;
-    if (c.checked){ if (!state.java.targets.includes(t)) state.java.targets.push(t); }
-    else state.java.targets = state.java.targets.filter(x => x !== t);
-    saveLocal();
   });
 }
 function jmajorsOrder(){
