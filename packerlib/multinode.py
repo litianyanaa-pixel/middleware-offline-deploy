@@ -393,7 +393,7 @@ def gen_nodes(cfg, catalog):
         if p.get("backup_svcs"):
             p["backup"] = _node_backup_files(cfg, p["backup_svcs"])
         p["java_default"] = ("jdk%s" % (jcfg.get("default") or "")) if p["java_versions"] else ""
-        p["java_install_dir"] = (jcfg.get("install_dir") or "/usr/local/java") if p["java_versions"] else ""
+        p["java_install_dir"] = (jcfg.get("install_dir") or "/data/java") if p["java_versions"] else ""
         p["compose"] = ("# 由 packer.py 自动生成 (多机节点: %s)\nname: %s-%s\n\nservices:\n" % (
             p["name"], cfg["project"], p["name"])) + "\n".join(p["compose_parts"]) + \
             "\n\nnetworks:\n  app-network:\n    driver: bridge\n"
@@ -457,8 +457,8 @@ if [ ${#JAVA_VERSIONS[@]} -gt 0 ]; then
   export JAVA_HOME="$JDIR/$JAVA_DEFAULT"; export PATH="$JAVA_HOME/bin:$PATH"
   log "Java 默认版本 $JAVA_DEFAULT ($(java -version 2>&1 | head -1))"
 fi
-""" % {"jdir": node.get("java_install_dir") or "/usr/local/java",
-       "jdir_q": bash_quote(node.get("java_install_dir") or "/usr/local/java"),
+""" % {"jdir": node.get("java_install_dir") or "/data/java",
+       "jdir_q": bash_quote(node.get("java_install_dir") or "/data/java"),
        "jvers": " ".join(node["java_versions"]), "jdef": node.get("java_default") or ""}
 
 

@@ -2,7 +2,7 @@ let CATALOG = null;
 const selected = new Set();
 const state = { ports: {}, secrets: {}, db: {}, extra: {}, backup: null, proxies: [], topology: { mysql8: 'single', mysql57: 'single', redis: 'single', kafka: 'single' }, svcFilter: 'all',
   servers: [],
-  java: { enabled: false, versions: ['17'], default: '17', install_dir: '/usr/local/java', targets: ['local'] },
+  java: { enabled: false, versions: ['17'], default: '17', install_dir: '/data/java', targets: ['local'] },
   cluster: { enabled: false, kube_version: '', mode: 'cache', cni_type: 'calico', proxy_mode: 'iptables',
              pod_cidr: '10.233.64.0/18', service_cidr: '10.233.0.0/18', timezone: 'Asia/Shanghai', os_distros: [], roles: {},
              ha_type: 'local', ha_vip: '', upgrade_to: '', k8s_image_registry: '',
@@ -746,8 +746,8 @@ function renderPool(){
       '<div class="krow"><label>'+esc(trText('默认版本'))+'</label><div class="kfield"><select data-jd style="width:220px">'+
         ja.versions.map(v => '<option value="'+v+'"'+(ja.default===v?' selected':'')+'>'+esc(trText('默认版本'))+': Java '+v+'</option>').join('')+
       '</select></div></div>'+
-      '<div class="krow"><label>'+esc(trText('安装目录'))+'</label><div class="kfield"><input type="text" data-jdir value="'+esc(ja.install_dir||'/usr/local/java')+'" style="width:320px">'+
-        '<div class="khint">'+esc(trText('各版本解压至 安装目录/jdk8、/jdk17…(多版本共存), 所选默认版本写入 JAVA_HOME(/etc/profile.d/java.sh)'))+'</div></div></div>'+
+      '<div class="krow"><label>'+esc(trText('安装目录'))+'</label><div class="kfield"><input type="text" data-jdir value="'+esc(ja.install_dir||'/data/java')+'" style="width:320px">'+
+        '<div class="khint">'+esc(trText('各版本解压至 安装目录/jdk8、/jdk17…(多版本共存), 所选默认版本写入 JAVA_HOME(/etc/profile.d/java.sh, 登录时 /etc/profile 自动加载)'))+'</div></div></div>'+
       '<div class="krow"><label>'+esc(trText('部署目标'))+'</label><div class="kfield kchips" style="grid-template-columns:repeat(4,max-content)">'+
         '<label><input type="checkbox" data-jt="local"'+(ja.targets.includes('local')?' checked':'')+'> '+esc(trText('本机 (运行 deploy.sh)'))+'</label>'+
         state.servers.map((sv,i) => '<label><input type="checkbox" data-jt="'+i+'"'+(ja.targets.includes(i)?' checked':'')+'>'+
@@ -1272,11 +1272,20 @@ function toggleSvc(key){
   renderSvcGridSync();
 }
 function onArchChange(){
-  if ($('#arch').value === 'arm64' && selected.has('mysql57')){
-    selected.delete('mysql57'); toast('已移除 MySQL 5.7 (arm64 不支持)');
-  }
+  const toArm = $('#arch').value === 'arm64';
+  const hadM57 = toArm && selected.has('mysql57');
+  const hadK8s = toArm && state.cluster.enabled;
+  if (hadM57) selected.delete('mysql57');
   prunePx();
   renderSvcGridSync(); renderClusterCard();
+  // 切换后始终给出可见反馈, 避免误以为选择未生效; ARM 下自动取消的项单独说明
+  if (toArm && (hadM57 || hadK8s)){
+    const why = [hadK8s ? 'K8s 集群暂仅支持 x86_64, 已自动取消勾选' : '',
+                 hadM57 ? 'MySQL 5.7 不支持 arm64, 已移除' : ''].filter(Boolean).join('; ');
+    toast('架构已切换: ARM (aarch64) — ' + why);
+  } else {
+    toast('架构已切换: ' + (toArm ? 'ARM (aarch64)' : 'x86_64 (amd64)'));
+  }
 }
 
 /* ================= 动态渲染 ================= */
@@ -1947,8 +1956,8 @@ function applyConfig(cfg){
   state.servers = (Array.isArray(cfg.servers) ? cfg.servers : []).map(v =>
     Object.assign({ name: '', user: 'root', ip: '', ssh: 22, pass: '' }, v || {}));
   // Java 运行时: 旧配置无 java 键 -> 默认关闭; 恢复时归一化(版本防空/默认版本合法性/目标类型/安装目录)
-  state.java = Object.assign({ enabled: false, versions: ['17'], default: '17', install_dir: '/usr/local/java', targets: ['local'] }, cfg.java || {});
-  state.java.install_dir = String(state.java.install_dir || '/usr/local/java').trim() || '/usr/local/java';
+  state.java = Object.assign({ enabled: false, versions: ['17'], default: '17', install_dir: '/data/java', targets: ['local'] }, cfg.java || {});
+  state.java.install_dir = String(state.java.install_dir || '/data/java').trim() || '/data/java';
   state.java.versions = (Array.isArray(state.java.versions) ? state.java.versions : ['17']).map(String)
     .filter(v => jmajorsOrder().includes(v));
   if (!state.java.versions.length) state.java.versions = ['17'];
@@ -2153,14 +2162,15 @@ function renderWarehouse(){
     row('docker 安装包', arch, p['docker_'+arch], sz.docker[arch], 'Docker 静态二进制', 'pkg');
     row('docker-compose 插件', arch, p['compose_'+arch], sz.compose[arch], 'compose v2 二进制', 'pkg');
   }
-  // ---- Java 运行时物料(Temurin JDK; 未 resolve 的在打包时自动下载, 不计入缺料徽章) ----
+  // ---- Java 运行时物料(Temurin JDK; 双架构各一行, 架构筛选可用; 未 resolve 的打包时自动下载, 不计入缺料徽章) ----
   for (const v of ((CATALOG.java||{}).majors || ['8','17','21'])){
-    const a = p['java_'+v+'_amd64'], b = p['java_'+v+'_arm64'];
-    const ok = a === true && b === true;
-    rows += '<tr data-kind="pkg" data-arch="amd64"><td class="mono">Java 运行时包 (Temurin JDK '+v+')</td><td>x86_64+aarch64</td>'+
-      '<td><span class="dot '+(ok?'ok':'no')+'"></span>'+(ok?'就绪':'打包时下载')+'</td>'+
-      '<td>-</td><td class="hint">'+(LANG==='en'?'python prepare_java.py --download to pre-fetch (auto-fetched at pack time otherwise)'
-                                        :'python prepare_java.py --download 可预下载 (打包时也会自动补齐)')+'</td></tr>';
+    for (const arch of ['amd64','arm64']){
+      const ok = p['java_'+v+'_'+arch] === true;
+      rows += '<tr data-kind="pkg" data-arch="'+arch+'"><td class="mono">Java 运行时包 (Temurin JDK '+v+')</td><td>'+(arch==='amd64'?'x86_64':'aarch64')+'</td>'+
+        '<td><span class="dot '+(ok?'ok':'no')+'"></span>'+(ok?'就绪':'打包时下载')+'</td>'+
+        '<td>-</td><td class="hint">'+(LANG==='en'?'python prepare_java.py --download to pre-fetch (auto-fetched at pack time otherwise)'
+                                          :'python prepare_java.py --download 可预下载 (打包时也会自动补齐)')+'</td></tr>';
+    }
   }
   // ---- K8s 集群物料(基础平台; 集群暂仅 amd64) ----
   const cc = CATALOG.cluster || {};

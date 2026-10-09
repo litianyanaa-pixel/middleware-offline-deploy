@@ -28,7 +28,7 @@
 
 - **零交互部署**：端口、密码、数据库来源、备份策略全部在打包时决定，服务器上不问任何问题
 - **Java 运行时**：Temurin JDK 8/17/21 双架构(amd64/arm64)作为基础中间件随包分发——服务器池按台勾选部署目标，
-  多版本共存 + 默认版本写 `JAVA_HOME`，sha256 校验后解压 `/usr/local/java`；`python prepare_java.py --download` 可预下载(打包时缺料也会自动补齐)
+  多版本共存 + 默认版本写 `JAVA_HOME`，sha256 校验后解压 `/data/java`（目录可自定义）；`python prepare_java.py --download` 可预下载(打包时缺料也会自动补齐)
 - **按需打包**：只打包勾选的中间件和对应架构，典型项目（nginx+mysql8+redis+xxljob）约 0.7GB，不搬全量仓库
 - **幂等可重跑**：deploy.sh 重复执行安全——已装 Docker 跳过、已有表跳过导库、自己的端口占用放行、旧配置自动备份
 - **增量升级**：重跑 deploy.sh 自动对比新旧编排，明确列出"将重建/新增/移除/保持"的服务清单，

@@ -2,6 +2,19 @@
 
 按时间倒序记录每次功能与修复。`docs/` 演示站随前端改动同步更新。
 
+## 2026-10-09（Java 运行时: 第二轮反馈修正）
+
+- **默认安装目录改为 `/data/java`**（原 `/usr/local/java`）: 前端默认值/兜底、validate 归一化、
+  manifest 与多机节点脚本默认值、测试断言全链路同步; 已有自定义目录的配置不受影响。
+- **Java 折叠框宽度自适应**: 去掉 `max-width:820px`, 灰框跟随卡片宽度铺满(与集群高级配置一致)。
+- **架构切换可见反馈**: 切换 x86_64/ARM 后始终 toast 确认; 切到 ARM 时若自动取消了 K8s 集群
+  (集群暂仅 x86_64)或 MySQL 5.7, 明确说明原因。经 jsdom 全页加载实测: arch 选择器绑定正常、
+  切换生效、无 JS 报错——此前"不能选择"多为旧页面缓存/未感知 ARM 下集群自动取消所致, 请
+  Ctrl+F5 强刷后重试。
+- **物料仓库 Java 行按架构拆分**: 每个版本拆为 x86_64/aarch64 两行(原聚合为一行), 架构筛选
+  可用, 状态逐架构准确; arm64 的 JDK 8/21 物料已下载补齐, 双架构 6 个包全部就绪。
+- UI 提示补充: `/etc/profile 登录时自动加载 /etc/profile.d/*.sh`。
+
 ## 2026-10-09（新增: Java 运行时作为基础中间件）
 
 - **Java 运行时(Temurin JDK 8/17/21, 双架构)作为基础中间件集成**, 非插件形式(不进 compose
@@ -12,7 +25,7 @@
   versions.json 的 `java.resolved` 供离线打包复用; `--check`/`--download` CLI; 打包时缺料
   自动补齐(与集群物料同模式)。
 - **部署链路**: 包内顶层 `java/jdk<N>.tar.gz` 共享单份 + `jdk.sha256` 清单; deploy.sh 新增
-  `install_java()`(【0.3/9】, 集群部署前执行): sha256 校验 → 解压 `/usr/local/java/jdk<N>`
+  `install_java()`(【0.3/9】, 集群部署前执行): sha256 校验 → 解压 `/data/java/jdk<N>`
   (`--strip-components=1`, 幂等跳过已装) → 写 `/etc/profile.d/java.sh`(JAVA_HOME 指向默认
   版本) → `java -version` 实测; 多版本共存, 未勾选部署目标的主部署机自动跳过。
 - **多机支持**: 服务器池按勾选分发(可勾纯 Java 节点——该节点无需 Docker); 纯 Java 节点生成
@@ -27,7 +40,7 @@
 ## 2026-10-09（Java 运行时: 六点反馈修正）
 
 - **区块位置**: Java 运行时折叠块移到「+ 添加服务器」按钮下方(不再在服务器池卡片顶部)。
-- **自定义安装目录**: 新增 `install_dir` 配置(默认 `/usr/local/java`), 表单可编辑, validate
+- **自定义安装目录**: 新增 `install_dir` 配置(默认 `/data/java`), 表单可编辑, validate
   归一化(绝对路径/禁特殊字符), install 脚本与 manifest 全链路生效。
 - **折叠样式对齐集群高级配置**: `<details>` 折叠 + ▸ 旋转箭头 + 状态徽章, 重渲染后保持展开
   状态; 表单字体统一为与集群/K8s 表单一致的 kform 规范。

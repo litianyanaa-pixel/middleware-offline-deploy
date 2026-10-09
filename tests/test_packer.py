@@ -772,8 +772,8 @@ def test_java_install_dir_custom_and_invalid(catalog):
         assert False, "相对路径应被拒绝"
     except PackError:
         pass
-    # 默认值归一: 未填时 /usr/local/java
+    # 默认值归一: 未填时 /data/java
     cfg3 = make_cfg(None, services=("nginx",),
                     java={"enabled": True, "versions": ["17"], "default": "17", "targets": ["local"]})
     cfg3, _ = packer.validate_config(cfg3, catalog)
-    assert cfg3["java"]["install_dir"] == "/usr/local/java"
+    assert cfg3["java"]["install_dir"] == "/data/java"

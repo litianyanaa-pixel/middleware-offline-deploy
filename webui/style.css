@@ -187,7 +187,7 @@
   #topoInfraBox .kform .kinline label{display:inline-flex;align-items:center;gap:5px;cursor:pointer;font-size:13px}
   #topoInfraBox .kform .kchips label{display:inline-flex;align-items:center;gap:5px;margin:2px 0;cursor:pointer;font-size:13px}
   /* ---- 服务器池: Java 运行时折叠区块(样式与集群高级配置 details / kform 同规范) ---- */
-  #poolBox .jdetails{max-width:820px;margin:14px 0 4px;padding:10px 14px;border:1px solid rgba(255,255,255,.7);border-radius:12px;background:rgba(120,120,128,.05)}
+  #poolBox .jdetails{margin:14px 0 4px;padding:10px 14px;border:1px solid rgba(255,255,255,.7);border-radius:12px;background:rgba(120,120,128,.05)}
   #poolBox .jdetails summary{list-style:none;display:flex;align-items:center;gap:6px;cursor:pointer}
   #poolBox .jdetails summary::before{content:"▸";color:var(--acc);transition:transform .2s}
   #poolBox .jdetails[open] summary::before{transform:rotate(90deg)}

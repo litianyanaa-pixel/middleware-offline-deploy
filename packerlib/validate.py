@@ -416,14 +416,14 @@ def validate_config(cfg, catalog):
     jraw = cfg.get("java") or {}
     java = {"enabled": bool(jraw.get("enabled")), "versions": [], "default": "", "targets": []}
     # 安装目录(启用与否都归一, 保持配置完整): 必须为 Linux 绝对路径且无空格/特殊字符
-    idir = str(jraw.get("install_dir") or "").strip() or "/usr/local/java"
+    idir = str(jraw.get("install_dir") or "").strip() or "/data/java"
     if not idir.startswith("/"):
         raise PackError("Java 安装目录必须为 Linux 绝对路径: %s|Java install dir must be an absolute "
                         "Linux path: %s" % (idir, idir))
     if re.search(r"[\s$`\"';|&<>\\]", idir):
         raise PackError("Java 安装目录不能包含空格或特殊字符: %s|Java install dir must not contain "
                         "spaces or special characters: %s" % (idir, idir))
-    java["install_dir"] = idir.rstrip("/") or "/usr/local/java"
+    java["install_dir"] = idir.rstrip("/") or "/data/java"
     if java["enabled"]:
         all_majors = [str(m) for m in ((catalog.get("java") or {}).get("majors") or ["8", "17", "21"])]
         vs = sorted({str(v) for v in (jraw.get("versions") or []) if str(v) in all_majors},
