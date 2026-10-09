@@ -223,11 +223,12 @@ def gen_cluster_config(cfg, catalog):
         cni_lines += ["    multi_cni: multus"]
         if cl.get("multi_cni_tag"):
             cni_lines += ["    multus:", "      image:", "        tag: %s" % _yq(cl["multi_cni_tag"])]
-    if cni_type == "calico" and cl.get("calico_values"):
-        # Calico 专属调优走 helm values 透传(kk calico 任务以 -f 追加): ipipMode/vxlanMode/mtu 等
-        cni_lines.append("    calico:")
-        cni_lines.append("      values: |")
-        cni_lines += ["        " + ln for ln in cl["calico_values"].splitlines()]
+    cni_values = str(cl.get(cni_type + "_values") or "")
+    if cni_values:
+        # CNI 专属调优走 helm values 透传(kk v4 对 calico/cilium/flannel/kubeovn 均支持,
+        # 以 cni.<type>.values 写 config, CNI 角色以 -f 追加 custom-values): mtu/后端模式等
+        cni_lines += ["    %s:" % cni_type, "      values: |"]
+        cni_lines += ["        " + ln for ln in cni_values.splitlines()]
     lines += ["  cni:"] + cni_lines
 
     # DNS 覆盖(coredns/nodelocaldns 镜像 tag 与启停; 不设置时跟随 kk per-minor 默认)

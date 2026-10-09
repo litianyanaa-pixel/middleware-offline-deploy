@@ -54,7 +54,7 @@
 | kubelet 参数(max-pods/extra_args/extra_config/root-dir) | `kubernetes.kubelet.*` |
 | etcd 数据目录与调优(心跳/选举/压缩/配额等 9 参数) | `etcd.env.*` |
 | Multi-CNI multus(含镜像 tag) | `cni.multi_cni` / `cni.multus.image.tag` |
-| Calico 专属调优(ipipMode/vxlanMode/mtu) | `cni.calico.values`(helm values 透传) |
+| 各 CNI 专属调优(calico ipipMode/vxlanMode/mtu、cilium hubble 等) | `cni.<type>.values`(helm values 透传, calico/cilium/flannel/kubeovn 全支持) |
 | Pod/Service CIDR + 每节点 Pod 子网掩码 | `cni.pod_cidr` / `service_cidr` / `ipv4_mask_size` |
 | CRI 运行时选择(containerd/docker) | `cri.container_manager`(docker 仅在线) |
 | CoreDNS/NodeLocalDNS 镜像 tag 与启停 | `dns.coredns.image.tag` / `dns.nodelocaldns.*` |

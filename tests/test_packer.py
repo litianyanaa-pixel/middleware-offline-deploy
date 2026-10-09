@@ -777,3 +777,63 @@ def test_java_install_dir_custom_and_invalid(catalog):
                     java={"enabled": True, "versions": ["17"], "default": "17", "targets": ["local"]})
     cfg3, _ = packer.validate_config(cfg3, catalog)
     assert cfg3["java"]["install_dir"] == "/data/java"
+
+
+# ---------------------------------------------------------------- 集群高级配置(CNI values / 注释参数)
+
+def test_cluster_cni_values_per_plugin_and_comments(catalog):
+    """CNI values 按插件各自透传(仅当前 CNI 生效); 注释行参数被忽略"""
+    from packerlib.util import PackError
+    # cilium: 注释-only values 归一为空; 误填的 calico values 忽略并告警
+    cfg = make_cfg(None, services=("nginx",),
+                   servers=[{"name": "n1", "user": "root", "ip": "10.0.0.1", "ssh": 22, "password": "p"}],
+                   cluster={
+        "enabled": True, "kube_version": "v1.30.14", "cni_type": "cilium", "roles": {"0": "control-plane"},
+        "cilium_values": "# hubble:\n#   enabled: false\nhubble:\n  enabled: true\n",
+        "calico_values": "installation:\n  calicoNetwork:\n    ipipMode: Always\n",
+        "kubelet": {"extra_args": ["# system-reserved=memory=300Mi", "max-pods=200"],
+                    "extra_config": "# maxOpenFiles: 1000000\nmaxOpenFiles: 999999\n"},
+        "components": {"etcd_env": ["# heartbeat_interval=100", "heartbeat_interval=500",
+                                    "# election_timeout=1000"]},
+    })
+    cfg, warns = packer.validate_config(cfg, catalog)
+    cl = cfg["cluster"]
+    assert "# hubble:" in cl["cilium_values"] and "enabled: true" in cl["cilium_values"]   # 注释+生效混合: 原样保留
+    assert cl["calico_values"] == ""                       # 非 cilium -> 忽略
+    assert any("calico values" in w.lower() for w in warns)
+    assert cl["kubelet"]["extra_args"] == ["max-pods=200"]  # 注释行被跳过
+    assert cl["kubelet"]["extra_config"].rstrip("\n") == "# maxOpenFiles: 1000000\nmaxOpenFiles: 999999"
+    assert cl["components"]["etcd_env"] == {"heartbeat_interval": 500}
+    # 生成的 kk config: cilium values 透传, 无 calico 段, 注释参数不落入
+    kcfg = packer.gen_cluster_config(cfg, catalog)
+    assert "    cilium:\n      values: |" in kcfg and "enabled: true" in kcfg
+    assert "calico:" not in kcfg
+    assert "max-pods" in kcfg and "heartbeat_interval: 500" in kcfg
+    # calico: 生效 values 写入 calico 段
+    cfg2 = make_cfg(None, services=("nginx",),
+                    servers=[{"name": "n1", "user": "root", "ip": "10.0.0.1", "ssh": 22, "password": "p"}],
+                    cluster={
+        "enabled": True, "kube_version": "v1.30.14", "cni_type": "calico", "roles": {"0": "control-plane"},
+        "calico_values": "installation:\n  calicoNetwork:\n    ipipMode: Never\n"})
+    cfg2, _ = packer.validate_config(cfg2, catalog)
+    kcfg2 = packer.gen_cluster_config(cfg2, catalog)
+    assert "    calico:\n      values: |" in kcfg2 and "ipipMode: Never" in kcfg2
+    # 注释-only values: 归一为空(不写入 config)
+    cfg3 = make_cfg(None, services=("nginx",),
+                    servers=[{"name": "n1", "user": "root", "ip": "10.0.0.1", "ssh": 22, "password": "p"}],
+                    cluster={
+        "enabled": True, "kube_version": "v1.30.14", "cni_type": "cilium", "roles": {"0": "control-plane"},
+        "cilium_values": "# 全部注释\n# hubble:\n#   enabled: false\n"})
+    cfg3, _ = packer.validate_config(cfg3, catalog)
+    assert cfg3["cluster"]["cilium_values"] == ""
+    # 非法 YAML 拒绝
+    bad = make_cfg(None, services=("nginx",),
+                   servers=[{"name": "n1", "user": "root", "ip": "10.0.0.1", "ssh": 22, "password": "p"}],
+                   cluster={
+        "enabled": True, "kube_version": "v1.30.14", "cni_type": "calico", "roles": {"0": "control-plane"},
+        "calico_values": ":\n  - [unclosed\n"})
+    try:
+        packer.validate_config(bad, catalog)
+        assert False, "非法 YAML 应被拒绝"
+    except PackError:
+        pass

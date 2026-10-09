@@ -72,7 +72,7 @@ export KUBECONFIG=/etc/kubernetes/admin.conf && kubectl get nodes
 - **部署目录可定制**:containerd/docker 数据目录、etcd 数据目录(写入 `etcd.env.data_dir`, v4 只认 env 下的键)、kubelet root-dir
 - **etcd 调优**:心跳/选举/压缩/快照/配额/请求上限/日志级别等 9 个白名单参数(`etcd.env.*`, 见 kk etcd.env 模板)
 - **CNI 扩展**:每节点 Pod 子网掩码(`ipv4_mask_size`)、Multi-CNI multus(离线镜像自动收集)、
-  Calico values 原样透传 helm(`cni.calico.values`, 可配 ipipMode/vxlanMode/mtu 等)
+  各 CNI values 原样透传 helm(`cni.<type>.values`, calico/cilium/flannel/kubeovn 全支持; 页面高级配置按所选 CNI 显示注释默认值模板)
 - **DNS 覆盖**:CoreDNS/NodeLocalDNS 镜像 tag 与启停(`dns.*`; 离线镜像清单同步用覆盖后的 tag)
 - **运行时参数**:kubelet max-pods/extra_args/extra_config;containerd 静态构建(glibc<2.35 老系统)与版本覆盖
 - **containerd 镜像加速**:页面配置(作用于 docker.io 拉取);K8s 组件镜像在离线/zone=cn 下自动走集群内仓库或国内源

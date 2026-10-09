@@ -2,6 +2,19 @@
 
 按时间倒序记录每次功能与修复。`docs/` 演示站随前端改动同步更新。
 
+## 2026-10-09（集群高级配置: 部署顺序重排 + 默认值注释模板 + 全 CNI values 覆盖）
+
+- **高级配置字段按 kk 部署顺序重排**: 运行时/数据目录 → kubeadm 备份目录(置顶, 配置生成
+  先于 etcd/kubelet 安装) → etcd → kubelet → CNI → DNS → 证书 → 镜像 → NTP → 存储 → 私有仓库。
+- **默认值注释模板预填**: etcd 高级参数(9 个白名单参数+kk 默认值)、kubelet 扩展参数/扩展配置
+  的输入框预填带中文注释的常用默认值(行首 `#` 不生效), 取消注释即生效; 后端校验跳过注释行。
+- **CNI values 覆盖泛化到四种插件**: 此前无论选什么 CNI 高级配置恒显示「Calico values 覆盖」;
+  现按所选 CNI 动态显示对应 values 模板(calico/cilium/flannel/kubeovn, 各插件覆盖内容独立保留),
+  后端写 `cni.<type>.values` 透传 helm -f(kk v4 四种 CNI 角色均支持, 已核对上游 role tasks),
+  注释-only 内容归一为空不写入 config, 非当前 CNI 的 values 忽略并告警。
+- 新增测试 `test_cluster_cni_values_per_plugin_and_comments`(values 透传/注释跳过/非法 YAML 拒绝)。
+- i18n: CNI values 行标签与提示词条、高级配置 summary 概要更新。
+
 ## 2026-10-09（K8s 集群配置全折叠化）
 
 - **集群角色分配 / 集群基础配置改为可折叠**: 与集群高级配置、Java 运行时同款 `<details>`

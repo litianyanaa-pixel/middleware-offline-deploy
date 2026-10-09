@@ -182,7 +182,11 @@ def validate_config(cfg, catalog):
         # etcd 高级参数(etcd.env.*; 键为 kk etcd 模板认的白名单, 值类型受限)
         etcd_env = {}
         for kv in (comps_raw.get("etcd_env") or []):
-            k, _, v = str(kv).partition("=")
+            kv = str(kv).strip()
+            # 行首 # 为注释(前端预填默认值模板), 空行忽略
+            if not kv or kv.startswith("#"):
+                continue
+            k, _, v = kv.partition("=")
             k, v = k.strip(), v.strip()
             if not k or not v:
                 raise PackError("etcd 高级参数需为 key=value: %s|etcd advanced param must be key=value: %s" % (kv, kv))
@@ -216,10 +220,12 @@ def validate_config(cfg, catalog):
         extra_args = []
         for kv in (kubelet_raw.get("extra_args") or []):
             kv = str(kv).strip()
-            if kv:
-                if "=" not in kv:
-                    raise PackError("kubelet extra_args 需为 key=value 形式: %s|kubelet extra_args must be key=value: %s" % (kv, kv))
-                extra_args.append(kv)
+            # 行首 # 为注释(前端预填默认值模板), 空行忽略
+            if not kv or kv.startswith("#"):
+                continue
+            if "=" not in kv:
+                raise PackError("kubelet extra_args 需为 key=value 形式: %s|kubelet extra_args must be key=value: %s" % (kv, kv))
+            extra_args.append(kv)
         kubelet["extra_args"] = extra_args
         kubelet["extra_config"] = str(kubelet_raw.get("extra_config") or "")
         # kubelet 数据目录(root-dir 启动参数): 数据盘场景常用
@@ -323,20 +329,31 @@ def validate_config(cfg, catalog):
                 raise PackError(
                     "CNI %s 不支持 Kubernetes %s (可选: %s)|CNI %s does not support Kubernetes %s (supported: %s)"
                     % (cni_type, kube_ver, sorted(ok_minors), cni_type, kube_ver, sorted(ok_minors)))
-        # Calico 自定义 values(kk cni.calico.values 透传 helm -f; 仅 CNI=calico 生效)
-        calico_values = str(cluster_raw.get("calico_values") or "").strip("\n")
-        if calico_values:
-            if cni_type != "calico":
-                warns.append("Calico values 覆盖仅在 CNI=calico 时生效, 当前 CNI=%s 已忽略|Calico values override only applies when CNI is calico (current: %s)"
-                             % (cni_type, cni_type))
-                calico_values = ""
-            else:
+        # 各 CNI 自定义 values(kk v4 对 calico/cilium/flannel/kubeovn 均以 cni.<type>.values
+        # 透传 helm -f, 见 builtin/core/roles/cni/<type>/tasks/main.yaml; 仅当前 CNI 生效)
+        cni_values = {}
+        for _t in ("calico", "cilium", "flannel", "kubeovn"):
+            _v = str(cluster_raw.get(_t + "_values") or "").strip("\n")
+            if not _v:
+                cni_values[_t] = ""
+                continue
+            if cni_type != _t:
+                warns.append("%s values 覆盖仅在 CNI=%s 时生效, 当前 CNI=%s 已忽略|%s values override only applies when CNI is %s (current: %s)"
+                             % (_t, _t, cni_type, _t, _t, cni_type))
+                cni_values[_t] = ""
+                continue
+            # 全部为注释/空行 = 不生效, 直接跳过校验与写入
+            _effective = [ln for ln in _v.splitlines() if ln.strip() and not ln.lstrip().startswith("#")]
+            if _effective:
                 try:
-                    parsed = yaml.safe_load(calico_values)
+                    parsed = yaml.safe_load(_v)
                     if not isinstance(parsed, dict):
                         raise ValueError("not a mapping")
                 except Exception as e:
-                    raise PackError("Calico values 不是合法 YAML mapping: %s|Calico values is not a valid YAML mapping: %s" % (e, e))
+                    raise PackError("%s values 不是合法 YAML mapping: %s|%s values is not a valid YAML mapping: %s" % (_t, e, _t, e))
+                cni_values[_t] = _v
+            else:
+                cni_values[_t] = ""
         proxy_mode = str(cluster_raw.get("proxy_mode") or "iptables")
         if proxy_mode not in ("iptables", "nftables"):
             raise PackError("kube-proxy 模式不合法: %s (iptables / nftables)|Invalid kube-proxy mode: %s" % (proxy_mode, proxy_mode))
@@ -397,7 +414,8 @@ def validate_config(cfg, catalog):
                    "certs_renew_cron": certs_cron,
                    "container_manager": container_manager, "ipv4_mask_size": ipv4_mask_size,
                    "multi_cni": multi_cni, "multi_cni_tag": multi_cni_tag,
-                   "calico_values": calico_values,
+                   "calico_values": cni_values["calico"], "cilium_values": cni_values["cilium"],
+                   "flannel_values": cni_values["flannel"], "kubeovn_values": cni_values["kubeovn"],
                    "dns": dns, "kubeadm_config_dir": kubeadm_config_dir, "certs_renew": certs_renew,
                    "ha_type": ha_type, "ha_vip": ha_vip, "upgrade_to": upgrade_to,
                    "pod_cidr": cluster_raw.get("pod_cidr") or "10.233.64.0/18",

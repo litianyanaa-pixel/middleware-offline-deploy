@@ -439,7 +439,7 @@ warehouse/images/postgres/15.19/arm64.tar   ← postgres-15.19-arm64.tar 放这�
 haproxy（各节点静态 Pod 本机转发，端点地址填域名或 127.0.0.2）；「集群高级配置」还提供
 **运行时选择**（containerd 默认 / docker 仅在线安装）、**数据目录**（etcd/kubelet/containerd/docker
 可落数据盘，etcd 目录正确写入 `etcd.env.data_dir`）、**etcd 调优**（心跳/选举/压缩/配额等 9 个
-白名单参数）、**CNI 扩展**（每节点 Pod 子网掩码、Multi-CNI multus、Calico values 原样透传
+白名单参数）、**CNI 扩展**（每节点 Pod 子网掩码、Multi-CNI multus、各 CNI values 原样透传（calico/cilium/flannel/kubeovn）
 helm 覆盖 ipipMode/vxlanMode/mtu）、**DNS 覆盖**（CoreDNS/NodeLocalDNS 镜像 tag 与启停）、
 **证书与备份**（安装时续期开关、续期 crontab、kubeadm 配置带时间戳备份目录）。
 
