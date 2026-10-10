@@ -53,9 +53,13 @@ def gen_cluster_inventory(cfg):
             '        password: %s' % _yq(n["password"]),
             "      internal_ipv4: %s" % _yq(n["ip"]),
         ]
-    cp = [n["name"] for n in nodes if n["role"] == "control-plane"]
-    wk = [n["name"] for n in nodes if n["role"] == "worker"]
-    rg = [n["name"] for n in nodes if n["role"] == "registry"]
+    # 角色多选: 兼任工作节点的控制面主机同时进入 kube_control_plane 与 kube_worker 两个组
+    # (kk 官方 Inventory 语义, 组成员可重叠; 旧配置无 roles 时回退单角色)
+    def _roles(n):
+        return n.get("roles") or [n["role"]]
+    cp = [n["name"] for n in nodes if "control-plane" in _roles(n)]
+    wk = [n["name"] for n in nodes if "worker" in _roles(n)]
+    rg = [n["name"] for n in nodes if "registry" in _roles(n)]
     lines += ["  groups:", "    k8s_cluster:", "      groups:", "        - kube_control_plane",
               "        - kube_worker", "    kube_control_plane:", "      hosts:"]
     lines += ["        - %s" % n for n in cp] or ["        # (空)"]

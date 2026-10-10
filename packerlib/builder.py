@@ -298,7 +298,8 @@ def pack(cfg, catalog, out_dir=None, progress=None):
     cl_json = dict(cfg.get("cluster") or {})
     if cl_json:
         cl_json.pop("nodes", None)
-        cl_json["nodes"] = [{"name": n["name"], "ip": n["ip"], "role": n["role"]}
+        cl_json["nodes"] = [{"name": n["name"], "ip": n["ip"], "role": n["role"],
+                             "roles": n.get("roles") or [n["role"]]}
                             for n in (cfg.get("cluster") or {}).get("nodes", [])]
     manifest_json = {
         "project": project, "arch": arch, "generated_at": datetime.now().isoformat(timespec="seconds"),

@@ -837,3 +837,64 @@ def test_cluster_cni_values_per_plugin_and_comments(catalog):
         assert False, "非法 YAML 应被拒绝"
     except PackError:
         pass
+
+
+# ---------------------------------------------------------------- 集群角色多选 / kube-proxy ipvs
+
+def test_cluster_multi_role_and_ipvs_proxy_mode(catalog):
+    """节点可多角色(如控制面兼工作节点); kube-proxy 支持 ipvs 模式"""
+    from packerlib.util import PackError
+    # 逗号分隔多角色(兼容旧版单值字符串): 节点0 = 控制面+工作节点, 节点1 = 工作节点
+    cfg = make_cfg(None, services=("nginx",),
+                   servers=[{"name": "n1", "user": "root", "ip": "10.0.0.1", "ssh": 22, "password": "p"},
+                            {"name": "n2", "user": "root", "ip": "10.0.0.2", "ssh": 22, "password": "p"}],
+                   cluster={
+        "enabled": True, "kube_version": "v1.30.14", "cni_type": "calico",
+        "roles": {"0": "control-plane,worker", "1": "worker"},
+    })
+    cfg, warns = packer.validate_config(cfg, catalog)
+    nodes = cfg["cluster"]["nodes"]
+    assert nodes[0]["roles"] == ["control-plane", "worker"] and nodes[0]["role"] == "control-plane"
+    assert nodes[1]["roles"] == ["worker"] and nodes[1]["role"] == "worker"
+    assert any("污点" in w for w in warns)   # 控制面兼工作节点 -> 污点提醒
+    # Inventory: n1 同时出现在 kube_control_plane 与 kube_worker 组(kk 官方语义)
+    inv = packer.gen_cluster_inventory(cfg)
+    cp_sec = inv.split("kube_control_plane:")[1].split("kube_worker:")[0]
+    wk_sec = inv.split("kube_worker:")[1].split("etcd:")[0]
+    assert "- n1" in cp_sec and "- n1" in wk_sec and "- n2" in wk_sec
+    # 列表形式同样接受
+    cfg2 = make_cfg(None, services=("nginx",),
+                    servers=[{"name": "n1", "user": "root", "ip": "10.0.0.1", "ssh": 22, "password": "p"}],
+                    cluster={"enabled": True, "kube_version": "v1.30.14", "cni_type": "calico",
+                             "roles": {"0": ["control-plane", "registry"]}})
+    cfg2, _ = packer.validate_config(cfg2, catalog)
+    assert cfg2["cluster"]["nodes"][0]["roles"] == ["control-plane", "registry"]
+    # 非法角色(多选形式)拒绝
+    bad = make_cfg(None, services=("nginx",),
+                   servers=[{"name": "n1", "user": "root", "ip": "10.0.0.1", "ssh": 22, "password": "p"}],
+                   cluster={"enabled": True, "kube_version": "v1.30.14", "cni_type": "calico",
+                            "roles": {"0": "control-plane,master"}})
+    try:
+        packer.validate_config(bad, catalog)
+        assert False, "非法角色应被拒绝"
+    except PackError:
+        pass
+    # ipvs 模式: 校验通过并写入 kk config; 带内核模块告警
+    cfg3 = make_cfg(None, services=("nginx",),
+                    servers=[{"name": "n1", "user": "root", "ip": "10.0.0.1", "ssh": 22, "password": "p"}],
+                    cluster={"enabled": True, "kube_version": "v1.30.14", "cni_type": "calico",
+                             "roles": {"0": "control-plane"}, "proxy_mode": "ipvs"})
+    cfg3, warns3 = packer.validate_config(cfg3, catalog)
+    assert cfg3["cluster"]["proxy_mode"] == "ipvs"
+    assert any("ipvs" in w for w in warns3)
+    assert "mode: \"ipvs\"" in packer.gen_cluster_config(cfg3, catalog)
+    # 非法模式仍拒绝
+    bad3 = make_cfg(None, services=("nginx",),
+                    servers=[{"name": "n1", "user": "root", "ip": "10.0.0.1", "ssh": 22, "password": "p"}],
+                    cluster={"enabled": True, "kube_version": "v1.30.14", "cni_type": "calico",
+                             "roles": {"0": "control-plane"}, "proxy_mode": "ebpf"})
+    try:
+        packer.validate_config(bad3, catalog)
+        assert False, "非法 proxy_mode 应被拒绝"
+    except PackError:
+        pass

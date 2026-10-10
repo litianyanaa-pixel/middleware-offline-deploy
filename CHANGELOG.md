@@ -2,6 +2,20 @@
 
 按时间倒序记录每次功能与修复。`docs/` 演示站随前端改动同步更新。
 
+## 2026-10-10（角色多选 + kube-proxy ipvs 模式）
+
+- **集群角色分配支持多选**: 每节点由单选下拉改为「控制面 / 工作节点 / 镜像仓库」三个
+  复选框, 同一台机器可兼任多角色(如控制面兼工作节点); 兼任控制面的节点在 kk Inventory
+  中同时进入 kube_control_plane 与 kube_worker 组(kk 官方语义), 并提示默认 NoSchedule
+  污点需手动去除才能调度业务 Pod; 兼容旧版单值配置。
+- **kube-proxy 模式补齐 ipvs**: 下拉新增 `ipvs (大集群推荐, 需内核 IPVS 模块)`, 选中时
+  打包告警提示节点需加载 ip_vs/ip_vs_rr/ip_vs_wrr/ip_vs_sh/nf_conntrack 模块(缺模块时
+  kube-proxy 会静默回退 iptables); 写入 kk config `kube_proxy.mode: "ipvs"`。
+- **修复**: 部署私有镜像仓库时校验器在角色解析前引用未定义的节点列表会直接报错
+  (角色解析前移至镜像仓库校验之前)。
+- 新增单测 test_cluster_multi_role_and_ipvs_proxy_mode + jsdom 全链路端到端验证
+  (复选框→localStorage→/api/preview→Inventory 双组/config ipvs/双重告警); pytest 61 passed 1 skipped。
+
 ## 2026-10-10（Java 表单合并两行 + 角色分配间距收紧）
 
 - **Java 运行时表单合并**: 「启用/版本」合为一行、「默认版本/Java 安装目录」合为一行

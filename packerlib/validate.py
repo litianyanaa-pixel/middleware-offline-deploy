@@ -261,6 +261,36 @@ def validate_config(cfg, catalog):
         }
         if storage["nfs_enabled"] and not storage["nfs_server"]:
             raise PackError("启用 NFS 存储类必须填写 NFS 服务器地址|NFS storage class requires an NFS server address")
+        # 角色分配(须先于镜像仓库校验: 那里要判断 registry 角色节点是否存在)
+        roles_raw = cluster_raw.get("roles") or {}
+        nodes, seen_names = [], set()
+        for idx, role_val in roles_raw.items():
+            # 角色支持多选: 值可为列表或逗号分隔串(如 "control-plane,worker"; 兼容旧版单值字符串)
+            if isinstance(role_val, (list, tuple)):
+                rl = [str(r).strip() for r in role_val if str(r).strip()]
+            else:
+                rl = [p.strip() for p in str(role_val).split(",") if p.strip()]
+            rl = [r for r in rl if r != "none"]
+            if not rl:
+                continue
+            bad = [r for r in rl if r not in ("control-plane", "worker", "registry")]
+            if bad:
+                raise PackError("集群角色不合法: %s (control-plane / worker / registry)|Invalid cluster role: %s (control-plane / worker / registry)" % (", ".join(bad), ", ".join(bad)))
+            try:
+                sv = servers[int(idx)]
+            except (ValueError, IndexError):
+                raise PackError("集群角色分配指向不存在的服务器: %s|Cluster role points to a missing server: %s" % (idx, idx))
+            if sv["name"] in seen_names:
+                raise PackError("集群节点名重复: %s|Duplicate cluster node name: %s" % (sv["name"], sv["name"]))
+            seen_names.add(sv["name"])
+            # 主角色取优先级最高者(control-plane > worker > registry), 供清单/卸载脚本等只认单角色的场景
+            primary = next(r for r in ("control-plane", "worker", "registry") if r in rl)
+            nodes.append({"name": sv["name"], "ip": sv["ip"], "user": sv["user"],
+                          "ssh": sv["ssh"], "password": sv["password"], "role": primary, "roles": rl})
+        if not any("control-plane" in n["roles"] for n in nodes):
+            raise PackError("K8s 集群至少需要一台控制面节点(在角色分配中选择)|The K8s cluster needs at least one control-plane node (assign it in role mapping)")
+        if any("control-plane" in n["roles"] and "worker" in n["roles"] for n in nodes):
+            warns.append("兼任工作节点的控制面默认带 control-plane NoSchedule 污点, 业务 Pod 要调度上去需去除污点(kubectl taint node <name> node-role.kubernetes.io/control-plane-)|A control plane also marked as worker keeps the default NoSchedule taint; remove it (kubectl taint node <name> node-role.kubernetes.io/control-plane-) to schedule workloads")
         # 私有镜像仓库部署
         imgreg_raw = cluster_raw.get("image_registry") or {}
         imgreg = {"type": str(imgreg_raw.get("type") or "").strip(),
@@ -268,7 +298,7 @@ def validate_config(cfg, catalog):
         if imgreg["type"] and imgreg["type"] not in ("harbor", "docker-registry"):
             raise PackError("镜像仓库类型不合法: %s (harbor / docker-registry)|Invalid registry type: %s" % (imgreg["type"], imgreg["type"]))
         if imgreg["type"]:
-            has_registry_node = any(n["role"] == "registry" for n in nodes)
+            has_registry_node = any("registry" in n["roles"] for n in nodes)
             if not has_registry_node:
                 raise PackError("部署私有镜像仓库需要给至少一台节点分配 registry 角色|Deploying a private registry requires a node with the registry role")
             if imgreg["vip"] and not valid_ipv4(imgreg["vip"]):
@@ -355,30 +385,12 @@ def validate_config(cfg, catalog):
             else:
                 cni_values[_t] = ""
         proxy_mode = str(cluster_raw.get("proxy_mode") or "iptables")
-        if proxy_mode not in ("iptables", "nftables"):
-            raise PackError("kube-proxy 模式不合法: %s (iptables / nftables)|Invalid kube-proxy mode: %s" % (proxy_mode, proxy_mode))
+        if proxy_mode not in ("iptables", "ipvs", "nftables"):
+            raise PackError("kube-proxy 模式不合法: %s (iptables / ipvs / nftables)|Invalid kube-proxy mode: %s (iptables / ipvs / nftables)" % (proxy_mode, proxy_mode))
         for cidr_key, v in (("pod_cidr", cluster_raw.get("pod_cidr") or "10.233.64.0/18"),
                             ("service_cidr", cluster_raw.get("service_cidr") or "10.233.0.0/18")):
             if "/" not in v or v.count("/") > 1:
                 raise PackError("集群 %s 需为 CIDR 形式: %s|Cluster %s must be CIDR format: %s" % (cidr_key, v, cidr_key, v))
-        roles_raw = cluster_raw.get("roles") or {}
-        nodes, seen_names = [], set()
-        for idx, role in roles_raw.items():
-            if role in ("", None, "none"):
-                continue
-            if role not in ("control-plane", "worker", "registry"):
-                raise PackError("集群角色不合法: %s (control-plane / worker / registry)|Invalid cluster role: %s" % (role, role))
-            try:
-                sv = servers[int(idx)]
-            except (ValueError, IndexError):
-                raise PackError("集群角色分配指向不存在的服务器: %s|Cluster role points to a missing server: %s" % (idx, idx))
-            if sv["name"] in seen_names:
-                raise PackError("集群节点名重复: %s|Duplicate cluster node name: %s" % (sv["name"], sv["name"]))
-            seen_names.add(sv["name"])
-            nodes.append({"name": sv["name"], "ip": sv["ip"], "user": sv["user"],
-                          "ssh": sv["ssh"], "password": sv["password"], "role": role})
-        if not any(n["role"] == "control-plane" for n in nodes):
-            raise PackError("K8s 集群至少需要一台控制面节点(在角色分配中选择)|The K8s cluster needs at least one control-plane node (assign it in role mapping)")
         os_distros = [d for d in (cluster_raw.get("os_distros") or []) if d]
         for d in os_distros:
             if d not in (ccat.get("distros") or {}):
@@ -388,7 +400,7 @@ def validate_config(cfg, catalog):
         if ha_type not in ("local", "kube-vip", "haproxy"):
             raise PackError("控制面 HA 类型不合法: %s (local / kube-vip / haproxy)|Invalid control-plane HA type: %s" % (ha_type, ha_type))
         ha_vip = str(cluster_raw.get("ha_vip") or "").strip()
-        cp_count = sum(1 for n in nodes if n["role"] == "control-plane")
+        cp_count = sum(1 for n in nodes if "control-plane" in n["roles"])
         if ha_type == "local" and cp_count > 1:
             warns.append("多控制面 + local 端点仅单点可用, 生产请选 kube-vip/haproxy 并填 VIP"
                          "|Multiple control-plane nodes with a local endpoint expose a single VIP; prefer kube-vip/haproxy + VIP")
@@ -427,6 +439,8 @@ def validate_config(cfg, catalog):
             warns.append("K8s %s 要求 cgroup v2, 麒麟/龙蜥等默认 cgroup v1 的系统需先启用并重启节点|K8s %s requires cgroup v2; enable it on cgroup-v1 distros (kylin/anolis...) before deploying" % (kube_ver, kube_ver))
         if proxy_mode == "nftables":
             warns.append("kube-proxy nftables 模式要求节点内核 >= 5.13, 旧内核(麒麟 4.19/阿里云 5.10)请用 iptables|nftables proxy mode needs kernel >= 5.13; use iptables on old kernels")
+        if proxy_mode == "ipvs":
+            warns.append("kube-proxy ipvs 模式要求节点内核启用 IPVS(ip_vs/ip_vs_rr/ip_vs_wrr/ip_vs_sh/nf_conntrack 模块); 缺模块时 kube-proxy 会静默回退 iptables|ipvs proxy mode requires kernel IPVS support (ip_vs* / nf_conntrack modules); kube-proxy silently falls back to iptables if unavailable")
     cfg["cluster"] = cluster
 
     # ---- Java 运行时(可选基础中间件): 版本多选 + 默认版本 + 部署目标 ----

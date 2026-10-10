@@ -192,6 +192,8 @@
   #topoInfraBox .kform .ksec{font-weight:600;font-size:13px;margin:16px 0 8px;padding-top:12px;border-top:1px solid rgba(120,120,128,.15)}
   #topoInfraBox .kroles2{display:grid;grid-template-columns:1fr 1fr;gap:8px 24px;margin-bottom:4px}
   #topoInfraBox .kroles2 .krow{margin-bottom:0}
+  #topoInfraBox .kroles2 .krolechks{display:flex;gap:12px;flex-wrap:wrap;align-items:center;min-height:32px}
+  #topoInfraBox .kroles2 .kchk{display:inline-flex;align-items:center;gap:5px;font-size:13px;cursor:pointer;white-space:nowrap}
   #topoInfraBox .kform .kcheck{display:flex;align-items:center;gap:6px;min-height:32px;font-size:13px;cursor:pointer}
   #topoInfraBox .kform .kinline{display:flex;gap:14px;flex-wrap:wrap;align-items:center;min-height:32px}
   #topoInfraBox .kform .kinline label{display:inline-flex;align-items:center;gap:5px;cursor:pointer;font-size:13px}
@@ -768,7 +770,6 @@ const EN_DICT = {
   "集群基础配置": "Cluster basic settings", "集群高级配置": "Cluster advanced settings",
   "使用开源应用 kubekey 部署, 支持信创环境, 独立于中间件以外": "Deployed with open-source KubeKey; Xinchuang (domestic stack) ready; independent from the middleware",
   "⚠ 闭源/无公开镜像(麒麟/统信/阿里云)需自行提取放置, 详见 docs/k8s-信创离线部署.md": "⚠ closed-source (Kylin/UOS/Alibaba Cloud) packages must be extracted yourself, see docs/k8s-信创离线部署.md",
-  "镜像仓库角色: 部署私有镜像仓库时必需; etcd 默认堆叠在控制面": "Registry role: required for a private registry; etcd is stacked on control planes by default",
   "至少 1 台控制面; 主部署机必须是集群节点之一": "at least 1 control plane; the primary deploy machine must join the cluster",
   "附带目标版本 kube 三件套与 upgrade-cluster.sh, 打包时自动下载目标版本二进制": "bundles target-version kube binaries and upgrade-cluster.sh, auto-downloaded at pack time",
   "与 Docker 加速器同一批实测源; K8s 组件镜像在离线/zone=cn 模式下自动走集群内仓库或国内源": "same verified mirrors as Docker; K8s images go through the in-cluster registry or CN mirrors in offline/zone=cn mode",
@@ -842,6 +843,8 @@ const EN_DICT = {
   "artifact 产物 (含镜像, 推荐)": "artifact bundle (with images, recommended)",
   "二进制缓存 (镜像走内网仓库)": "binary cache (images via intranet registry)",
   "iptables (旧内核安全)": "iptables (safe on old kernels)", "nftables (需内核≥5.13)": "nftables (kernel >= 5.13)",
+  "ipvs (大集群推荐, 需内核 IPVS 模块)": "ipvs (large clusters; needs kernel IPVS modules)",
+  "角色可多选: 同一台机器可勾选控制面+工作节点; 镜像仓库角色: 部署私有镜像仓库时必需; etcd 默认堆叠在控制面": "Multiple roles allowed: a machine can be both control plane and worker; Registry role: required for a private registry; etcd is stacked on control planes by default",
   "containerd (默认)": "containerd (default)", "docker (仅在线安装)": "docker (online only)",
   "none (默认)": "none (default)", "multus (Pod 多网卡)": "multus (multi-NIC pods)",
   "启用 NodeLocalDNS (默认开)": "Enable NodeLocalDNS (on by default)",
@@ -1446,22 +1449,28 @@ function renderInfraTopology(){
   const cc = CATALOG.cluster || {};
   const cl = state.cluster;
 
-  // ---- 角色分配(前置定义, 区块渲染在最前) ----
+  // ---- 角色分配(前置定义, 区块渲染在最前); 每节点可多选(如既是控制面又是工作节点) ----
+  const roleList = function(v) {
+    if (Array.isArray(v)) return v.filter(Boolean);
+    return String(v||'').split(',').map(s=>s.trim()).filter(Boolean).filter(s=>s!=='none');
+  };
   const roleSel = function(i, pick) {
     const sv = state.servers[i] || {};
     const lab = (sv.name || ('node'+(i+1))) + ' · ' + (sv.ip || 'IP未填');
-    const rs = [['','不参与'],['control-plane','控制面'],['worker','工作节点'],['registry','镜像仓库']];
-    return '<div class="krow"><label>'+esc(lab)+'</label><div class="kfield"><select data-crole="'+i+'">'+
-      rs.map(function(t) { return '<option value="'+t[0]+'" '+(pick===t[0]?'selected':'')+'>'+t[1]+'</option>'; }).join('')+
-      '</select></div></div>';
+    const cur = roleList(pick);
+    const rs = [['control-plane','控制面'],['worker','工作节点'],['registry','镜像仓库']];
+    return '<div class="krow"><label>'+esc(lab)+'</label><div class="kfield krolechks">'+
+      rs.map(function(t) { return '<label class="kchk"><input type="checkbox" data-crole-chk="'+i+'" data-rv="'+t[0]+'" '+(cur.includes(t[0])?'checked':'')+'>'+trText(t[1])+'</label>'; }).join('')+
+      '</div></div>';
   };
 
   let html = '';
 
   // ---- 1. 集群角色分配(可折叠, 仿集群高级配置; 重渲染保持展开状态) ----
-  const cpN = state.servers.filter(function(sv, i) { return (cl.roles||{})[i]==='control-plane'; }).length;
-  const wkN = state.servers.filter(function(sv, i) { return (cl.roles||{})[i]==='worker'; }).length;
-  const rgN = state.servers.filter(function(sv, i) { return (cl.roles||{})[i]==='registry'; }).length;
+  const hasRole = function(i, r) { return roleList((cl.roles||{})[i]).includes(r); };
+  const cpN = state.servers.filter(function(sv, i) { return hasRole(i, 'control-plane'); }).length;
+  const wkN = state.servers.filter(function(sv, i) { return hasRole(i, 'worker'); }).length;
+  const rgN = state.servers.filter(function(sv, i) { return hasRole(i, 'registry'); }).length;
   const rolesBadge = (cpN+wkN+rgN)
     ? [cpN+' '+trText('控制面'), wkN+' '+trText('工作节点')].concat(rgN ? [rgN+' '+trText('镜像仓库')] : []).join(' · ')
     : trText('未分配');
@@ -1474,7 +1483,7 @@ function renderInfraTopology(){
     (state.servers.length ? state.servers.map(function(sv, i) { return roleSel(i, (cl.roles||{})[i]); }).join('') :
       '<div class="khint" style="grid-column:1/-1">服务器池为空, 请先在上方「部署服务器池」添加节点</div>')+
     '</div>'+
-    '<div class="khint" style="margin-top:10px">镜像仓库角色: 部署私有镜像仓库时必需; etcd 默认堆叠在控制面</div></div></details>';
+    '<div class="khint" style="margin-top:10px">角色可多选: 同一台机器可勾选控制面+工作节点; 镜像仓库角色: 部署私有镜像仓库时必需; etcd 默认堆叠在控制面</div></div></details>';
 
   // ---- 2. 基础参数 ----
   const verOpts = Object.keys(cc.versions || {}).map(function(v) {
@@ -1541,6 +1550,7 @@ function renderInfraTopology(){
     kfRow('Pod CIDR', kfTxt('pod_cidr', cl.pod_cidr), 'Service CIDR', kfTxt('service_cidr', cl.service_cidr))+
     kfRow('控制面 HA', haField, 'kube-proxy 模式', '<select data-cf="proxy_mode">'+
       '<option value="iptables" '+(cl.proxy_mode==='iptables'?'selected':'')+'>iptables (旧内核安全)</option>'+
+      '<option value="ipvs" '+(cl.proxy_mode==='ipvs'?'selected':'')+'>ipvs (大集群推荐, 需内核 IPVS 模块)</option>'+
       '<option value="nftables" '+(cl.proxy_mode==='nftables'?'selected':'')+'>nftables (需内核≥5.13)</option></select>')+
     (showVip ? kfRow('kube-vip VIP / 端点地址', kfTxt('ha_vip', cl.ha_vip,
         haType==='kube-vip' ? '必填: 控制面同网段空闲 IP, 如 10.0.0.100' : '必填: 如 lb.example.com 或 127.0.0.2')) : '')+
@@ -1717,7 +1727,7 @@ function bindPoolEvents(box){
       const sv = state.servers[+idx] || {};
       const lab = (sv.name || ('node'+(+idx+1))) + ' · ' + (sv.ip || 'IP未填');
       // 同步下方 K8s 角色分配的节点标签(只改文字, 不重渲染, 避免丢失输入焦点)
-      const sel = document.querySelector('#topoInfraBox select[data-crole="'+idx+'"]');
+      const sel = document.querySelector('#topoInfraBox input[data-crole-chk="'+idx+'"]');
       if (sel){
         sel.closest('.krow').querySelector('label').textContent = lab;
       }
@@ -1784,9 +1794,10 @@ function bindInfraEvents(box){
       : (state.cluster.os_distros||[]).filter(x => x !== d);
     saveLocal();
   });
-  box.querySelectorAll('select[data-crole]').forEach(s => s.onchange = () => {
-    const i = s.dataset.crole;
-    if (s.value) state.cluster.roles[i] = s.value;
+  box.querySelectorAll('input[data-crole-chk]').forEach(c => c.onchange = () => {
+    const i = c.dataset.croleChk;
+    const picked = [...box.querySelectorAll('input[data-crole-chk="'+i+'"]:checked')].map(x => x.dataset.rv);
+    if (picked.length) state.cluster.roles[i] = picked.join(',');
     else delete state.cluster.roles[i];
     saveLocal(); renderInfraTopology();   // 控制面数量变化联动 HA 行显隐
   });
