@@ -97,6 +97,26 @@ def test_config_etcd_env_and_advance():
     check("validate 不告警", not warns)
 
 
+def test_registry_tar_path_resolution():
+    """回归: ensure_registry_image 曾把 arch 误传给 kube_ver 参数位(查不到版本 -> 静默零下载),
+    registry tar 永远不会被自动收集。此处锁死路径解析与失败上报两条链路"""
+    prep = packer._prepare_module()
+    # 路径解析: 版本来自对应 kube 版本 components.docker_registry_image(2.8.3)
+    out, ver = prep.registry_image_tar_path(CCAT, "v1.28.15", "amd64")
+    check("registry tar 路径带版本号", out is not None and ver == "2.8.3"
+          and "docker-registry-image/2.8.3/amd64" in out.as_posix())
+    out_none, _ = prep.registry_image_tar_path(CCAT, "amd64", "amd64")   # 旧 bug 的传参形态
+    check("kube_ver 传错(arch)时返回 None 而非静默成功", out_none is None)
+    # 失败上报: docker 拉取全失败时必须返回 failed, 不允许 0.0/[] 假成功
+    orig_docker = prep._docker
+    prep._docker = lambda *a, **k: subprocess.CompletedProcess(a, 1, "", "simulated pull failure")
+    try:
+        dl, failed = prep.ensure_registry_image(CCAT, "v1.28.15", "amd64")
+        check("registry 拉取失败上报 failed", dl == 0.0 and failed)
+    finally:
+        prep._docker = orig_docker
+
+
 def test_config_ha_vip_and_backup():
     """kube-vip 必须写 kube_vip.address(网卡自动发现依据); kubeadm 备份目录/证书续期显式落 config"""
     y = packer.gen_cluster_config(_base_cluster(ha_type="kube-vip", ha_vip="10.0.0.100"), CATALOG)

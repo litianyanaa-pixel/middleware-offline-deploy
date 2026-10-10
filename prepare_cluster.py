@@ -28,12 +28,48 @@ import shutil
 import subprocess
 import sys
 import threading
+import time
 import urllib.request
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent
 CATALOG_PATH = BASE_DIR / "versions.json"
 ARCH = "amd64"          # 集群当前仅开放 amd64
+
+# ------------------------------------------------------------------ docker 引擎自愈
+# Docker Desktop(Windows 命名管道)在大镜像流式导出时偶发后端崩溃(管道 502/消失),
+# 这里提供自动拉起/自愈: 打包机不需要手工开 Docker Desktop。
+DOCKER_DESKTOP_EXE = Path(__import__("os").environ.get("ProgramFiles", r"C:\Program Files")) \
+    / "Docker" / "Docker" / "Docker Desktop.exe"
+
+
+def docker_engine_ok(timeout=20):
+    """docker 引擎(而非仅 CLI)是否可用"""
+    try:
+        return bool(_docker("version", "--format", "{{.Server.APIVersion}}", timeout=timeout).stdout.strip())
+    except Exception:
+        return False
+
+
+def ensure_docker_running(wait_secs=300, restart=False):
+    """引擎不可用时自动启动 Docker Desktop 并等待就绪; restart=True 先强杀旧进程再拉起。
+    返回 True=引擎就绪。非 Windows/无 Docker Desktop 时仅探测不拉起"""
+    if not restart and docker_engine_ok():
+        return True
+    if sys.platform != "win32" or not DOCKER_DESKTOP_EXE.is_file():
+        return docker_engine_ok()
+    if restart:
+        subprocess.run(["taskkill", "/F", "/IM", "Docker Desktop.exe"], capture_output=True)
+        subprocess.run(["taskkill", "/F", "/IM", "com.docker.backend.exe"], capture_output=True)
+        subprocess.run(["wsl", "-t", "docker-desktop"], capture_output=True)   # 只停 docker-desktop 发行版
+        time.sleep(3)
+    subprocess.Popen([str(DOCKER_DESKTOP_EXE)], close_fds=True)
+    deadline = time.time() + wait_secs
+    while time.time() < deadline:
+        if docker_engine_ok():
+            return True
+        time.sleep(5)
+    return docker_engine_ok()
 
 # GitHub 直连不可达时的镜像候选(依次轮询, 单源分段失败自动换源重试)。
 # 可在 versions.json cluster.download_mirrors.github_mirrors 自定义覆盖。
@@ -385,9 +421,12 @@ def k8s_image_specs(ccat, kube_version, cni_type, ha_type="local", storage=None,
         images.append("docker.io/library/haproxy:2.9.6-alpine")
     storage = storage or {}
     if storage.get("localpv_enabled"):
+        # 镜像名/tag 必须与 localpv-provisioner chart values 一致(离线导入后 kk 部署才不转在线拉取):
+        # provisioner = openebs/provisioner-localpv:<chart版>; helperPod = openebs/linux-utils:4.3.0
+        # (chart values 显式覆写, 不跟随 chart 版本; 换 chart 版本时核对 values)
         lp = (comps.get("localpv") or {}).get("version") or "4.4.0"
-        images += ["docker.io/openebs/dynamic-localpv-provisioner:%s" % lp,
-                   "docker.io/openebs/linux-utils:%s" % lp]
+        images += ["docker.io/openebs/provisioner-localpv:%s" % lp,
+                   "docker.io/openebs/linux-utils:4.3.0"]
     if storage.get("nfs_enabled"):
         nf = (comps.get("nfs") or {}).get("version") or "v4.0.18"
         images.append("registry.k8s.io/sig-storage/nfs-subdir-external-provisioner:%s" % nf)
@@ -428,6 +467,8 @@ def ensure_images(ccat, kube_ver, arch, image_specs, cni_type="", progress_cb=No
         return 0.0, []
     if shutil.which("docker") is None:
         return 0.0, ["docker 不可用(需 Docker Desktop 运行中)"]
+    if not ensure_docker_running():
+        return 0.0, ["docker 引擎不可用(已尝试自动启动 Docker Desktop, 请检查其界面报错)"]
     # 已存在的本地镜像不重复拉
     to_pull = []
     for ref in image_specs:
@@ -450,15 +491,92 @@ def ensure_images(ccat, kube_ver, arch, image_specs, cni_type="", progress_cb=No
             continue
         if progress_cb:
             progress_cb("dl", ref, i + 1, len(to_pull))
-    if progress_cb:
-        progress_cb("done", "images", 1, 1)
     if failed:
         return 0.0, failed
     out.parent.mkdir(parents=True, exist_ok=True)
-    r = _docker("save", "-o", str(out), *image_specs, timeout=3600)
-    if r.returncode != 0:
-        return 0.0, ["docker save 失败: %s" % (r.stderr or "").strip()[-200:]]
+    # Docker Desktop(Windows 命名管道)对多镜像 save 流式导出不稳定(3 个起随机
+    # unexpected EOF/500/502, 与数量和总量相关, 重试无效), 而**单镜像 save 实测可靠**。
+    # 因此逐镜像 save 成临时 tar, 再按 OCI 规范合并为单 tar:
+    #   - blobs/ 内容寻址, 同层去重(共享层只落一份)
+    #   - index.json 汇总各镜像 manifest(ctr images import / docker load 均按 OCI index 消费)
+    #   - 跳过各单包的 manifest.json(仅旧版 docker load 的兼容入口, 汇总后无法对应多镜像)
+    if len(image_specs) == 1:
+        r = _docker("save", "-o", str(out), *image_specs, timeout=3600)
+        if r.returncode != 0:
+            return 0.0, ["docker save 失败: %s" % (r.stderr or "").strip()[-200:]]
+    else:
+        parts = []
+        try:
+            for i, ref in enumerate(image_specs):
+                part = out.with_name("%s.p%d" % (out.name, i))
+                # 单镜像 save 偶发管道 502 甚至后端崩溃: 自愈(重启引擎)后重试
+                ok_part = False
+                for attempt in range(3):
+                    r = _docker("save", "-o", str(part), ref, timeout=3600)
+                    if r.returncode == 0:
+                        ok_part = True
+                        break
+                    warn("docker save(%s)失败, 重试: %s" % (ref, (r.stderr or "").strip()[-120:]))
+                    if not ensure_docker_running(restart=True, wait_secs=240):
+                        break
+                if not ok_part:
+                    return 0.0, ["docker save(%s)失败: %s" % (ref, (r.stderr or "").strip()[-160:])]
+                parts.append(part)
+                if progress_cb:
+                    progress_cb("dl", "save " + ref, i + 1, len(image_specs))
+            err = _merge_oci_tars(parts, out)
+            if err:
+                return 0.0, ["镜像 tar 合并失败: %s" % err]
+        finally:
+            for p in parts:
+                if p.exists():
+                    p.unlink()
+    if progress_cb:
+        progress_cb("done", "images", 1, 1)
     return out.stat().st_size / 1048576, []
+
+
+def _merge_oci_tars(parts, out):
+    """合并多个单镜像 docker save tar(OCI layout)为一个多镜像 OCI tar。
+    返回错误信息(成功返回空串)。blob 按路径(内容寻址)去重, index.json 汇总全部 manifest"""
+    import io
+    import json as _json
+    manifests, seen, layout_ok = [], set(), False
+    try:
+        with tarfile.open(out, "w") as merged:
+            for p in parts:
+                with tarfile.open(p) as tf:
+                    for m in tf.getmembers():
+                        if not m.isfile():
+                            continue
+                        if m.name == "index.json":
+                            idx = _json.loads(tf.extractfile(m).read().decode("utf-8"))
+                            manifests += idx.get("manifests") or []
+                            continue
+                        if m.name == "manifest.json":
+                            continue
+                        if m.name == "oci-layout":
+                            layout_ok = True
+                        if m.name in seen:
+                            continue
+                        seen.add(m.name)
+                        merged.addfile(m, tf.extractfile(m))
+            if not manifests:
+                return "子包内未找到 OCI index manifest"
+            idx = {"schemaVersion": 2, "mediaType": "application/vnd.oci.image.index.v1+json",
+                   "manifests": manifests}
+            data = _json.dumps(idx).encode("utf-8")
+            ti = tarfile.TarInfo("index.json")
+            ti.size = len(data); ti.mtime = 0; ti.mode = 0o644
+            merged.addfile(ti, io.BytesIO(data))
+            if not layout_ok:
+                data = b'{"imageLayoutVersion":"1.0.0"}'
+                ti = tarfile.TarInfo("oci-layout")
+                ti.size = len(data); ti.mtime = 0; ti.mode = 0o644
+                merged.addfile(ti, io.BytesIO(data))
+    except Exception as e:
+        return str(e)
+    return ""
 
 
 def registry_image_tar_name(reg_ver, arch=ARCH):
@@ -479,7 +597,7 @@ def registry_image_tar_path(ccat, kube_ver="", arch=ARCH):
 def ensure_registry_image(ccat, kube_ver="", arch=ARCH, progress_cb=None):
     """收集私有仓库 registry 镜像 tar(docker pull+save; 部署时 kk 在仓库节点 docker load)。
     返回 (downloaded_mb, failed_names)"""
-    out, ver = registry_image_tar_path(ccat, arch)
+    out, ver = registry_image_tar_path(ccat, kube_ver, arch)
     if out is None:
         return 0.0, []
     if out.is_file() and out.stat().st_size > 1_000_000:
@@ -487,6 +605,8 @@ def ensure_registry_image(ccat, kube_ver="", arch=ARCH, progress_cb=None):
             progress_cb("skip", out.name, 1, 1)
         return 0.0, []
     ref = "docker.io/library/registry:%s" % ver
+    if not ensure_docker_running():
+        return 0.0, ["docker 引擎不可用(已尝试自动启动 Docker Desktop)"]
     if progress_cb:
         progress_cb("start", "images", 0, 1)
     ok = False

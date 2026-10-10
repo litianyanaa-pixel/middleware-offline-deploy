@@ -56,7 +56,9 @@ def test_image_specs_calico_ha_storage():
                                  storage={"localpv_enabled": True, "nfs_enabled": True})
     check("calico 镜像走 quay.io", "quay.io/calico/node:v3.28.5" in specs)
     check("kube-vip 随 HA 出现", "docker.io/plndr/kube-vip:v0.7.2" in specs)
-    check("localpv 镜像随存储出现", "docker.io/openebs/dynamic-localpv-provisioner:4.4.0" in specs)
+    check("localpv 镜像随存储出现(chart values 同名)",
+          "docker.io/openebs/provisioner-localpv:4.4.0" in specs
+          and "docker.io/openebs/linux-utils:4.3.0" in specs)
     check("nfs provisioner 随存储出现",
           "registry.k8s.io/sig-storage/nfs-subdir-external-provisioner:v4.0.18" in specs)
     check("flannel 镜像不在 calico specs", not any("flannel" in s for s in specs))
