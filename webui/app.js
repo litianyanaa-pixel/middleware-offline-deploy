@@ -777,10 +777,11 @@ function renderJavaCard(){
       '</div><label>'+esc(trText('版本'))+'</label><div class="kfield kchips" style="grid-template-columns:repeat(3,max-content)">'+
         jmajors.map(v => '<label><input type="checkbox" data-jv="'+v+'"'+(ja.versions.includes(v)?' checked':'')+'> Java '+v+'</label>').join('')+
       '</div></div>'+
-      '<div class="krow"><label>'+esc(trText('默认版本'))+'</label><div class="kfield"><select data-jd style="width:220px">'+
+      '<div class="krow"><label>'+esc(trText('Java 安装目录'))+'</label><div class="kfield"><input type="text" data-jdir value="'+esc(ja.install_dir||'/data/java')+'" style="width:100%;max-width:320px">'+
+      '</div><label>'+esc(trText('默认版本'))+'</label><div class="kfield"><select data-jd style="width:220px">'+
         ja.versions.map(v => '<option value="'+v+'"'+(ja.default===v?' selected':'')+'>'+esc(trText('默认版本'))+': Java '+v+'</option>').join('')+
-      '</select></div><label>'+esc(trText('Java 安装目录'))+'</label><div class="kfield"><input type="text" data-jdir value="'+esc(ja.install_dir||'/data/java')+'" style="width:100%;max-width:320px">'+
-        '<div class="khint">'+esc(trText('各版本解压至 安装目录/jdk8、/jdk17…(多版本共存), 所选默认版本写入 JAVA_HOME(/etc/profile.d/java.sh, 登录时 /etc/profile 自动加载)'))+'</div></div></div>'+
+      '</select></div></div>'+
+      '<div class="krow"><label></label><div class="kfield"><div class="khint">'+esc(trText('各版本解压至 安装目录/jdk8、/jdk17…(多版本共存), 所选默认版本写入 JAVA_HOME(/etc/profile.d/java.sh, 登录时 /etc/profile 自动加载)'))+'</div></div></div>'+
       '<div class="krow"><label>'+esc(trText('部署目标'))+'</label><div class="kfield kchips" style="grid-template-columns:repeat(4,max-content)">'+
         '<label><input type="checkbox" data-jt="local"'+(ja.targets.includes('local')?' checked':'')+'> '+esc(trText('本机 (运行 deploy.sh)'))+'</label>'+
         state.servers.map((sv,i) => '<label><input type="checkbox" data-jt="'+i+'"'+(ja.targets.includes(i)?' checked':'')+'>'+

@@ -192,8 +192,6 @@
   #topoInfraBox .kform .ksec{font-weight:600;font-size:13px;margin:16px 0 8px;padding-top:12px;border-top:1px solid rgba(120,120,128,.15)}
   #topoInfraBox .kroles2{display:grid;grid-template-columns:1fr 1fr;gap:8px 24px;margin-bottom:4px}
   #topoInfraBox .kroles2 .krow{margin-bottom:0}
-  #topoInfraBox .kroles2 .krow>label{flex:0 1 auto;text-align:left;min-width:0}
-  #topoInfraBox .kroles2 .kfield{flex:0 0 150px}
   #topoInfraBox .kform .kcheck{display:flex;align-items:center;gap:6px;min-height:32px;font-size:13px;cursor:pointer}
   #topoInfraBox .kform .kinline{display:flex;gap:14px;flex-wrap:wrap;align-items:center;min-height:32px}
   #topoInfraBox .kform .kinline label{display:inline-flex;align-items:center;gap:5px;cursor:pointer;font-size:13px}
@@ -1391,10 +1389,11 @@ function renderJavaCard(){
       '</div><label>'+esc(trText('版本'))+'</label><div class="kfield kchips" style="grid-template-columns:repeat(3,max-content)">'+
         jmajors.map(v => '<label><input type="checkbox" data-jv="'+v+'"'+(ja.versions.includes(v)?' checked':'')+'> Java '+v+'</label>').join('')+
       '</div></div>'+
-      '<div class="krow"><label>'+esc(trText('默认版本'))+'</label><div class="kfield"><select data-jd style="width:220px">'+
+      '<div class="krow"><label>'+esc(trText('Java 安装目录'))+'</label><div class="kfield"><input type="text" data-jdir value="'+esc(ja.install_dir||'/data/java')+'" style="width:100%;max-width:320px">'+
+      '</div><label>'+esc(trText('默认版本'))+'</label><div class="kfield"><select data-jd style="width:220px">'+
         ja.versions.map(v => '<option value="'+v+'"'+(ja.default===v?' selected':'')+'>'+esc(trText('默认版本'))+': Java '+v+'</option>').join('')+
-      '</select></div><label>'+esc(trText('Java 安装目录'))+'</label><div class="kfield"><input type="text" data-jdir value="'+esc(ja.install_dir||'/data/java')+'" style="width:100%;max-width:320px">'+
-        '<div class="khint">'+esc(trText('各版本解压至 安装目录/jdk8、/jdk17…(多版本共存), 所选默认版本写入 JAVA_HOME(/etc/profile.d/java.sh, 登录时 /etc/profile 自动加载)'))+'</div></div></div>'+
+      '</select></div></div>'+
+      '<div class="krow"><label></label><div class="kfield"><div class="khint">'+esc(trText('各版本解压至 安装目录/jdk8、/jdk17…(多版本共存), 所选默认版本写入 JAVA_HOME(/etc/profile.d/java.sh, 登录时 /etc/profile 自动加载)'))+'</div></div></div>'+
       '<div class="krow"><label>'+esc(trText('部署目标'))+'</label><div class="kfield kchips" style="grid-template-columns:repeat(4,max-content)">'+
         '<label><input type="checkbox" data-jt="local"'+(ja.targets.includes('local')?' checked':'')+'> '+esc(trText('本机 (运行 deploy.sh)'))+'</label>'+
         state.servers.map((sv,i) => '<label><input type="checkbox" data-jt="'+i+'"'+(ja.targets.includes(i)?' checked':'')+'>'+
