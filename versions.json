@@ -124,6 +124,24 @@
             "version": "v1.1.7",
             "warehouse_dir": "warehouse/cluster/runc/v1.1.7/{arch}",
             "cache_layout": "runc/v1.1.7/{arch}"
+          },
+          "docker": {
+            "version": "23.0.6",
+            "_comment": "docker 静态二进制 tgz(kk cri/docker role 从 kk 缓存 binary_dir/docker/<ver>/<arch>/ 取)",
+            "warehouse_dir": "warehouse/cluster/docker/23.0.6/{arch}",
+            "cache_layout": "docker/23.0.6/{arch}"
+          },
+          "dockercompose": {
+            "version": "v2.20.3",
+            "_comment": "docker-compose 二进制(私有仓库 docker-registry 在仓库节点以容器部署; kk 缓存 image-registry/docker-compose/<ver>/<arch>/docker-compose)",
+            "warehouse_dir": "warehouse/cluster/docker-compose/v2.20.3/{arch}",
+            "cache_layout": "image-registry/docker-compose/v2.20.3/{arch}"
+          },
+          "docker_registry_image": {
+            "version": "2.8.3",
+            "_comment": "registry:2.8.3 镜像 tar(docker save; kk 缓存 image-registry/docker-registry/2.8.3/<arch>/, 文件名 docker-registry-<ver>-linux-<arch>.tgz)",
+            "warehouse_dir": "warehouse/cluster/docker-registry-image/2.8.3/{arch}",
+            "cache_layout": "image-registry/docker-registry/2.8.3/{arch}"
           }
         },
         "coredns_tag": "v1.8.6",
@@ -177,6 +195,30 @@
             "version": "v1.3.3",
             "warehouse_dir": "warehouse/cluster/runc/v1.3.3/{arch}",
             "cache_layout": "runc/v1.3.3/{arch}"
+          },
+          "docker": {
+            "version": "28.5.2",
+            "_comment": "docker 静态二进制 tgz(kk cri/docker role 从 kk 缓存 binary_dir/docker/<ver>/<arch>/ 取)",
+            "warehouse_dir": "warehouse/cluster/docker/28.5.2/{arch}",
+            "cache_layout": "docker/28.5.2/{arch}"
+          },
+          "cridockerd": {
+            "version": "v0.4.7",
+            "_comment": "cri-dockerd(k8s>=1.24 docker CRI 必需; kk 缓存 binary_dir/cri-dockerd/<ver>/<arch>/, 文件名 cri-dockerd-<ver无v>.<arch>.tgz)",
+            "warehouse_dir": "warehouse/cluster/cri-dockerd/v0.4.7/{arch}",
+            "cache_layout": "cri-dockerd/v0.4.7/{arch}"
+          },
+          "dockercompose": {
+            "version": "v2.20.3",
+            "_comment": "docker-compose 二进制(私有仓库 docker-registry 在仓库节点以容器部署; kk 缓存 image-registry/docker-compose/<ver>/<arch>/docker-compose)",
+            "warehouse_dir": "warehouse/cluster/docker-compose/v2.20.3/{arch}",
+            "cache_layout": "image-registry/docker-compose/v2.20.3/{arch}"
+          },
+          "docker_registry_image": {
+            "version": "2.8.3",
+            "_comment": "registry:2.8.3 镜像 tar(docker save; kk 缓存 image-registry/docker-registry/2.8.3/<arch>/, 文件名 docker-registry-<ver>-linux-<arch>.tgz)",
+            "warehouse_dir": "warehouse/cluster/docker-registry-image/2.8.3/{arch}",
+            "cache_layout": "image-registry/docker-registry/2.8.3/{arch}"
           }
         },
         "coredns_tag": "v1.8.6",
@@ -230,6 +272,30 @@
             "version": "v1.3.3",
             "warehouse_dir": "warehouse/cluster/runc/v1.3.3/{arch}",
             "cache_layout": "runc/v1.3.3/{arch}"
+          },
+          "docker": {
+            "version": "28.5.2",
+            "_comment": "docker 静态二进制 tgz(kk cri/docker role 从 kk 缓存 binary_dir/docker/<ver>/<arch>/ 取)",
+            "warehouse_dir": "warehouse/cluster/docker/28.5.2/{arch}",
+            "cache_layout": "docker/28.5.2/{arch}"
+          },
+          "cridockerd": {
+            "version": "v0.4.7",
+            "_comment": "cri-dockerd(k8s>=1.24 docker CRI 必需; kk 缓存 binary_dir/cri-dockerd/<ver>/<arch>/, 文件名 cri-dockerd-<ver无v>.<arch>.tgz)",
+            "warehouse_dir": "warehouse/cluster/cri-dockerd/v0.4.7/{arch}",
+            "cache_layout": "cri-dockerd/v0.4.7/{arch}"
+          },
+          "dockercompose": {
+            "version": "v2.20.3",
+            "_comment": "docker-compose 二进制(私有仓库 docker-registry 在仓库节点以容器部署; kk 缓存 image-registry/docker-compose/<ver>/<arch>/docker-compose)",
+            "warehouse_dir": "warehouse/cluster/docker-compose/v2.20.3/{arch}",
+            "cache_layout": "image-registry/docker-compose/v2.20.3/{arch}"
+          },
+          "docker_registry_image": {
+            "version": "2.8.3",
+            "_comment": "registry:2.8.3 镜像 tar(docker save; kk 缓存 image-registry/docker-registry/2.8.3/<arch>/, 文件名 docker-registry-<ver>-linux-<arch>.tgz)",
+            "warehouse_dir": "warehouse/cluster/docker-registry-image/2.8.3/{arch}",
+            "cache_layout": "image-registry/docker-registry/2.8.3/{arch}"
           }
         },
         "coredns_tag": "v1.9.3",
@@ -283,6 +349,30 @@
             "version": "v1.3.3",
             "warehouse_dir": "warehouse/cluster/runc/v1.3.3/{arch}",
             "cache_layout": "runc/v1.3.3/{arch}"
+          },
+          "docker": {
+            "version": "28.5.2",
+            "_comment": "docker 静态二进制 tgz(kk cri/docker role 从 kk 缓存 binary_dir/docker/<ver>/<arch>/ 取)",
+            "warehouse_dir": "warehouse/cluster/docker/28.5.2/{arch}",
+            "cache_layout": "docker/28.5.2/{arch}"
+          },
+          "cridockerd": {
+            "version": "v0.4.7",
+            "_comment": "cri-dockerd(k8s>=1.24 docker CRI 必需; kk 缓存 binary_dir/cri-dockerd/<ver>/<arch>/, 文件名 cri-dockerd-<ver无v>.<arch>.tgz)",
+            "warehouse_dir": "warehouse/cluster/cri-dockerd/v0.4.7/{arch}",
+            "cache_layout": "cri-dockerd/v0.4.7/{arch}"
+          },
+          "dockercompose": {
+            "version": "v2.20.3",
+            "_comment": "docker-compose 二进制(私有仓库 docker-registry 在仓库节点以容器部署; kk 缓存 image-registry/docker-compose/<ver>/<arch>/docker-compose)",
+            "warehouse_dir": "warehouse/cluster/docker-compose/v2.20.3/{arch}",
+            "cache_layout": "image-registry/docker-compose/v2.20.3/{arch}"
+          },
+          "docker_registry_image": {
+            "version": "2.8.3",
+            "_comment": "registry:2.8.3 镜像 tar(docker save; kk 缓存 image-registry/docker-registry/2.8.3/<arch>/, 文件名 docker-registry-<ver>-linux-<arch>.tgz)",
+            "warehouse_dir": "warehouse/cluster/docker-registry-image/2.8.3/{arch}",
+            "cache_layout": "image-registry/docker-registry/2.8.3/{arch}"
           }
         },
         "coredns_tag": "v1.9.3",
@@ -336,6 +426,30 @@
             "version": "v1.3.3",
             "warehouse_dir": "warehouse/cluster/runc/v1.3.3/{arch}",
             "cache_layout": "runc/v1.3.3/{arch}"
+          },
+          "docker": {
+            "version": "28.5.2",
+            "_comment": "docker 静态二进制 tgz(kk cri/docker role 从 kk 缓存 binary_dir/docker/<ver>/<arch>/ 取)",
+            "warehouse_dir": "warehouse/cluster/docker/28.5.2/{arch}",
+            "cache_layout": "docker/28.5.2/{arch}"
+          },
+          "cridockerd": {
+            "version": "v0.4.7",
+            "_comment": "cri-dockerd(k8s>=1.24 docker CRI 必需; kk 缓存 binary_dir/cri-dockerd/<ver>/<arch>/, 文件名 cri-dockerd-<ver无v>.<arch>.tgz)",
+            "warehouse_dir": "warehouse/cluster/cri-dockerd/v0.4.7/{arch}",
+            "cache_layout": "cri-dockerd/v0.4.7/{arch}"
+          },
+          "dockercompose": {
+            "version": "v2.20.3",
+            "_comment": "docker-compose 二进制(私有仓库 docker-registry 在仓库节点以容器部署; kk 缓存 image-registry/docker-compose/<ver>/<arch>/docker-compose)",
+            "warehouse_dir": "warehouse/cluster/docker-compose/v2.20.3/{arch}",
+            "cache_layout": "image-registry/docker-compose/v2.20.3/{arch}"
+          },
+          "docker_registry_image": {
+            "version": "2.8.3",
+            "_comment": "registry:2.8.3 镜像 tar(docker save; kk 缓存 image-registry/docker-registry/2.8.3/<arch>/, 文件名 docker-registry-<ver>-linux-<arch>.tgz)",
+            "warehouse_dir": "warehouse/cluster/docker-registry-image/2.8.3/{arch}",
+            "cache_layout": "image-registry/docker-registry/2.8.3/{arch}"
           }
         },
         "coredns_tag": "v1.10.1",
@@ -389,6 +503,30 @@
             "version": "v1.3.3",
             "warehouse_dir": "warehouse/cluster/runc/v1.3.3/{arch}",
             "cache_layout": "runc/v1.3.3/{arch}"
+          },
+          "docker": {
+            "version": "28.5.2",
+            "_comment": "docker 静态二进制 tgz(kk cri/docker role 从 kk 缓存 binary_dir/docker/<ver>/<arch>/ 取)",
+            "warehouse_dir": "warehouse/cluster/docker/28.5.2/{arch}",
+            "cache_layout": "docker/28.5.2/{arch}"
+          },
+          "cridockerd": {
+            "version": "v0.4.7",
+            "_comment": "cri-dockerd(k8s>=1.24 docker CRI 必需; kk 缓存 binary_dir/cri-dockerd/<ver>/<arch>/, 文件名 cri-dockerd-<ver无v>.<arch>.tgz)",
+            "warehouse_dir": "warehouse/cluster/cri-dockerd/v0.4.7/{arch}",
+            "cache_layout": "cri-dockerd/v0.4.7/{arch}"
+          },
+          "dockercompose": {
+            "version": "v2.20.3",
+            "_comment": "docker-compose 二进制(私有仓库 docker-registry 在仓库节点以容器部署; kk 缓存 image-registry/docker-compose/<ver>/<arch>/docker-compose)",
+            "warehouse_dir": "warehouse/cluster/docker-compose/v2.20.3/{arch}",
+            "cache_layout": "image-registry/docker-compose/v2.20.3/{arch}"
+          },
+          "docker_registry_image": {
+            "version": "2.8.3",
+            "_comment": "registry:2.8.3 镜像 tar(docker save; kk 缓存 image-registry/docker-registry/2.8.3/<arch>/, 文件名 docker-registry-<ver>-linux-<arch>.tgz)",
+            "warehouse_dir": "warehouse/cluster/docker-registry-image/2.8.3/{arch}",
+            "cache_layout": "image-registry/docker-registry/2.8.3/{arch}"
           }
         },
         "coredns_tag": "v1.10.1",
@@ -442,6 +580,30 @@
             "version": "v1.3.3",
             "warehouse_dir": "warehouse/cluster/runc/v1.3.3/{arch}",
             "cache_layout": "runc/v1.3.3/{arch}"
+          },
+          "docker": {
+            "version": "28.5.2",
+            "_comment": "docker 静态二进制 tgz(kk cri/docker role 从 kk 缓存 binary_dir/docker/<ver>/<arch>/ 取)",
+            "warehouse_dir": "warehouse/cluster/docker/28.5.2/{arch}",
+            "cache_layout": "docker/28.5.2/{arch}"
+          },
+          "cridockerd": {
+            "version": "v0.4.7",
+            "_comment": "cri-dockerd(k8s>=1.24 docker CRI 必需; kk 缓存 binary_dir/cri-dockerd/<ver>/<arch>/, 文件名 cri-dockerd-<ver无v>.<arch>.tgz)",
+            "warehouse_dir": "warehouse/cluster/cri-dockerd/v0.4.7/{arch}",
+            "cache_layout": "cri-dockerd/v0.4.7/{arch}"
+          },
+          "dockercompose": {
+            "version": "v2.20.3",
+            "_comment": "docker-compose 二进制(私有仓库 docker-registry 在仓库节点以容器部署; kk 缓存 image-registry/docker-compose/<ver>/<arch>/docker-compose)",
+            "warehouse_dir": "warehouse/cluster/docker-compose/v2.20.3/{arch}",
+            "cache_layout": "image-registry/docker-compose/v2.20.3/{arch}"
+          },
+          "docker_registry_image": {
+            "version": "2.8.3",
+            "_comment": "registry:2.8.3 镜像 tar(docker save; kk 缓存 image-registry/docker-registry/2.8.3/<arch>/, 文件名 docker-registry-<ver>-linux-<arch>.tgz)",
+            "warehouse_dir": "warehouse/cluster/docker-registry-image/2.8.3/{arch}",
+            "cache_layout": "image-registry/docker-registry/2.8.3/{arch}"
           }
         },
         "coredns_tag": "v1.11.1",
@@ -495,6 +657,30 @@
             "version": "v1.3.6",
             "warehouse_dir": "warehouse/cluster/runc/v1.3.6/{arch}",
             "cache_layout": "runc/v1.3.6/{arch}"
+          },
+          "docker": {
+            "version": "29.6.2",
+            "_comment": "docker 静态二进制 tgz(kk cri/docker role 从 kk 缓存 binary_dir/docker/<ver>/<arch>/ 取)",
+            "warehouse_dir": "warehouse/cluster/docker/29.6.2/{arch}",
+            "cache_layout": "docker/29.6.2/{arch}"
+          },
+          "cridockerd": {
+            "version": "v0.4.7",
+            "_comment": "cri-dockerd(k8s>=1.24 docker CRI 必需; kk 缓存 binary_dir/cri-dockerd/<ver>/<arch>/, 文件名 cri-dockerd-<ver无v>.<arch>.tgz)",
+            "warehouse_dir": "warehouse/cluster/cri-dockerd/v0.4.7/{arch}",
+            "cache_layout": "cri-dockerd/v0.4.7/{arch}"
+          },
+          "dockercompose": {
+            "version": "v2.20.3",
+            "_comment": "docker-compose 二进制(私有仓库 docker-registry 在仓库节点以容器部署; kk 缓存 image-registry/docker-compose/<ver>/<arch>/docker-compose)",
+            "warehouse_dir": "warehouse/cluster/docker-compose/v2.20.3/{arch}",
+            "cache_layout": "image-registry/docker-compose/v2.20.3/{arch}"
+          },
+          "docker_registry_image": {
+            "version": "2.8.3",
+            "_comment": "registry:2.8.3 镜像 tar(docker save; kk 缓存 image-registry/docker-registry/2.8.3/<arch>/, 文件名 docker-registry-<ver>-linux-<arch>.tgz)",
+            "warehouse_dir": "warehouse/cluster/docker-registry-image/2.8.3/{arch}",
+            "cache_layout": "image-registry/docker-registry/2.8.3/{arch}"
           }
         },
         "coredns_tag": "v1.11.3",
@@ -548,6 +734,30 @@
             "version": "v1.3.6",
             "warehouse_dir": "warehouse/cluster/runc/v1.3.6/{arch}",
             "cache_layout": "runc/v1.3.6/{arch}"
+          },
+          "docker": {
+            "version": "29.6.2",
+            "_comment": "docker 静态二进制 tgz(kk cri/docker role 从 kk 缓存 binary_dir/docker/<ver>/<arch>/ 取)",
+            "warehouse_dir": "warehouse/cluster/docker/29.6.2/{arch}",
+            "cache_layout": "docker/29.6.2/{arch}"
+          },
+          "cridockerd": {
+            "version": "v0.4.7",
+            "_comment": "cri-dockerd(k8s>=1.24 docker CRI 必需; kk 缓存 binary_dir/cri-dockerd/<ver>/<arch>/, 文件名 cri-dockerd-<ver无v>.<arch>.tgz)",
+            "warehouse_dir": "warehouse/cluster/cri-dockerd/v0.4.7/{arch}",
+            "cache_layout": "cri-dockerd/v0.4.7/{arch}"
+          },
+          "dockercompose": {
+            "version": "v2.20.3",
+            "_comment": "docker-compose 二进制(私有仓库 docker-registry 在仓库节点以容器部署; kk 缓存 image-registry/docker-compose/<ver>/<arch>/docker-compose)",
+            "warehouse_dir": "warehouse/cluster/docker-compose/v2.20.3/{arch}",
+            "cache_layout": "image-registry/docker-compose/v2.20.3/{arch}"
+          },
+          "docker_registry_image": {
+            "version": "2.8.3",
+            "_comment": "registry:2.8.3 镜像 tar(docker save; kk 缓存 image-registry/docker-registry/2.8.3/<arch>/, 文件名 docker-registry-<ver>-linux-<arch>.tgz)",
+            "warehouse_dir": "warehouse/cluster/docker-registry-image/2.8.3/{arch}",
+            "cache_layout": "image-registry/docker-registry/2.8.3/{arch}"
           }
         },
         "coredns_tag": "v1.11.3",
@@ -601,6 +811,30 @@
             "version": "v1.3.6",
             "warehouse_dir": "warehouse/cluster/runc/v1.3.6/{arch}",
             "cache_layout": "runc/v1.3.6/{arch}"
+          },
+          "docker": {
+            "version": "29.6.2",
+            "_comment": "docker 静态二进制 tgz(kk cri/docker role 从 kk 缓存 binary_dir/docker/<ver>/<arch>/ 取)",
+            "warehouse_dir": "warehouse/cluster/docker/29.6.2/{arch}",
+            "cache_layout": "docker/29.6.2/{arch}"
+          },
+          "cridockerd": {
+            "version": "v0.4.7",
+            "_comment": "cri-dockerd(k8s>=1.24 docker CRI 必需; kk 缓存 binary_dir/cri-dockerd/<ver>/<arch>/, 文件名 cri-dockerd-<ver无v>.<arch>.tgz)",
+            "warehouse_dir": "warehouse/cluster/cri-dockerd/v0.4.7/{arch}",
+            "cache_layout": "cri-dockerd/v0.4.7/{arch}"
+          },
+          "dockercompose": {
+            "version": "v2.20.3",
+            "_comment": "docker-compose 二进制(私有仓库 docker-registry 在仓库节点以容器部署; kk 缓存 image-registry/docker-compose/<ver>/<arch>/docker-compose)",
+            "warehouse_dir": "warehouse/cluster/docker-compose/v2.20.3/{arch}",
+            "cache_layout": "image-registry/docker-compose/v2.20.3/{arch}"
+          },
+          "docker_registry_image": {
+            "version": "2.8.3",
+            "_comment": "registry:2.8.3 镜像 tar(docker save; kk 缓存 image-registry/docker-registry/2.8.3/<arch>/, 文件名 docker-registry-<ver>-linux-<arch>.tgz)",
+            "warehouse_dir": "warehouse/cluster/docker-registry-image/2.8.3/{arch}",
+            "cache_layout": "image-registry/docker-registry/2.8.3/{arch}"
           }
         },
         "coredns_tag": "v1.11.3",
@@ -654,6 +888,30 @@
             "version": "v1.3.6",
             "warehouse_dir": "warehouse/cluster/runc/v1.3.6/{arch}",
             "cache_layout": "runc/v1.3.6/{arch}"
+          },
+          "docker": {
+            "version": "29.6.2",
+            "_comment": "docker 静态二进制 tgz(kk cri/docker role 从 kk 缓存 binary_dir/docker/<ver>/<arch>/ 取)",
+            "warehouse_dir": "warehouse/cluster/docker/29.6.2/{arch}",
+            "cache_layout": "docker/29.6.2/{arch}"
+          },
+          "cridockerd": {
+            "version": "v0.4.7",
+            "_comment": "cri-dockerd(k8s>=1.24 docker CRI 必需; kk 缓存 binary_dir/cri-dockerd/<ver>/<arch>/, 文件名 cri-dockerd-<ver无v>.<arch>.tgz)",
+            "warehouse_dir": "warehouse/cluster/cri-dockerd/v0.4.7/{arch}",
+            "cache_layout": "cri-dockerd/v0.4.7/{arch}"
+          },
+          "dockercompose": {
+            "version": "v2.20.3",
+            "_comment": "docker-compose 二进制(私有仓库 docker-registry 在仓库节点以容器部署; kk 缓存 image-registry/docker-compose/<ver>/<arch>/docker-compose)",
+            "warehouse_dir": "warehouse/cluster/docker-compose/v2.20.3/{arch}",
+            "cache_layout": "image-registry/docker-compose/v2.20.3/{arch}"
+          },
+          "docker_registry_image": {
+            "version": "2.8.3",
+            "_comment": "registry:2.8.3 镜像 tar(docker save; kk 缓存 image-registry/docker-registry/2.8.3/<arch>/, 文件名 docker-registry-<ver>-linux-<arch>.tgz)",
+            "warehouse_dir": "warehouse/cluster/docker-registry-image/2.8.3/{arch}",
+            "cache_layout": "image-registry/docker-registry/2.8.3/{arch}"
           }
         },
         "coredns_tag": "v1.12.0",
@@ -701,6 +959,30 @@
             "version": "v1.3.6",
             "warehouse_dir": "warehouse/cluster/runc/v1.3.6/{arch}",
             "cache_layout": "runc/v1.3.6/{arch}"
+          },
+          "docker": {
+            "version": "29.6.2",
+            "_comment": "docker 静态二进制 tgz(kk cri/docker role 从 kk 缓存 binary_dir/docker/<ver>/<arch>/ 取)",
+            "warehouse_dir": "warehouse/cluster/docker/29.6.2/{arch}",
+            "cache_layout": "docker/29.6.2/{arch}"
+          },
+          "cridockerd": {
+            "version": "v0.4.7",
+            "_comment": "cri-dockerd(k8s>=1.24 docker CRI 必需; kk 缓存 binary_dir/cri-dockerd/<ver>/<arch>/, 文件名 cri-dockerd-<ver无v>.<arch>.tgz)",
+            "warehouse_dir": "warehouse/cluster/cri-dockerd/v0.4.7/{arch}",
+            "cache_layout": "cri-dockerd/v0.4.7/{arch}"
+          },
+          "dockercompose": {
+            "version": "v2.20.3",
+            "_comment": "docker-compose 二进制(私有仓库 docker-registry 在仓库节点以容器部署; kk 缓存 image-registry/docker-compose/<ver>/<arch>/docker-compose)",
+            "warehouse_dir": "warehouse/cluster/docker-compose/v2.20.3/{arch}",
+            "cache_layout": "image-registry/docker-compose/v2.20.3/{arch}"
+          },
+          "docker_registry_image": {
+            "version": "2.8.3",
+            "_comment": "registry:2.8.3 镜像 tar(docker save; kk 缓存 image-registry/docker-registry/2.8.3/<arch>/, 文件名 docker-registry-<ver>-linux-<arch>.tgz)",
+            "warehouse_dir": "warehouse/cluster/docker-registry-image/2.8.3/{arch}",
+            "cache_layout": "image-registry/docker-registry/2.8.3/{arch}"
           }
         },
         "cni_versions": {
@@ -760,6 +1042,30 @@
             "version": "v1.3.6",
             "warehouse_dir": "warehouse/cluster/runc/v1.3.6/{arch}",
             "cache_layout": "runc/v1.3.6/{arch}"
+          },
+          "docker": {
+            "version": "29.6.2",
+            "_comment": "docker 静态二进制 tgz(kk cri/docker role 从 kk 缓存 binary_dir/docker/<ver>/<arch>/ 取)",
+            "warehouse_dir": "warehouse/cluster/docker/29.6.2/{arch}",
+            "cache_layout": "docker/29.6.2/{arch}"
+          },
+          "cridockerd": {
+            "version": "v0.4.7",
+            "_comment": "cri-dockerd(k8s>=1.24 docker CRI 必需; kk 缓存 binary_dir/cri-dockerd/<ver>/<arch>/, 文件名 cri-dockerd-<ver无v>.<arch>.tgz)",
+            "warehouse_dir": "warehouse/cluster/cri-dockerd/v0.4.7/{arch}",
+            "cache_layout": "cri-dockerd/v0.4.7/{arch}"
+          },
+          "dockercompose": {
+            "version": "v2.20.3",
+            "_comment": "docker-compose 二进制(私有仓库 docker-registry 在仓库节点以容器部署; kk 缓存 image-registry/docker-compose/<ver>/<arch>/docker-compose)",
+            "warehouse_dir": "warehouse/cluster/docker-compose/v2.20.3/{arch}",
+            "cache_layout": "image-registry/docker-compose/v2.20.3/{arch}"
+          },
+          "docker_registry_image": {
+            "version": "2.8.3",
+            "_comment": "registry:2.8.3 镜像 tar(docker save; kk 缓存 image-registry/docker-registry/2.8.3/<arch>/, 文件名 docker-registry-<ver>-linux-<arch>.tgz)",
+            "warehouse_dir": "warehouse/cluster/docker-registry-image/2.8.3/{arch}",
+            "cache_layout": "image-registry/docker-registry/2.8.3/{arch}"
           }
         },
         "coredns_tag": "v1.13.1",
@@ -813,6 +1119,30 @@
             "version": "v1.4.3",
             "warehouse_dir": "warehouse/cluster/runc/v1.4.3/{arch}",
             "cache_layout": "runc/v1.4.3/{arch}"
+          },
+          "docker": {
+            "version": "29.7.2",
+            "_comment": "docker 静态二进制 tgz(kk cri/docker role 从 kk 缓存 binary_dir/docker/<ver>/<arch>/ 取)",
+            "warehouse_dir": "warehouse/cluster/docker/29.7.2/{arch}",
+            "cache_layout": "docker/29.7.2/{arch}"
+          },
+          "cridockerd": {
+            "version": "v0.4.7",
+            "_comment": "cri-dockerd(k8s>=1.24 docker CRI 必需; kk 缓存 binary_dir/cri-dockerd/<ver>/<arch>/, 文件名 cri-dockerd-<ver无v>.<arch>.tgz)",
+            "warehouse_dir": "warehouse/cluster/cri-dockerd/v0.4.7/{arch}",
+            "cache_layout": "cri-dockerd/v0.4.7/{arch}"
+          },
+          "dockercompose": {
+            "version": "v2.20.3",
+            "_comment": "docker-compose 二进制(私有仓库 docker-registry 在仓库节点以容器部署; kk 缓存 image-registry/docker-compose/<ver>/<arch>/docker-compose)",
+            "warehouse_dir": "warehouse/cluster/docker-compose/v2.20.3/{arch}",
+            "cache_layout": "image-registry/docker-compose/v2.20.3/{arch}"
+          },
+          "docker_registry_image": {
+            "version": "2.8.3",
+            "_comment": "registry:2.8.3 镜像 tar(docker save; kk 缓存 image-registry/docker-registry/2.8.3/<arch>/, 文件名 docker-registry-<ver>-linux-<arch>.tgz)",
+            "warehouse_dir": "warehouse/cluster/docker-registry-image/2.8.3/{arch}",
+            "cache_layout": "image-registry/docker-registry/2.8.3/{arch}"
           }
         },
         "coredns_tag": "v1.14.2",
@@ -866,6 +1196,30 @@
             "version": "v1.4.3",
             "warehouse_dir": "warehouse/cluster/runc/v1.4.3/{arch}",
             "cache_layout": "runc/v1.4.3/{arch}"
+          },
+          "docker": {
+            "version": "29.7.2",
+            "_comment": "docker 静态二进制 tgz(kk cri/docker role 从 kk 缓存 binary_dir/docker/<ver>/<arch>/ 取)",
+            "warehouse_dir": "warehouse/cluster/docker/29.7.2/{arch}",
+            "cache_layout": "docker/29.7.2/{arch}"
+          },
+          "cridockerd": {
+            "version": "v0.4.7",
+            "_comment": "cri-dockerd(k8s>=1.24 docker CRI 必需; kk 缓存 binary_dir/cri-dockerd/<ver>/<arch>/, 文件名 cri-dockerd-<ver无v>.<arch>.tgz)",
+            "warehouse_dir": "warehouse/cluster/cri-dockerd/v0.4.7/{arch}",
+            "cache_layout": "cri-dockerd/v0.4.7/{arch}"
+          },
+          "dockercompose": {
+            "version": "v2.20.3",
+            "_comment": "docker-compose 二进制(私有仓库 docker-registry 在仓库节点以容器部署; kk 缓存 image-registry/docker-compose/<ver>/<arch>/docker-compose)",
+            "warehouse_dir": "warehouse/cluster/docker-compose/v2.20.3/{arch}",
+            "cache_layout": "image-registry/docker-compose/v2.20.3/{arch}"
+          },
+          "docker_registry_image": {
+            "version": "2.8.3",
+            "_comment": "registry:2.8.3 镜像 tar(docker save; kk 缓存 image-registry/docker-registry/2.8.3/<arch>/, 文件名 docker-registry-<ver>-linux-<arch>.tgz)",
+            "warehouse_dir": "warehouse/cluster/docker-registry-image/2.8.3/{arch}",
+            "cache_layout": "image-registry/docker-registry/2.8.3/{arch}"
           }
         },
         "coredns_tag": "v1.14.6",

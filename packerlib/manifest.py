@@ -198,6 +198,12 @@ def gen_manifest_sh(cfg, catalog, client_img, summary_lines, bundle_name=None):
             "CLUSTER_SANDBOX_IMAGE=%s" % bash_quote("registry.k8s.io/pause:%s"
                                                     % (catalog["cluster"]["versions"][cl["kube_version"]].get("sandbox_image_tag") or "3.9")),
             "CLUSTER_CONTAINERD_DATA_ROOT=%s" % bash_quote((cl.get("components") or {}).get("containerd_root") or ""),
+            # docker CRI 离线导入参数: 运行时类型与 docker 数据目录(deploy-cluster.sh 预装/导入分支用)
+            "CLUSTER_CRI=%s" % bash_quote(cl.get("container_manager") or "containerd"),
+            "CLUSTER_DOCKER_DATA_ROOT=%s" % bash_quote((cl.get("components") or {}).get("docker_root") or ""),
+            # 私有仓库数据目录(docker-registry): 部署脚本在仓库节点预建目录,
+            # 空时走 kk 默认 /var/lib/docker-registry/data
+            "CLUSTER_REGISTRY_DATA_DIR=%s" % bash_quote((cl.get("image_registry") or {}).get("data_dir") or ""),
             # 卸载脚本用: 自定义 etcd/kubelet 数据目录(kk delete 只清默认路径, 这两个要兜底)
             "CLUSTER_ETCD_DATA_DIR=%s" % bash_quote((cl.get("components") or {}).get("etcd_dir") or ""),
             "CLUSTER_KUBELET_ROOT_DIR=%s" % bash_quote((cl.get("kubelet") or {}).get("root_dir") or ""),

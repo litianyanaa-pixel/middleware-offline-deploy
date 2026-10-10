@@ -2,6 +2,30 @@
 
 按时间倒序记录每次功能与修复。`docs/` 演示站随前端改动同步更新。
 
+## 2026-10-10（docker CRI 离线支持 + 私有仓库账号密码/数据目录）
+
+- **docker 运行时离线可用**: 去掉「docker 仅在线安装」限制。docker 静态二进制 tgz 与
+  cri-dockerd 按 kk 缓存布局(binary_dir/docker|cri-dockerd/...)随包携带(版本对齐 kk 各
+  minor 内置的 docker_version, 如 v1.28→28.5.2 / v1.30+→29.6.2), 部署脚本在无 docker
+  节点预装(写 daemon.json: data-root 与 config 一致 + systemd unit)并以 `docker load`
+  导入离线镜像; 离线模式 kk config 写 `cri.docker.daemon_policy: override`, kk 以同版本
+  跳过重装并重写 daemon.json(带镜像加速器), 数据目录一致重启不丢镜像; artifact 模式 +
+  docker 给出建议 cache 的告警。备料多源(阿里云/USTC/docker 官方静态包), 打包时按需
+  自动下载(containerd 用户不会被连带 87MB 的 docker 包)。
+- **私有镜像仓库账号密码**: 「私有镜像仓库」新增账号/密码(留空走 kk 默认 admin/Harbor12345,
+  只填一个拒绝), 写入 kk config `image_registry.auth`, 由 kk 下发到仓库部署配置与各节点
+  CRI 配置(containerd hosts.toml / docker certs.d)。
+- **私有仓库数据目录**: docker-registry 类型新增数据目录(默认 kk 的
+  /var/lib/docker-registry/data), 写入 `docker_registry.storage.filesystem.rootdir`;
+  并修复 kk 原生 compose 不挂数据卷的缺陷——部署完成后自动把数据目录 bind 进
+  docker-compose.yml 并重启仓库容器(幂等, 数据真正落盘到主机)。
+- **私有仓库离线物料补齐**: docker-compose 二进制与 registry:2.8.3 镜像 tar(打包时
+  docker pull+save 自动收集)随 kk 缓存携带, 修复离线部署私有仓库缺料问题。
+- **UI**: 切换仓库类型即时显示/隐藏账号密码数据目录(修复选了类型表单不刷新); 双语
+  README 同步。
+- 验证: pytest 62 passed 1 skipped(新增 registry auth/rootdir、docker daemon_policy、
+  manifest CLUSTER_CRI/DOCKER/REGISTRY 变量、deploy 脚本分支断言) + jsdom 全链路端到端。
+
 ## 2026-10-10（角色多选 + kube-proxy ipvs 模式）
 
 - **集群角色分配支持多选**: 每节点由单选下拉改为「控制面 / 工作节点 / 镜像仓库」三个

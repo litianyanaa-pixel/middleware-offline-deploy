@@ -117,6 +117,9 @@ def test_config_cri_cni_dns():
     y = packer.gen_cluster_config(_base_cluster(container_manager="docker"), CATALOG)
     check("docker 运行时写 container_manager", 'container_manager: "docker"' in y)
     check("docker 不写 containerd 子块", "    containerd:" not in y)
+    check("离线 docker 写 daemon_policy: override(kk 重写 daemon.json 带加速器)", "      daemon_policy: override" in y)
+    y_d2 = packer.gen_cluster_config(_base_cluster(container_manager="docker", components={"docker_root": "/data1/docker"}), CATALOG)
+    check("docker 数据目录直写 data_root", 'data_root: "/data1/docker"' in y_d2)
     y2 = packer.gen_cluster_config(_base_cluster(ipv4_mask_size=25, multi_cni="multus", multi_cni_tag="v4.3.0",
                                                  calico_values="installation:\n  calicoNetwork:\n    mtu: 1440",
                                                  dns={"coredns_tag": "v1.12.1", "nodelocaldns_enabled": True,
@@ -148,7 +151,11 @@ def test_config_validation_matrix():
             check(name, False)
         except packer.PackError:
             check(name, True)
-    expect_err("offline+docker 拒绝", {"container_manager": "docker"})
+    # 离线 docker 已支持(静态二进制随 kk 缓存携带); artifact 模式告警建议 cache
+    out_d, w_d = packer.validate_config(_base_cluster(container_manager="docker"), CATALOG)
+    check("cache+docker 放行", out_d["cluster"]["container_manager"] == "docker")
+    out_da, w_da = packer.validate_config(_base_cluster(mode="artifact", container_manager="docker"), CATALOG)
+    check("artifact+docker 告警建议 cache", any("artifact" in w for w in w_da))
     expect_err("运行时非法值", {"container_manager": "podman"})
     expect_err("etcd 未知键", {"components": {"etcd_env": ["foo=1"]}})
     expect_err("etcd 非整数", {"components": {"etcd_env": ["heartbeat_interval=abc"]}})
@@ -162,6 +169,38 @@ def test_config_validation_matrix():
     # calico values 仅 calico 生效(其他 CNI 静默忽略+告警)
     out2, w2 = packer.validate_config(_base_cluster(cni_type="flannel", calico_values="a: 1"), CATALOG)
     check("非 calico 忽略 values 并告警", out2["cluster"]["calico_values"] == "" and len(w2) == 1)
+
+
+def test_registry_auth_and_data_dir():
+    """私有仓库账号密码写 image_registry.auth(kk 下发到各节点 CRI 配置);
+    数据目录写 docker_registry.storage.filesystem.rootdir; 成对/路径校验"""
+    cfg = _base_cluster(roles={"0": "control-plane,registry"},
+                        image_registry={"type": "docker-registry", "username": "reguser",
+                                        "password": "RegPass123", "data_dir": "/data1/registry"})
+    out, _ = packer.validate_config(cfg, CATALOG)
+    ir = out["cluster"]["image_registry"]
+    check("账号密码透传", ir["username"] == "reguser" and ir["password"] == "RegPass123")
+    check("数据目录透传", ir["data_dir"] == "/data1/registry")
+    y = packer.gen_cluster_config(out, CATALOG)
+    check("auth 块写入 config", '    auth:\n      username: "reguser"\n      password: "RegPass123"' in y)
+    check("rootdir 写入 config", '        filesystem:\n          rootdir: "/data1/registry"' in y)
+    # 都留空: 不写 auth 块(kk 用默认 admin/Harbor12345)
+    y2 = packer.gen_cluster_config(_base_cluster(roles={"0": "control-plane,registry"}, image_registry={"type": "docker-registry"}), CATALOG)
+    check("留空不写 auth 块", "    auth:" not in y2 and "rootdir" not in y2)
+
+    def expect_err(name, over):
+        try:
+            packer.validate_config(_base_cluster(**over), CATALOG)
+            check(name, False)
+        except packer.PackError:
+            check(name, True)
+    expect_err("只填账号拒绝", {"roles": {"0": "control-plane,registry"}, "image_registry": {"type": "docker-registry", "username": "u"}})
+    expect_err("只填密码拒绝", {"roles": {"0": "control-plane,registry"}, "image_registry": {"type": "docker-registry", "password": "p"}})
+    expect_err("数据目录相对路径拒绝", {"roles": {"0": "control-plane,registry"}, "image_registry": {"type": "docker-registry", "data_dir": "rel/dir"}})
+    # harbor + 数据目录: 告警忽略(不写入 config)
+    out3, w3 = packer.validate_config(_base_cluster(roles={"0": "control-plane,registry"}, image_registry={"type": "harbor", "data_dir": "/data1/registry"}), CATALOG)
+    y3 = packer.gen_cluster_config(out3, CATALOG)
+    check("harbor 数据目录告警且不落 config", any("数据目录" in w for w in w3) and "rootdir" not in y3)
 
 
 def test_manifest_lifecycle_vars():
@@ -187,6 +226,10 @@ def test_manifest_lifecycle_vars():
     m2 = packer.gen_manifest_sh(cfg2, CATALOG, [], [])
     check("未配置时导出空 CLUSTER_UPGRADE_TO", "CLUSTER_UPGRADE_TO=''" in m2)
     check("未配置时导出空 CLUSTER_CERTS_RENEW_CRON", "CLUSTER_CERTS_RENEW_CRON=''" in m2)
+    # docker CRI / 私有仓库数据目录变量(deploy-cluster.sh 导入与数据目录绑定分支读)
+    check("manifest 导出 CLUSTER_CRI", "CLUSTER_CRI='containerd'" in m2)
+    check("manifest 导出 CLUSTER_DOCKER_DATA_ROOT", "CLUSTER_DOCKER_DATA_ROOT=''" in m2)
+    check("manifest 导出 CLUSTER_REGISTRY_DATA_DIR", "CLUSTER_REGISTRY_DATA_DIR=''" in m2)
 
 
 def test_uninstall_flag_matrix():
@@ -251,6 +294,14 @@ def test_deploy_sh_branches():
     check("幂等指引: 卸载", "./uninstall-cluster.sh" in d)
     check("cache sha256 校验门禁", "cache.sha256" in d)
     check("kubelet 残留 unit 守卫(失败重部署卡死)", "清理残留 kubelet unit" in d)
+    # docker CRI 离线分支
+    check("CLUSTER_CRI 分支判断", 'CRI="${CLUSTER_CRI:-containerd}"' in d)
+    check("docker CRI 预装静态二进制", "预装 docker (来自离线包静态二进制)" in d)
+    check("docker CRI 镜像走 docker load", "docker load -i" in d)
+    check("docker daemon.json 数据目录一致", "data-root" in d)
+    # 私有仓库数据目录绑定(修复 kk compose 不挂数据卷)
+    check("私有仓库数据目录绑定步骤", "私有仓库数据目录绑定" in d)
+    check("绑定走 docker-compose.yml 补卷+重启", "docker-compose.yml" in d and "systemctl restart docker-registry" in d)
 
 
 def _find_working_bash():
@@ -302,6 +353,7 @@ def test_scripts_bash_syntax():
 def main():
     for fn in (test_online_cn_static_fallback, test_config_custom_dirs, test_config_etcd_env_and_advance,
                test_config_ha_vip_and_backup, test_config_cri_cni_dns, test_config_validation_matrix,
+               test_registry_auth_and_data_dir,
                test_manifest_lifecycle_vars, test_uninstall_flag_matrix,
                test_upgrade_sh_content, test_deploy_sh_branches, test_scripts_bash_syntax):
         print(fn.__name__ + ":")

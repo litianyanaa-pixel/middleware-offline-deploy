@@ -187,8 +187,17 @@ def gen_cluster_config(cfg, catalog):
             cri_lines += cd_lines
         if cd_sub:
             cri_lines += ["    containerd:"] + cd_sub
-    if comp.get("docker_root"):
-        cri_lines += ["    docker:", "      data_root: %s" % _yq(comp["docker_root"])]
+    if comp.get("docker_root") or (not online and not use_containerd):
+        dk_sub = []
+        if not online and not use_containerd:
+            # 纯离线 docker: 部署脚本先预装 docker 并导入镜像(数据目录与 config 一致),
+            # daemon_policy=override 让 kk 每次重写 daemon.json(镜像加速器等), 数据目录
+            # 一致重启不丢镜像(与 containerd config_policy=overwrite 同理)
+            dk_sub.append("      daemon_policy: override")
+        if comp.get("docker_root"):
+            dk_sub.append("      data_root: %s" % _yq(comp["docker_root"]))
+        if dk_sub:
+            cri_lines += ["    docker:"] + dk_sub
     if cl.get("registry_mirrors"):
         cri_lines += ["    registry:", "      mirrors: [%s]" % ", ".join(_yq(m) for m in cl["registry_mirrors"])]
     lines += ["  cri:"] + cri_lines
@@ -248,6 +257,9 @@ def gen_cluster_config(cfg, catalog):
         lines += ["  dns:"] + dns_lines
 
     # 私有镜像仓库部署(harbor/docker-registry; 部署在 registry 角色节点)
+    # auth 账号密码由 kk 写入仓库部署配置并下发到各节点 CRI 配置(containerd hosts.toml /
+    # docker certs.d+config); 数据目录仅 docker-registry 支持(rootdir), 空时 kk 默认
+    # /var/lib/docker-registry/data
     if imgreg.get("type") in ("harbor", "docker-registry"):
         lines += [
             "  image_registry:",
@@ -255,6 +267,19 @@ def gen_cluster_config(cfg, catalog):
         ]
         if imgreg.get("vip"):
             lines.append("    ha_vip: %s" % _yq(imgreg["vip"]))
+        if imgreg.get("username") and imgreg.get("password"):
+            lines += [
+                "    auth:",
+                "      username: %s" % _yq(imgreg["username"]),
+                "      password: %s" % _yq(imgreg["password"]),
+            ]
+        if imgreg["type"] == "docker-registry" and imgreg.get("data_dir"):
+            lines += [
+                "    docker_registry:",
+                "      storage:",
+                "        filesystem:",
+                "          rootdir: %s" % _yq(imgreg["data_dir"]),
+            ]
 
     # 存储配置(localpv / nfs storageclass): 必须显式写出 — kk 默认启用 localpv(enabled+default),
     # 不写会被静默当成已启用, 离线包没带 localpv chart/镜像时部署会折在存储类这一步
@@ -371,8 +396,19 @@ def cluster_materials(cfg, catalog):
         # containerd 版本覆盖: 老内核节点(如 CentOS7 3.10 不受 containerd 2.x 支持)降级 1.7.x,
         # 仓库目录与包内 cache 布局同步切换到覆盖版本
         ct_ver_override = ((cl.get("components") or {}).get("containerd_version_override") or "").strip()
+        use_docker = (cl.get("container_manager") or "containerd") == "docker"
+        use_registry = (cl.get("image_registry") or {}).get("type") == "docker-registry"
         cache_map = {"kube": "kube", "etcd": "etcd", "cni_plugins": "cni/plugins",
                      "helm": "helm", "crictl": "crictl", "containerd": "containerd", "runc": "runc"}
+        if use_docker:
+            # docker CRI 离线: kk cri/docker+cri/cridockerd role 从 kk 缓存取静态二进制
+            cache_map["docker"] = "docker"
+            if "cridockerd" in comps:
+                cache_map["cridockerd"] = "cri-dockerd"
+        if use_registry:
+            # 私有仓库(docker-registry): 仓库节点以 docker 容器跑 registry, kk 从缓存取
+            # docker-compose 二进制; registry 镜像 tar 下方单独处理(docker pull+save)
+            cache_map["dockercompose"] = comps.get("dockercompose", {}).get("cache_layout", "image-registry/docker-compose/v2.20.3/{arch}")
         for key, cache_sub in cache_map.items():
             comp = comps.get(key) or {}
             wdir_rel = comp.get("warehouse_dir")
@@ -409,6 +445,17 @@ def cluster_materials(cfg, catalog):
             items.append(("cluster/images/" + img_src.name, img_src))
         else:
             missing.append("k8s 离线镜像包: %s (需 Docker Desktop 自动收集)" % img_src)
+
+        # 私有仓库(docker-registry)镜像 tar: 打包时 docker pull+save, 部署时 kk 在仓库节点
+        # docker load 后以容器跑 registry; 缺失先记 missing, 打包流程尝试自动收集
+        if use_registry:
+            reg_tar, _reg_ver = _prepare_module().registry_image_tar_path(ccat, cl["kube_version"], arch)
+            reg_layout = comps.get("docker_registry_image", {}).get("cache_layout",
+                                                                   "image-registry/docker-registry/2.8.3/{arch}").format(arch=arch)
+            if reg_tar and reg_tar.is_file():
+                items.append(("cluster/cache/%s/%s" % (reg_layout, reg_tar.name), reg_tar))
+            else:
+                missing.append("私有仓库 registry 镜像 tar: %s (需 Docker Desktop 自动收集)" % (reg_tar or "物料目录缺 docker_registry_image 版本"))
 
         # CNI chart(+calicoctl): kk 部署 CNI 时 helm install binary_dir 下的固定路径 chart,
         # bundle 内放在 cluster/cache/cni/<type>/ 随缓存整体铺到 binary_dir 即命中
@@ -589,6 +636,7 @@ def _auto_download_cluster_materials(cfg, catalog, cl_missing, prog):
     needs_artifact = any("artifact 产物" in m for m in cl_missing)
     needs_cache = any("二进制缓存目录" in m or "缺 kubeadm" in m or "缺 kubelet" in m or "缺 kubectl" in m for m in cl_missing)
     needs_images = any("离线镜像包" in m for m in cl_missing)
+    needs_reg_img = any("registry 镜像 tar" in m for m in cl_missing)
     needs_charts = any("chart" in m or "calicoctl" in m for m in cl_missing)
     if needs_kk:
         res["warnings"].append("缺 kk 二进制: 运行 python prepare_cluster.py --kk-build 生成构建脚本"
@@ -596,7 +644,7 @@ def _auto_download_cluster_materials(cfg, catalog, cl_missing, prog):
     if needs_artifact:
         res["warnings"].append("缺 artifact 产物: 打包时自动构建(需 Docker Desktop), 或运行 python prepare_cluster.py --artifact-export 后执行生成的 .bat"
                                "|Missing artifact: auto-built at pack time (Docker Desktop), or run prepare_cluster.py --artifact-export then the generated .bat")
-    if not needs_cache and not needs_images and not needs_charts:
+    if not needs_cache and not needs_images and not needs_reg_img and not needs_charts:
         return res
 
     pm_path = BASE_DIR / "prepare_cluster.py"
@@ -631,7 +679,15 @@ def _auto_download_cluster_materials(cfg, catalog, cl_missing, prog):
 
     try:
         if needs_cache:
-            downloaded, failed = pm.ensure_materials(catalog["cluster"], cl["kube_version"], arch, up_to, progress_cb=cb)
+            # docker 系组件按需追加: 选 docker CRI 才下 docker/cri-dockerd,
+            # 选 docker-registry 仓库才下 docker-compose(避免 containerd 用户被连带 87MB+)
+            extra_comps = []
+            if (cl.get("container_manager") or "containerd") == "docker":
+                extra_comps += ["docker", "cridockerd"]
+            if (cl.get("image_registry") or {}).get("type") == "docker-registry":
+                extra_comps.append("dockercompose")
+            downloaded, failed = pm.ensure_materials(catalog["cluster"], cl["kube_version"], arch, up_to,
+                                                     progress_cb=cb, extra_comps=tuple(extra_comps))
             res["downloaded_mb"] += downloaded / 1048576
             if failed:
                 res["warnings"].append("自动下载失败: %s (网络恢复后重跑或 python prepare_cluster.py --download)" % ", ".join(failed))
@@ -655,6 +711,12 @@ def _auto_download_cluster_materials(cfg, catalog, cl_missing, prog):
                 res["downloaded_mb"] += img_dl   # ensure_images 返回值已是 MB
                 if img_failed:
                     res["warnings"].append("离线镜像收集失败(%s): %s (需 Docker Desktop 运行中)" % (v, ", ".join(img_failed)))
+        if needs_reg_img:
+            prog.stage("收集私有仓库 registry 镜像 tar(docker)")
+            reg_dl, reg_failed = pm.ensure_registry_image(ccat, cl["kube_version"], arch)
+            res["downloaded_mb"] += reg_dl
+            if reg_failed:
+                res["warnings"].append("registry 镜像收集失败: %s (需 Docker Desktop 运行中)" % ", ".join(reg_failed))
         if needs_charts:
             prog.stage("下载 CNI/存储 chart")
             cl = cfg["cluster"]

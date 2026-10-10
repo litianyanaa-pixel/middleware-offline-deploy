@@ -83,7 +83,24 @@ COMPONENT_SOURCES = {
     "runc": [
         "GH/opencontainers/runc/releases/download/{ver}/runc.{arch}",
     ],
+    # docker 静态二进制(kk cri/docker role 从 kk 缓存取, 离线 docker CRI 用): {darch}=x86_64/aarch64
+    "docker": [
+        "https://mirrors.aliyun.com/docker-ce/linux/static/stable/{darch}/docker-{ver_nov}.tgz",
+        "https://mirrors.ustc.edu.cn/docker-ce/linux/static/stable/{darch}/docker-{ver_nov}.tgz",
+        "https://download.docker.com/linux/static/stable/{darch}/docker-{ver_nov}.tgz",
+    ],
+    # cri-dockerd(k8s>=1.24 docker CRI 必需): release 资产架构名与 kk {arch} 一致(amd64/arm64)
+    "cridockerd": [
+        "GH/mirantis/cri-dockerd/releases/download/{ver}/cri-dockerd-{ver_nov}.{arch}.tgz",
+    ],
+    # docker-compose 二进制(私有仓库 docker-registry 在仓库节点以容器部署): 重命名为 docker-compose
+    "dockercompose": [
+        "GH/docker/compose/releases/download/{ver}/docker-compose-linux-{arch}",
+    ],
 }
+
+# docker 官方静态包的目录架构名与 kk 的 amd64/arm64 不同, 下载时映射
+DOCKER_DARCH = {"amd64": "x86_64", "arm64": "aarch64"}
 
 
 def info(msg):  print(f"[INFO] {msg}")
@@ -213,21 +230,27 @@ def expand_urls(tpl):
     return urls
 
 
-def component_jobs(ccat, kube_ver, arch, upgrade_to=""):
-    """按 versions.json 推导下载任务: [(out_path, url模板列表, 校验函数, 显示名)]"""
+def component_jobs(ccat, kube_ver, arch, upgrade_to="", extra_comps=()):
+    """按 versions.json 推导下载任务: [(out_path, url模板列表, 校验函数, 显示名)]
+    extra_comps: docker 系组件按需追加(docker/cridockerd/dockercompose), 避免 containerd
+    用户被打包时自动下载 87MB+ 的 docker 静态包"""
     jobs = []
     comps = ((ccat.get("versions") or {}).get(kube_ver) or {}).get("components") or {}
     kube_dir = BASE_DIR / ("warehouse/cluster/kube/%s/%s" % (kube_ver, arch))
     for b in ("kubeadm", "kubelet", "kubectl"):
         jobs.append((kube_dir / b, [f"https://dl.k8s.io/release/{kube_ver}/bin/linux/{arch}/{b}"],
                      lambda p: p.is_file() and p.stat().st_size > 1_000_000, b))
-    for key in ("etcd", "cni_plugins", "helm", "crictl", "containerd", "runc"):
+    # docker 系组件(版本跟随 kk per-minor vars, 见 versions.json components): docker 用
+    # {darch}(x86_64/aarch64)目录名; docker-compose 产物重命名为 kk 模板认的 docker-compose
+    for key in ("etcd", "cni_plugins", "helm", "crictl", "containerd", "runc") + tuple(extra_comps):
         comp = comps.get(key) or {}
         cv = comp.get("version", "")
         tpls = COMPONENT_SOURCES.get(key) or []
         wdir = BASE_DIR / comp.get("warehouse_dir", "").format(arch=arch)
-        name = tpls[0].split("/")[-1].replace("{ver}", cv).replace("{ver_nov}", cv.lstrip("v")).replace("{arch}", arch)
-        tpls_e = [t.replace("{ver}", cv).replace("{ver_nov}", cv.lstrip("v")).replace("{arch}", arch) for t in tpls]
+        name = tpls[0].split("/")[-1].replace("{ver}", cv).replace("{ver_nov}", cv.lstrip("v")).replace("{arch}", arch).replace("{darch}", DOCKER_DARCH.get(arch, arch))
+        if key == "dockercompose":
+            name = "docker-compose"
+        tpls_e = [t.replace("{ver}", cv).replace("{ver_nov}", cv.lstrip("v")).replace("{arch}", arch).replace("{darch}", DOCKER_DARCH.get(arch, arch)) for t in tpls]
         urls = []
         for t in tpls_e:
             urls.extend(expand_urls(t))
@@ -244,11 +267,11 @@ def out_suffix_is_tgz(name):
     return name.endswith((".tgz", ".gz"))
 
 
-def ensure_materials(ccat, kube_ver, arch=ARCH, upgrade_to="", progress_cb=None, only_missing=True):
+def ensure_materials(ccat, kube_ver, arch=ARCH, upgrade_to="", progress_cb=None, only_missing=True, extra_comps=()):
     """补齐缺失物料(可被 packer 导入)。progress_cb(event, name, done, total)
     event: 'start'(总览) / 'dl'(组件字节进度) / 'done'(单组件完成) / 'skip'
     返回 (downloaded_mb, failed_names)"""
-    jobs = component_jobs(ccat, kube_ver, arch, upgrade_to)
+    jobs = component_jobs(ccat, kube_ver, arch, upgrade_to, extra_comps=extra_comps)
     to_do = []
     for out, urls, check, disp in jobs:
         if only_missing and out.is_file() and check(out):
@@ -434,6 +457,53 @@ def ensure_images(ccat, kube_ver, arch, image_specs, cni_type="", progress_cb=No
     return out.stat().st_size / 1048576, []
 
 
+def registry_image_tar_name(reg_ver, arch=ARCH):
+    """私有仓库 registry 镜像 tar 文件名(与 kk image-registry role 模板取的缓存名一致)"""
+    return "docker-registry-%s-linux-%s.tgz" % (reg_ver, arch)
+
+
+def registry_image_tar_path(ccat, kube_ver="", arch=ARCH):
+    """私有仓库 registry 镜像 tar 的仓库路径(版本取对应 kube 版本 components.docker_registry_image,
+    与 kk 部署该版本集群时用的 docker_registry_version 一致)"""
+    v = (((ccat.get("versions") or {}).get(kube_ver) or {}).get("components") or {}).get("docker_registry_image", {}).get("version", "")
+    if not v:
+        return None, ""
+    wdir = BASE_DIR / ("warehouse/cluster/docker-registry-image/%s/%s" % (v, arch))
+    return wdir / registry_image_tar_name(v, arch), v
+
+
+def ensure_registry_image(ccat, kube_ver="", arch=ARCH, progress_cb=None):
+    """收集私有仓库 registry 镜像 tar(docker pull+save; 部署时 kk 在仓库节点 docker load)。
+    返回 (downloaded_mb, failed_names)"""
+    out, ver = registry_image_tar_path(ccat, arch)
+    if out is None:
+        return 0.0, []
+    if out.is_file() and out.stat().st_size > 1_000_000:
+        if progress_cb:
+            progress_cb("skip", out.name, 1, 1)
+        return 0.0, []
+    ref = "docker.io/library/registry:%s" % ver
+    if progress_cb:
+        progress_cb("start", "images", 0, 1)
+    ok = False
+    for src in _pull_candidates(ref):
+        r = _docker("pull", src, timeout=1800)
+        if r.returncode == 0:
+            _docker("tag", src, ref)
+            ok = True
+            break
+        warn(f"拉取 {src} 失败, 换下一源")
+    if not ok:
+        return 0.0, [ref]
+    out.parent.mkdir(parents=True, exist_ok=True)
+    r = _docker("save", "-o", str(out), ref, timeout=1800)
+    if r.returncode != 0:
+        return 0.0, ["docker save 失败: %s" % (r.stderr or "").strip()[-200:]]
+    if progress_cb:
+        progress_cb("done", "images", 1, 1)
+    return out.stat().st_size / 1048576, []
+
+
 def chart_jobs(ccat, kube_ver, cni_type, arch=ARCH, storage=None):
     """按 CNI/存储选择推导 chart(+calicoctl) 下载任务, 布局与 kk binary_dir 约定一致:
     charts/<cni>/<cni>-<ver>.tgz; calico 另含 tigera-operator chart 与 calicoctl 二进制"""
@@ -556,7 +626,10 @@ def cmd_check(ccat, kube_version=""):
 
 def cmd_download(ccat, kube_version="", upgrade_to=""):
     ver = cluster_kube_version(ccat, kube_version)
+    # 手工全量补料: docker 系组件(docker/cri-dockerd/docker-compose)一并下载,
+    # 打包器侧则按 CRI/私有仓库选择按需传入(cluster._auto_download_cluster_materials)
     downloaded, failed = ensure_materials(ccat, ver, ARCH, upgrade_to,
+                                          extra_comps=("docker", "cridockerd", "dockercompose"),
                                           progress_cb=lambda ev, n, d, t: None)
     if failed:
         die(f"{len(failed)} 个组件下载失败: {failed} (网络恢复后重跑 --download)")

@@ -230,8 +230,10 @@ const EN_DICT = {
   "二进制缓存 (镜像走内网仓库)": "binary cache (images via intranet registry)",
   "iptables (旧内核安全)": "iptables (safe on old kernels)", "nftables (需内核≥5.13)": "nftables (kernel >= 5.13)",
   "ipvs (大集群推荐, 需内核 IPVS 模块)": "ipvs (large clusters; needs kernel IPVS modules)",
+  "docker 运行时离线可用: 打包随 kk 缓存携带 docker 静态二进制与 cri-dockerd, 部署脚本在无 docker 节点预装并导入镜像(K8s ≥1.24 由 kk 自动装 cri-dockerd)": "docker runtime works offline: the bundle carries docker static binaries and cri-dockerd in the kk cache; the deploy script preinstalls them and imports images (kk installs cri-dockerd automatically for K8s >= 1.24)",
+  "账号密码写入 kk 仓库部署配置并下发到各节点 CRI 配置(containerd hosts.toml / docker certs.d); 数据目录以 bind 挂载持久化到仓库节点主机": "Credentials go into the kk registry deployment and every node's CRI config (containerd hosts.toml / docker certs.d); the data dir is bind-mounted on the registry node for persistence",
   "角色可多选: 同一台机器可勾选控制面+工作节点; 镜像仓库角色: 部署私有镜像仓库时必需; etcd 默认堆叠在控制面": "Multiple roles allowed: a machine can be both control plane and worker; Registry role: required for a private registry; etcd is stacked on control planes by default",
-  "containerd (默认)": "containerd (default)", "docker (仅在线安装)": "docker (online only)",
+  "containerd (默认)": "containerd (default)", "docker (离线包内置)": "docker (bundled for offline)",
   "none (默认)": "none (default)", "multus (Pod 多网卡)": "multus (multi-NIC pods)",
   "启用 NodeLocalDNS (默认开)": "Enable NodeLocalDNS (on by default)",
   "MySQL 5.7 不支持 arm64": "MySQL 5.7 has no arm64 image",
@@ -919,6 +921,9 @@ function renderInfraTopology(){
   const kfTxt = function(cf, val, ph) {
     return '<input type="text" data-cf="'+cf+'" value="'+esc(val||'')+'" placeholder="'+esc(ph||'')+'">';
   };
+  const kfPwd = function(cf, val, ph) {
+    return '<input type="password" data-cf="'+cf+'" value="'+esc(val||'')+'" placeholder="'+esc(ph||'')+'" autocomplete="new-password">';
+  };
   const kfChk = function(cf, val, label) {
     return '<label class="kcheck"><input type="checkbox" data-cfb="'+cf+'" '+(val?'checked':'')+'><span>'+esc(label)+'</span></label>';
   };
@@ -1033,9 +1038,9 @@ function renderInfraTopology(){
   const adv =
     kfRow('CRI 运行时', '<select data-cf="container_manager">'+
       '<option value="containerd" '+(cl.container_manager!=='docker'?'selected':'')+'>containerd (默认)</option>'+
-      '<option value="docker" '+(cl.container_manager==='docker'?'selected':'')+'>docker (仅在线安装)</option></select>',
+      '<option value="docker" '+(cl.container_manager==='docker'?'selected':'')+'>docker (离线包内置)</option></select>',
       'Pod 子网掩码', kfTxt('ipv4_mask_size', cl.ipv4_mask_size, '每节点 Pod 子网掩码, 默认 24'))+
-    kHint('docker 运行时仅支持在线安装(K8s ≥1.24 由 kk 自动装 cri-dockerd); 纯离线包只预装 containerd')+
+    kHint('docker 运行时离线可用: 打包随 kk 缓存携带 docker 静态二进制与 cri-dockerd, 部署脚本在无 docker 节点预装并导入镜像(K8s ≥1.24 由 kk 自动装 cri-dockerd)')+
     kfRow('containerd 数据目录', kfTxt('components.containerd_root', comp.containerd_root, '/var/lib/containerd'),
         'docker 数据目录', kfTxt('components.docker_root', comp.docker_root, '/var/lib/docker'))+
     kfRow('containerd 版本覆盖', kfTxt('components.containerd_version_override', comp.containerd_version_override, '可选, 如 v1.7.27'),
@@ -1082,8 +1087,15 @@ function renderInfraTopology(){
       '<option value="" '+(!ir.type?'selected':'')+'>不部署 (默认)</option>'+
       '<option value="harbor" '+(ir.type==='harbor'?'selected':'')+'>Harbor</option>'+
       '<option value="docker-registry" '+(ir.type==='docker-registry'?'selected':'')+'>Docker Registry</option></select>'+
-      '<div style="margin-top:6px">'+kfTxt('image_registry.vip', ir.vip, 'HA VIP(可选)')+'</div>',
-      '部署在分配了「镜像仓库」角色的节点; 多仓库节点自动 keepalived HA');
+      (ir.type ? '<div style="margin-top:6px">'+kfTxt('image_registry.vip', ir.vip, 'HA VIP(可选)')+'</div>' : ''))+
+    (ir.type ?
+      '<div class="krow"><label>账号 / 密码</label><div class="kfield"><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">'+
+      kfTxt('image_registry.username', ir.username, '账号 (默认 admin)')+
+      kfPwd('image_registry.password', ir.password, '密码 (默认 Harbor12345)')+
+      (ir.type==='docker-registry' ? '<div style="grid-column:1/-1">'+kfTxt('image_registry.data_dir', ir.data_dir, '数据目录 (默认 /var/lib/docker-registry/data)')+'</div>' : '')+
+      '</div></div></div>'+
+      kHint('账号密码写入 kk 仓库部署配置并下发到各节点 CRI 配置(containerd hosts.toml / docker certs.d); 数据目录以 bind 挂载持久化到仓库节点主机')
+      : kHint('部署在分配了「镜像仓库」角色的节点; 多仓库节点自动 keepalived HA'));
 
   // 联动重渲染频繁重建本区块, 折叠展开状态由用户控制, 不随重建被重置
   const advOpen = !!(box.querySelector('details[data-dtl="adv"]') || {}).open;
@@ -1149,6 +1161,7 @@ function bindInfraEvents(box){
     if (i.dataset.cf === 'kube_version'){ renderClusterCard(); updateStat(); }
     if (i.dataset.cf === 'cni_type'){ renderClusterCard(); renderInfraTopology(); updateStat(); saveLocal(); return; }   // CNI 切换联动高级配置的 values 覆盖块(表单整体重渲染)
     if (i.dataset.cf === 'ha_type'){ saveLocal(); renderInfraTopology(); return; }   // 重渲染以显示/隐藏 VIP 行
+    if (i.dataset.cf === 'image_registry.type'){ saveLocal(); renderInfraTopology(); return; }   // 重渲染以显示/隐藏 账号/密码/数据目录
     saveLocal();
   });
   box.querySelectorAll('input[data-cfb]').forEach(c => c.onchange = () => {

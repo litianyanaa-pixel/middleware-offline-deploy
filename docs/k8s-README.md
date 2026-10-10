@@ -68,7 +68,7 @@ export KUBECONFIG=/etc/kubernetes/admin.conf && kubectl get nodes
 - 控制面高可用:≥2 台控制面时页面出现 HA 表单;**kube-vip 填同网段空闲 VIP**(kk 自动选网卡并漂移,
   同步写入 `control_plane_endpoint.kube_vip.address`),**haproxy** 端点地址填域名或 127.0.0.2;单控制面用 local
 - **三种安装方式**: 纯离线(二进制+镜像全本地) / **在线安装**(联网, 国区自动 zone=cn 走国内源)
-- **CRI 运行时可选**: containerd(默认, 离线+在线均可) / docker(仅在线安装, K8s ≥1.24 由 kk 自动装 cri-dockerd)
+- **CRI 运行时可选**: containerd(默认, 离线+在线均可) / docker(离线可用: 打包随 kk 缓存携带 docker 静态二进制与 cri-dockerd, 部署脚本预装并导入镜像; K8s ≥1.24 由 kk 自动装 cri-dockerd)
 - **部署目录可定制**:containerd/docker 数据目录、etcd 数据目录(写入 `etcd.env.data_dir`, v4 只认 env 下的键)、kubelet root-dir
 - **etcd 调优**:心跳/选举/压缩/快照/配额/请求上限/日志级别等 9 个白名单参数(`etcd.env.*`, 见 kk etcd.env 模板)
 - **CNI 扩展**:每节点 Pod 子网掩码(`ipv4_mask_size`)、Multi-CNI multus(离线镜像自动收集)、

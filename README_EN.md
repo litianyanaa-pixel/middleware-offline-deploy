@@ -420,7 +420,7 @@ VIP in the same subnet; kk picks the NIC and drifts it) or haproxy (static pod p
 endpoint as a domain or 127.0.0.2). The "advanced settings" section — ordered by actual
 KubeKey deploy sequence (runtime/data dirs → kubeadm backup dir → etcd → kubelet → CNI →
 DNS → certs → mirrors → NTP → storage → private registry) — provides the **runtime
-choice** (containerd by default / docker online-install only), **data directories**
+choice** (containerd by default / docker works offline: docker static binaries and cri-dockerd travel in the kk cache), **data directories**
 (etcd/kubelet/containerd/docker can land on a data disk; the etcd dir is correctly written
 to `etcd.env.data_dir`), **etcd tuning** (9 whitelisted params — heartbeat/election/
 compaction/quota etc. — pre-filled as commented default templates; uncomment a line to

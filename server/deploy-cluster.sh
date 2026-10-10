@@ -197,9 +197,9 @@ fi
 
 # ---------------------------------------------------------------- 【集群 3.5】镜像导入(纯离线)
 # 纯离线模式的镜像不在线拉取: 打包时已按原生 registry tag 收集为 tar, 这里在 kk create 之前
-# 导入各节点本地 containerd。containerd 未安装的节点先用包内归档预装(精简配置, 数据目录与
-# config.yaml 一致); kk 侧 config_policy=overwrite 会在建集群时重写配置并重启, 镜像落在
-# 数据目录的磁盘存储里, 重启不丢。
+# 导入各节点本地 CRI。运行时未装的节点先用包内归档预装(数据目录与 config.yaml 一致);
+# kk 侧 config/daemon 覆写策略在建集群时重写配置并重启, 镜像落在数据目录的磁盘存储里,
+# 重启不丢。docker CRI: 预装静态 docker(与 kk 缓存同版本, kk 侧跳过重装) + docker load。
 if [ "${CLUSTER_MODE:-cache}" != "online" ] && ls cluster/images/*.tar >/dev/null 2>&1; then
   step "3.5" "节点离线镜像导入(纯离线, 不在线拉取)"
   # SKIP_NODE_PREP=1 时 RUN_SSH/RUN_SCP 未定义, 这里补默认(密钥免密)
@@ -209,6 +209,74 @@ if [ "${CLUSTER_MODE:-cache}" != "online" ] && ls cluster/images/*.tar >/dev/nul
     RUN_SSH() { ssh $SSH_OPTS -o BatchMode=yes "$@"; }
     RUN_SCP() { scp $SCP_OPTS "$@"; }
   fi
+  CRI="${CLUSTER_CRI:-containerd}"
+  if [ "$CRI" = "docker" ]; then
+    DK_TARBALL="$(ls cluster/cache/docker/*/*/docker-*.tgz 2>/dev/null | head -1 || true)"
+    DOCKER_ROOT="${CLUSTER_DOCKER_DATA_ROOT:-/var/lib/docker}"
+    IMP_SH="$(mktemp /tmp/.kk-oi-import.XXXXXX.sh)"
+    cat > "$IMP_SH" <<IMP_EOF
+set -e
+# 残留 kubelet unit 守卫: 上次失败部署遗留的 loaded+inactive unit 会让 kk precheck 卡死
+if systemctl list-unit-files 2>/dev/null | awk '{print \$1}' | grep -qx 'kubelet.service' \\
+   && [ "\$(systemctl is-active kubelet 2>/dev/null || true)" != "active" ] \\
+   && [ ! -f /etc/kubernetes/admin.conf ]; then
+  echo "[INFO] 清理残留 kubelet unit"
+  systemctl stop kubelet 2>/dev/null || true
+  rm -f /etc/systemd/system/kubelet.service /usr/lib/systemd/system/kubelet.service /lib/systemd/system/kubelet.service
+  rm -rf /etc/systemd/system/kubelet.service.d
+  systemctl daemon-reload
+fi
+if ! command -v docker >/dev/null 2>&1; then
+  echo "[INFO] 预装 docker (来自离线包静态二进制)"
+  [ -f /tmp/.kk-oi/@DK_TARBALL_NAME@ ] || { echo "[FAIL] 包内缺 docker 归档且节点未装 docker"; exit 1; }
+  tar -xzf /tmp/.kk-oi/@DK_TARBALL_NAME@ --strip-components=1 -C /usr/local/bin/
+fi
+mkdir -p /etc/docker '@DOCKER_ROOT@'
+cat > /etc/docker/daemon.json <<DAEMON_EOF
+{
+  "data-root": "@DOCKER_ROOT@",
+  "log-driver": "json-file",
+  "log-opts": { "max-size": "5Mi", "max-file": "3" },
+  "live-restore": true,
+  "exec-opts": ["native.cgroupdriver=systemd"]
+}
+DAEMON_EOF
+cat > /etc/systemd/system/docker.service <<'UNIT'
+[Unit]
+Description=Docker Application Container Engine
+Documentation=https://docs.docker.com
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=notify
+ExecStart=/usr/local/bin/dockerd
+ExecReload=/bin/kill -s HUP \$MAINPID
+Restart=always
+RestartSec=5
+LimitNPROC=infinity
+LimitCORE=infinity
+TasksMax=infinity
+OOMScoreAdjust=-999
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+systemctl daemon-reload
+systemctl enable --now docker >/dev/null 2>&1 || true
+sleep 2
+for t in /tmp/.kk-oi/*.tar; do
+  [ -f "\$t" ] || continue
+  docker load -i "\$t" >/dev/null 2>&1 || echo "[WARN] \$(basename \$t) 导入部分报错(多为镜像已存在, 忽略)"
+done
+N=\$(docker images -q | wc -l)
+echo "[INFO] 节点镜像数: \$N"
+rm -rf /tmp/.kk-oi
+[ "\$N" -ge 1 ] || { echo "[FAIL] 镜像导入后 docker 仍为空"; exit 1; }
+IMP_EOF
+    sed -i "s|@DK_TARBALL_NAME@|$(basename "$DK_TARBALL")|; s|@DOCKER_ROOT@|$DOCKER_ROOT|g" "$IMP_SH"
+    TARBALL="$DK_TARBALL"
+  else
   CT_TARBALL="$(ls cluster/cache/containerd/*/*/containerd*-linux-*.tar.gz 2>/dev/null | head -1 || true)"
   DATA_ROOT="${CLUSTER_CONTAINERD_DATA_ROOT:-/var/lib/containerd}"
   SANDBOX="${CLUSTER_SANDBOX_IMAGE:-registry.k8s.io/pause:3.9}"
@@ -274,19 +342,21 @@ rm -rf /tmp/.kk-oi
 [ "\$N" -ge 1 ] || { echo "[FAIL] 镜像导入后 containerd 仍为空"; exit 1; }
 IMP_EOF
   sed -i "s|@CT_TARBALL_NAME@|$(basename "$CT_TARBALL")|" "$IMP_SH"
+  TARBALL="$CT_TARBALL"
+  fi
   LOCAL_IPS="$(hostname -I 2>/dev/null || true)"
   for entry in ${CLUSTER_NODES[@]:-}; do
     IP="$(echo "$entry" | cut -d'|' -f2)"
     if echo "$LOCAL_IPS" | grep -qw "$IP"; then
       mkdir -p /tmp/.kk-oi
       cp -a cluster/images/*.tar /tmp/.kk-oi/
-      [ -n "$CT_TARBALL" ] && cp -a "$CT_TARBALL" /tmp/.kk-oi/
+      [ -n "$TARBALL" ] && cp -a "$TARBALL" /tmp/.kk-oi/
       bash "$IMP_SH" || die "本机($IP)离线镜像导入失败"
     else
       RUN_SSH "${SSH_USER:-root}@${IP}" "mkdir -p /tmp/.kk-oi" || die "节点 $IP SSH 不可达(镜像导入阶段)"
       RUN_SCP -q cluster/images/*.tar "${SSH_USER:-root}@${IP}:/tmp/.kk-oi/" || die "节点 $IP 镜像包分发失败"
-      if [ -n "$CT_TARBALL" ]; then
-        RUN_SCP -q "$CT_TARBALL" "${SSH_USER:-root}@${IP}:/tmp/.kk-oi/" || die "节点 $IP containerd 归档分发失败"
+      if [ -n "$TARBALL" ]; then
+        RUN_SCP -q "$TARBALL" "${SSH_USER:-root}@${IP}:/tmp/.kk-oi/" || die "节点 $IP 运行时归档分发失败"
       fi
       RUN_SSH "${SSH_USER:-root}@${IP}" 'bash -s' < "$IMP_SH" || die "节点 $IP 离线镜像导入失败"
     fi
@@ -304,6 +374,57 @@ step 4 "执行 kk create cluster (多节点 SSH, 耗时较长)"
 ./cluster/kk create cluster -i cluster/inventory.yaml -c cluster/config.yaml --workdir "$KK_HOME" $EXTRA_SET || {
   die "集群部署失败。排查: 1) 节点 SSH 连通性与密码 2) 重跑本脚本(幂等) 3) kk 日志上方第一个 FAIL"
 }
+
+# ---------------------------------------------------------------- 【集群 4.5】私有仓库数据目录绑定
+# kk 原生 docker-registry 的 compose 不挂数据卷(rootdirectory 在容器内, 容器重建即丢)。
+# 配置了数据目录时, 部署完成后把该目录以 bind 方式补进 compose 并重启仓库容器(幂等):
+# cache 模式创建阶段不经过仓库推镜像, 重启无副作用; artifact 模式镜像推送发生在创建阶段,
+# 重启后仓库为空, 如需补推可重跑本脚本(kk 幂等)或手工 docker push。
+REG_DATA_DIR="${CLUSTER_REGISTRY_DATA_DIR:-}"
+if [ -n "$REG_DATA_DIR" ] && grep -q 'type: docker-registry' cluster/config.yaml 2>/dev/null; then
+  step "4.5" "私有仓库数据目录绑定 ($REG_DATA_DIR)"
+  if [ "$(type -t RUN_SSH)" != "function" ]; then
+    SSH_OPTS="${SSH_OPTS:--o StrictHostKeyChecking=no -o ConnectTimeout=8}"
+    RUN_SSH() { ssh $SSH_OPTS -o BatchMode=yes "$@"; }
+  fi
+  # 仓库节点从 inventory 的 image_registry 组取(角色多选时主角色可能不是 registry)
+  REG_HOSTS="$(awk '/^    image_registry:/{f=1;next} f&&/^        - /{print $2}' cluster/inventory.yaml)"
+  REGFIX_SH="$(mktemp /tmp/.kk-regfix.XXXXXX.sh)"
+  cat > "$REGFIX_SH" <<REGFIX_EOF
+set -e
+mkdir -p '@REG_DATA@'
+COMPOSE="\$(ls /opt/docker-registry/*/docker-compose.yml 2>/dev/null | head -1 || true)"
+[ -n "\$COMPOSE" ] || { echo "[INFO] 未找到 docker-registry compose(仓库未部署), 跳过"; exit 0; }
+if grep -q "source: '@REG_DATA@'" "\$COMPOSE"; then
+  echo "[INFO] 数据目录已绑定, 跳过"
+else
+  cp -a "\$COMPOSE" "\$COMPOSE.bak"
+  awk -v ins="      - type: bind\\n        source: '@REG_DATA@'\\n        target: '@REG_DATA@'" '
+    !done && /^    ports:/ { print ins; done=1 }
+    { print }
+  ' "\$COMPOSE" > "\$COMPOSE.new" && mv "\$COMPOSE.new" "\$COMPOSE"
+  systemctl restart docker-registry
+  sleep 3
+  systemctl is-active docker-registry >/dev/null || { echo "[FAIL] 仓库容器重启失败, compose 备份在 \$COMPOSE.bak"; exit 1; }
+  echo "[INFO] 仓库数据目录已绑定并重启生效"
+fi
+REGFIX_EOF
+  sed -i "s|@REG_DATA@|$REG_DATA_DIR|g" "$REGFIX_SH"
+  LOCAL_IPS="$(hostname -I 2>/dev/null || true)"
+  REG_FIXED=0; REG_FAIL=0
+  for entry in ${CLUSTER_NODES[@]:-}; do
+    NODENAME="$(echo "$entry" | cut -d'|' -f1)"
+    IP="$(echo "$entry" | cut -d'|' -f2)"
+    echo "$REG_HOSTS" | grep -qx "$NODENAME" || continue
+    if echo "$LOCAL_IPS" | grep -qw "$IP"; then
+      bash "$REGFIX_SH" && REG_FIXED=$((REG_FIXED+1)) || REG_FAIL=$((REG_FAIL+1))
+    else
+      RUN_SSH "${SSH_USER:-root}@${IP}" 'bash -s' < "$REGFIX_SH" && REG_FIXED=$((REG_FIXED+1)) || REG_FAIL=$((REG_FAIL+1))
+    fi
+  done
+  rm -f "$REGFIX_SH"
+  log "私有仓库数据目录绑定: 成功 $REG_FIXED, 失败/跳过 $REG_FAIL"
+fi
 
 # 证书自动续期(打包时配置了 cron 才启用): 每周期续期证书并重启控制面静态 Pod 所在服务
 if [ -n "${CLUSTER_CERTS_RENEW_CRON:-}" ] && [ -f "$KUBECONFIG_PATH" ]; then

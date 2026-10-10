@@ -294,28 +294,43 @@ def validate_config(cfg, catalog):
         # 私有镜像仓库部署
         imgreg_raw = cluster_raw.get("image_registry") or {}
         imgreg = {"type": str(imgreg_raw.get("type") or "").strip(),
-                  "vip": str(imgreg_raw.get("vip") or "").strip()}
+                  "vip": str(imgreg_raw.get("vip") or "").strip(),
+                  "username": str(imgreg_raw.get("username") or "").strip(),
+                  "password": str(imgreg_raw.get("password") or ""),
+                  "data_dir": _abspath(imgreg_raw.get("data_dir"), "镜像仓库数据目录")}
         if imgreg["type"] and imgreg["type"] not in ("harbor", "docker-registry"):
-            raise PackError("镜像仓库类型不合法: %s (harbor / docker-registry)|Invalid registry type: %s" % (imgreg["type"], imgreg["type"]))
+            raise PackError("镜像仓库类型不合法: %s (harbor / docker-registry)|Invalid registry type: %s (harbor / docker-registry)" % (imgreg["type"], imgreg["type"]))
         if imgreg["type"]:
+            # 账号密码成对: 都不填走 kk 默认(admin/Harbor12345), 只填一个视为配置不完整
+            if bool(imgreg["username"]) != bool(imgreg["password"].strip()):
+                raise PackError("私有镜像仓库账号与密码需同时填写(或都留空用 kk 默认 admin/Harbor12345)|"
+                                "Registry username and password must be set together (or leave both empty for kk default admin/Harbor12345)")
             has_registry_node = any("registry" in n["roles"] for n in nodes)
             if not has_registry_node:
                 raise PackError("部署私有镜像仓库需要给至少一台节点分配 registry 角色|Deploying a private registry requires a node with the registry role")
             if imgreg["vip"] and not valid_ipv4(imgreg["vip"]):
                 raise PackError("镜像仓库 VIP 不合法: %s|Invalid registry VIP: %s" % (imgreg["vip"], imgreg["vip"]))
+            if imgreg["data_dir"] and imgreg["type"] != "docker-registry":
+                warns.append("数据目录仅 docker-registry 类型支持(harbor 数据目录由其自身配置管理), 已忽略|"
+                             "Data dir applies to docker-registry only (harbor manages its own), ignored")
+            elif imgreg["data_dir"] and imgreg["data_dir"].rstrip("/") == "/":
+                raise PackError("镜像仓库数据目录不能是根目录 /|Registry data dir cannot be /")
         # 是否由 kk 设置节点 hostname(容器等特殊环境需关闭; 默认开)
         set_hostname = cluster_raw.get("set_hostname")
         set_hostname = True if set_hostname is None else bool(set_hostname)
         # 证书自动续期 crontab(部署后写入; 空=不启用)
         certs_cron = str(cluster_raw.get("certs_renew_cron") or "").strip()
-        # CRI 运行时(kk cri.container_manager): docker 仅在线安装 — 纯离线物料与预装流程只含 containerd
+        # CRI 运行时(kk cri.container_manager): 离线模式下 docker 静态二进制与 cri-dockerd
+        # 随 kk 缓存携带(deploy 阶段 kk 自动装), containerd 为默认推荐
         container_manager = str(cluster_raw.get("container_manager") or "containerd").strip()
         if container_manager not in ("containerd", "docker"):
             raise PackError("运行时不合法: %s (containerd / docker)|Invalid container runtime: %s (containerd / docker)"
                             % (container_manager, container_manager))
-        if container_manager == "docker" and mode != "online":
-            raise PackError("docker 运行时仅支持在线安装(纯离线物料与预装流程只含 containerd)|"
-                            "docker runtime is online-only (the offline bundle preinstalls containerd)")
+        if container_manager == "docker" and mode == "artifact":
+            warns.append("docker 运行时 + artifact 模式: docker 二进制是否随 artifact 携带取决于 kk 导出配置, "
+                         "离线部署建议用 cache 模式(缓存显式携带 docker/cri-dockerd)|"
+                         "docker runtime with artifact mode: docker binaries depend on the kk export config; "
+                         "cache mode is recommended for air-gapped docker deployment")
         # CNI 高级: 每节点 Pod 子网掩码(kk cni.ipv4_mask_size, 默认 24) + Multi-CNI
         try:
             ipv4_mask_size = int(cluster_raw.get("ipv4_mask_size") or 24)
