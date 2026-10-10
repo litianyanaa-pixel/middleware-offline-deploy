@@ -48,11 +48,11 @@
   .app{display:flex;min-height:100vh}
   .main{flex:1;min-width:0;display:flex;flex-direction:column}
   .topbar{position:sticky;top:0;z-index:30;height:60px;padding:0 28px;display:flex;align-items:center;gap:14px;
-    background:rgba(255,255,255,.5);backdrop-filter:blur(26px) saturate(180%);-webkit-backdrop-filter:blur(26px) saturate(180%);
+    background:rgba(255,255,255,.5);backdrop-filter:blur(14px) saturate(160%);-webkit-backdrop-filter:blur(14px) saturate(160%);
     border-bottom:1px solid rgba(255,255,255,.55);box-shadow:0 1px 0 rgba(29,29,31,.03)}
   .topbar .crumb{color:var(--mut);font-size:12px}
   .topbar .sp{flex:1}
-  .tbtn{border:1px solid rgba(255,255,255,.8);background:rgba(255,255,255,.55);backdrop-filter:blur(14px) saturate(160%);-webkit-backdrop-filter:blur(14px) saturate(160%);
+  .tbtn{border:1px solid rgba(255,255,255,.8);background:rgba(255,255,255,.55);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
     border-radius:999px;padding:0 16px;height:34px;font-size:12.5px;cursor:pointer;color:var(--txt);
     box-shadow:var(--sh-1), inset 0 1px 0 rgba(255,255,255,.8);transition:all .2s var(--spring)}
   .tbtn:hover{background:rgba(255,255,255,.88);transform:translateY(-1px);box-shadow:var(--sh-2), inset 0 1px 0 rgba(255,255,255,.9)}
@@ -66,7 +66,7 @@
   .content{flex:1;padding:22px 28px 96px;max-width:1064px;width:100%;margin:0 auto}
 
   /* ============ 玻璃卡片 ============ */
-  .card{position:relative;background:var(--glass);backdrop-filter:blur(30px) saturate(170%);-webkit-backdrop-filter:blur(30px) saturate(170%);
+  .card{position:relative;background:rgba(255,255,255,.88);
     border:1px solid var(--edge);border-radius:var(--r-lg);
     box-shadow:0 10px 40px rgba(0,0,0,.10), inset 0 1px 0 rgba(255,255,255,.85);
     margin-bottom:16px;overflow:hidden;scroll-margin-top:86px;transition:box-shadow .3s}
@@ -276,7 +276,7 @@
 
   /* ---- 操作条 ---- */
   .actionbar{position:sticky;bottom:0;z-index:25;margin-top:auto;padding:13px 28px;display:flex;align-items:center;gap:16px;
-    background:rgba(255,255,255,.55);backdrop-filter:blur(26px) saturate(180%);-webkit-backdrop-filter:blur(26px) saturate(180%);
+    background:rgba(255,255,255,.55);backdrop-filter:blur(14px) saturate(160%);-webkit-backdrop-filter:blur(14px) saturate(160%);
     border-top:1px solid rgba(255,255,255,.6);box-shadow:0 -10px 34px rgba(0,0,0,.07)}
   .actionbar .stat{font-size:13px;color:var(--txt2)}
   .actionbar .stat b{color:var(--acc)}
@@ -288,7 +288,7 @@
   .btn:hover{transform:translateY(-1px);box-shadow:0 6px 18px rgba(0,99,224,.32), inset 0 1px 0 rgba(255,255,255,.4)}
   .btn:active{transform:scale(.97)}
   .btn:disabled{opacity:.45;cursor:not-allowed;transform:none}
-  .btn.ghost{background:rgba(255,255,255,.6);backdrop-filter:blur(14px) saturate(160%);-webkit-backdrop-filter:blur(14px) saturate(160%);
+  .btn.ghost{background:rgba(255,255,255,.75);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
     border:1px solid rgba(255,255,255,.85);color:var(--txt);font-weight:550;box-shadow:var(--sh-1), inset 0 1px 0 rgba(255,255,255,.8)}
   .btn.ghost:hover{background:rgba(255,255,255,.92)}
   .btn.red{background:#ff3b30;box-shadow:0 4px 14px rgba(255,59,48,.30), inset 0 1px 0 rgba(255,255,255,.3)}
@@ -301,9 +301,9 @@
   pre{background:rgba(10,15,28,.92);color:#c9d4e3;padding:18px 20px;font-size:12px;line-height:1.7;overflow:auto;max-height:480px;white-space:pre-wrap;word-break:break-all;margin:0;font-family:var(--f-mono)}
 
   /* ---- 弹窗 ---- */
-  .overlay{position:fixed;inset:0;background:rgba(29,29,31,.35);backdrop-filter:blur(16px) saturate(140%);-webkit-backdrop-filter:blur(16px) saturate(140%);display:flex;align-items:center;justify-content:center;z-index:100}
+  .overlay{position:fixed;inset:0;background:rgba(29,29,31,.35);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;z-index:100}
   .overlay.hidden{display:none}
-  .modal{background:rgba(255,255,255,.78);backdrop-filter:blur(40px) saturate(180%);-webkit-backdrop-filter:blur(40px) saturate(180%);
+  .modal{background:rgba(255,255,255,.85);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);
     border:1px solid rgba(255,255,255,.8);border-radius:22px;padding:26px 28px;width:540px;max-width:92vw;
     box-shadow:var(--sh-3), inset 0 1px 0 rgba(255,255,255,.9)}
   .modal h3{font-size:15.5px;margin-bottom:16px;display:flex;align-items:center;gap:9px;color:var(--txt);font-weight:700}
@@ -320,7 +320,7 @@
   .msg.ok{background:rgba(52,199,89,.1);color:#248a3d;border:1px solid rgba(52,199,89,.32)}
   .msg.warn{background:rgba(255,149,0,.09);color:#8f5700;border:1px solid rgba(255,149,0,.32)}
   #toast{position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:300;display:flex;flex-direction:column;align-items:center;gap:8px;pointer-events:none;max-width:min(520px,90vw)}
-  .toast{background:rgba(29,29,31,.82);backdrop-filter:blur(20px) saturate(160%);-webkit-backdrop-filter:blur(20px) saturate(160%);color:#fff;border:1px solid rgba(255,255,255,.16);border-radius:14px;padding:11px 17px;font-size:12.5px;box-shadow:var(--sh-3);animation:toastin .28s var(--spring);max-width:360px;overflow:hidden;transition:opacity .3s ease,transform .3s ease,height .32s ease,padding .32s ease,margin-bottom .32s ease}
+  .toast{background:rgba(29,29,31,.85);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);color:#fff;border:1px solid rgba(255,255,255,.16);border-radius:14px;padding:11px 17px;font-size:12.5px;box-shadow:var(--sh-3);animation:toastin .28s var(--spring);max-width:360px;overflow:hidden;transition:opacity .3s ease,transform .3s ease,height .32s ease,padding .32s ease,margin-bottom .32s ease}
   @keyframes toastin{from{opacity:0;transform:translateY(-10px) scale(.96)}to{opacity:1;transform:none}}
   .toast.out{opacity:0;transform:translateY(-8px) scale(.96);pointer-events:none}
   .spin{width:15px;height:15px;border:2px solid rgba(0,122,255,.25);border-top-color:var(--acc);border-radius:50%;display:inline-block;animation:sp .8s linear infinite;vertical-align:-3px;margin-right:7px}
@@ -338,7 +338,7 @@
   .wstep.on{display:block;animation:wfade .32s var(--spring)}
   @keyframes wfade{from{opacity:0;transform:translateY(10px) scale(.995)}to{opacity:1;transform:none}}
   .wiz-steps{position:sticky;top:8px;z-index:50;display:flex;align-items:center;gap:2px;width:max-content;max-width:calc(100% - 40px);margin:14px auto 2px;padding:5px;
-    background:rgba(255,255,255,.55);backdrop-filter:blur(26px) saturate(180%);-webkit-backdrop-filter:blur(26px) saturate(180%);
+    background:rgba(255,255,255,.55);backdrop-filter:blur(14px) saturate(160%);-webkit-backdrop-filter:blur(14px) saturate(160%);
     border:1px solid rgba(255,255,255,.78);border-radius:999px;
     box-shadow:0 10px 34px rgba(0,0,0,.12), inset 0 1px 0 rgba(255,255,255,.9)}
   .wiz-pill{position:absolute;top:5px;bottom:5px;left:5px;width:80px;border-radius:999px;
@@ -358,9 +358,9 @@
   /* ---- 侧滑抽屉(物料仓库/历史产物): 不占用主页面 ---- */
   .dw-wrap{position:fixed;inset:0;z-index:80}
   .dw-wrap.hidden{display:none}
-  .dw-mask{position:absolute;inset:0;background:rgba(29,29,31,.32);backdrop-filter:blur(10px) saturate(140%);-webkit-backdrop-filter:blur(10px) saturate(140%);animation:toastin .25s}
+  .dw-mask{position:absolute;inset:0;background:rgba(29,29,31,.32);backdrop-filter:blur(5px);-webkit-backdrop-filter:blur(5px);animation:toastin .25s}
   .dw{position:absolute;top:0;right:0;bottom:0;width:min(680px,94vw);display:flex;flex-direction:column;
-    background:rgba(255,255,255,.82);backdrop-filter:blur(36px) saturate(180%);-webkit-backdrop-filter:blur(36px) saturate(180%);
+    background:rgba(255,255,255,.88);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
     border-left:1px solid rgba(255,255,255,.75);box-shadow:-24px 0 60px rgba(29,29,31,.18);
     animation:dwin .38s var(--spring)}
   @keyframes dwin{from{transform:translateX(48px);opacity:0}to{transform:none;opacity:1}}
