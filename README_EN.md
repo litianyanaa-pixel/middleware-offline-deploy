@@ -24,6 +24,8 @@ Local (Windows / macOS / Linux)                Server (offline intranet)
 ## ✨ Highlights
 
 - **Zero-interaction deployment**: ports, passwords, database sources and backup policy are all decided at packing time; the server asks nothing
+- **Java runtime**: Eclipse Temurin JDK 8/17/21, dual architecture (amd64/arm64), shipped as a base middleware — pick per-server deploy targets from the pool, multiple versions coexist with the default one written into `JAVA_HOME`, sha256-verified then extracted to `/data/java` (customizable); `python prepare_java.py --download` pre-fetches materials (packing auto-fetches anything missing). Verified on a real Ubuntu 22.04 environment: single-version install, multi-version coexistence and idempotent re-runs all pass
+- **Bilingual UI**: the packer switches 中/EN from the top bar (choice remembered in the browser); the material catalog, deploy summary and validation messages are bilingual end to end; the server-side deployment report follows the language chosen at packing time
 - **Pack only what you need**: only the selected middleware and architectures are bundled — a typical project (nginx+mysql8+redis+xxljob) is ~0.7GB, not the whole warehouse
 - **Idempotent & re-runnable**: re-running deploy.sh is safe — skips installed Docker, skips imported tables, allows its own port bindings, auto-backs up old configs
 - **Runs anywhere**: disk/port pre-checks use only `df/du` and the kernel's `/proc/net/tcp(6)`; HTTP health probes fall back through `curl → wget → bash /dev/tcp` — works even on stripped-down offline systems without any network tools
@@ -35,8 +37,9 @@ Local (Windows / macOS / Linux)                Server (offline intranet)
 - **Unified image tags**: whatever registry prefix/tag suffix the tars carry, images are normalized to short names, with architecture mismatch intercepted
 - **Plugin-based extension**: adding middleware takes one plugin file + image tars; checkboxes, port forms, compose generation and deploy summaries all pick it up automatically
 - **Cluster modes**: MySQL 8.0 standalone / **primary-replica replication** (one master + one replica, GTID auto-sync, configured at deploy time); Redis standalone / **Sentinel HA** (master + replica + 3 sentinels, automatic failover)
+- **MySQL parameters customizable**: `conf/<svc>/my.cnf` is mounted automatically (with a strict sql_mode declaration) — tune parameters without entering the container
 - **Observability, closed loop**: Node Exporter (host metrics) + Prometheus + Loki/Promtail (container logs) + Grafana datasources/dashboards **pre-provisioned** — open Grafana after deploy and the host monitoring dashboard is already there
-- **Message queue**: Apache Kafka (single-node KRaft, no ZooKeeper) + Kafka UI console
+- **Message queue**: Apache Kafka (single-node KRaft, no ZooKeeper) + Kafka UI console; one click switches to a **3-node cluster** (KRaft combined mode, SASL_PLAINTEXT multi-user auth, advertised addresses auto-rewritten to the server IPs at deploy time)
 
 ## 🖼 UI Tour
 
@@ -401,13 +404,31 @@ arm64 (Kunpeng/Phytium) will open later** (the UI hints when selected).
 
 ![Kubernetes cluster card](docs/images/en/ui-cluster-card.png)
 
-Cluster settings (version / CNI / CIDR / kube-proxy mode in a two-column form), offline
-material mode (artifact / binary cache), per-distro OS package selection (Kylin / UOS /
+Cluster settings (version / CNI / CIDR / kube-proxy mode in a two-column form), deploy
+mode (**fully offline**: binaries + images all local — images are collected under their
+native tags and imported into node containerd before deploy, no internet access at all /
+**online**: nodes pull from the network), per-distro OS package selection (Kylin / UOS /
 openEuler / Anolis / Alibaba Cloud Linux etc., 9 distros) and node role assignment all
 live in the same "deployment topology" area as the MySQL/Redis/Kafka multi-host forms;
-renaming a server in the pool updates the role-assignment labels live:
+renaming a server in the pool updates the role-assignment labels live. Role assignment,
+basic settings and advanced settings are all collapsible sections with live status badges:
 
 ![Cluster settings & role assignment](docs/images/en/ui-cluster-form.png)
+
+**Control-plane HA**: with multiple control-plane nodes, choose kube-vip (provide a free
+VIP in the same subnet; kk picks the NIC and drifts it) or haproxy (static pod per node,
+endpoint as a domain or 127.0.0.2). The "advanced settings" section — ordered by actual
+KubeKey deploy sequence (runtime/data dirs → kubeadm backup dir → etcd → kubelet → CNI →
+DNS → certs → mirrors → NTP → storage → private registry) — provides the **runtime
+choice** (containerd by default / docker online-install only), **data directories**
+(etcd/kubelet/containerd/docker can land on a data disk; the etcd dir is correctly written
+to `etcd.env.data_dir`), **etcd tuning** (9 whitelisted params — heartbeat/election/
+compaction/quota etc. — pre-filled as commented default templates; uncomment a line to
+apply), **CNI extensions** (per-node Pod subnet mask, Multi-CNI multus, and helm values
+pass-through for all four CNIs: calico/cilium/flannel/kubeovn via `cni.<type>.values`,
+each keeping its own override when switching), **DNS overrides** (CoreDNS/NodeLocalDNS
+image tags and toggles) and **certs & backup** (renew-at-install toggle, renewal crontab,
+timestamped kubeadm-config backup directory).
 
 Generate Preview gains "Cluster inventory" and "Cluster config" tabs showing the exact
 inventory.yaml / config.yaml that go into the bundle:
@@ -415,9 +436,11 @@ inventory.yaml / config.yaml that go into the bundle:
 ![K8s preview tabs](docs/images/en/ui-cluster-preview.png)
 
 Missing materials are **auto-completed at pack time**: binaries are downloaded from
-China-reachable mirrors (with per-component progress); the artifact bundle is built
-automatically via Docker Desktop running `kk artifact export` (zone=cn domestic mirrors,
-~3-5 minutes measured); only materials that cannot be auto-fetched prompt for a path:
+China-reachable mirrors (with per-component progress); offline image tars are collected
+automatically via Docker Desktop under their native tags (`docker pull` from domestic
+mirrors → `docker save` — measured 639MB / 10 images in one go for v1.28+flannel);
+CNI charts are downloaded from GitHub mirror sources; only materials that cannot be
+auto-fetched prompt for a path:
 
 ![Artifacts history](docs/images/en/ui-cluster-packdone.png)
 
@@ -434,9 +457,11 @@ compatibility matrix: [docs/k8s-信创离线部署.md](docs/k8s-信创离线部�
 | Doc | Content |
 |---|---|
 | [docs/k8s-信创离线部署.md](docs/k8s-信创离线部署.md) | K8s offline/online modes & CN mirror chain (Chinese) |
+| [docs/k8s-容器验证记录.md](docs/k8s-容器验证记录.md) | K8s containerized end-to-end verification (Chinese) |
 | [docs/问题修复全记录.md](docs/问题修复全记录.md) | **Single ledger of all project issues** (68 entries: user-reported + self-found + environment, Chinese) |
 | [docs/参考文献.md](docs/参考文献.md) | Index of all references: papers/docs/open-source communities (Chinese) |
 | [docs/真机重建-进行时.md](docs/真机重建-进行时.md) | Real-machine verification timeline (Chinese) |
 | [docs/e2e-docker-全流程测试报告.md](docs/e2e-docker-全流程测试报告.md) | Containerized multi-host E2E report (Chinese) |
+| [docs/kk-功能对照.md](docs/kk-功能对照.md) | Capability comparison with Ansible (Chinese) |
 | [CHANGELOG.md](CHANGELOG.md) | Release notes |
 | [Releases](https://github.com/litianyanaa-pixel/middleware-offline-deploy/releases) | Releases & notes; provides **pre-built kk binaries** (amd64/arm64) |
