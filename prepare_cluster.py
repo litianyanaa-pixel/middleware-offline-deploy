@@ -94,8 +94,10 @@ COMPONENT_SOURCES = {
         "GH/mirantis/cri-dockerd/releases/download/{ver}/cri-dockerd-{ver_nov}.{arch}.tgz",
     ],
     # docker-compose 二进制(私有仓库 docker-registry 在仓库节点以容器部署): 重命名为 docker-compose
+    # 注意: compose v2.20.x 时代 release 资产架构名为 x86_64/aarch64(经 release API 核实),
+    # 后期版本才改为 amd64; 若升级 versions.json 中 dockercompose 版本需核对新资产命名
     "dockercompose": [
-        "GH/docker/compose/releases/download/{ver}/docker-compose-linux-{arch}",
+        "GH/docker/compose/releases/download/{ver}/docker-compose-linux-{darch}",
     ],
 }
 
@@ -221,12 +223,14 @@ def is_tar_valid(path: Path) -> bool:
 
 
 def expand_urls(tpl):
-    """GH/ 前缀表示 github 仓库路径, 展开为全部镜像候选; 其余为主源直连"""
+    """GH/ 前缀表示 github 仓库路径, 展开为全部镜像候选 + github 直连兜底; 其余为主源直连"""
     urls = []
     if tpl.startswith("GH/"):
         for m in GH_MIRRORS:
             urls.append(m + "/" + tpl[3:])
-    urls.append(tpl)
+        urls.append("https://github.com/" + tpl[3:])   # 直连兜底(裸 GH/ 模板不是合法 URL)
+    else:
+        urls.append(tpl)
     return urls
 
 
