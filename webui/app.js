@@ -767,20 +767,19 @@ function renderJavaCard(){
   let jhtml = '<details class="jdetails"'+(jadvOpen?' open':'')+'><summary><h3 class="cat-h" style="margin:0">Java 运行时 '+
     '<span class="hint">(Eclipse Temurin JDK 8 / 17 / 21 · amd64+aarch64 · 按台分发)</span> '+
     '<span class="jbadge'+(ja.enabled?' on':'')+'">'+esc(trText(ja.enabled ? ('已启用: Java '+ja.versions.join(', ')) : '未启用'))+'</span></h3></summary>'+
-    '<div class="kform" style="margin-top:10px">'+
+    '<div class="kform" style="margin-top:10px">';
+  if (ja.enabled){
+    jhtml +=
+      // 启用 + 版本 合并一行; 默认版本 + 安装目录 合并一行(标签 140px 对齐规范不变)
       '<div class="krow"><label>'+esc(trText('启用'))+'</label><div class="kfield">'+
         '<label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;height:32px">'+
         '<input type="checkbox" data-jen="1"'+(ja.enabled?' checked':'')+'> '+esc(trText('启用 Java 运行时 (随包离线分发)'))+'</label>'+
-      '</div></div>';
-  if (ja.enabled){
-    jhtml +=
-      '<div class="krow"><label>'+esc(trText('版本'))+'</label><div class="kfield kchips" style="grid-template-columns:repeat(3,max-content)">'+
+      '</div><label>'+esc(trText('版本'))+'</label><div class="kfield kchips" style="grid-template-columns:repeat(3,max-content)">'+
         jmajors.map(v => '<label><input type="checkbox" data-jv="'+v+'"'+(ja.versions.includes(v)?' checked':'')+'> Java '+v+'</label>').join('')+
       '</div></div>'+
       '<div class="krow"><label>'+esc(trText('默认版本'))+'</label><div class="kfield"><select data-jd style="width:220px">'+
         ja.versions.map(v => '<option value="'+v+'"'+(ja.default===v?' selected':'')+'>'+esc(trText('默认版本'))+': Java '+v+'</option>').join('')+
-      '</select></div></div>'+
-      '<div class="krow"><label>'+esc(trText('Java 安装目录'))+'</label><div class="kfield"><input type="text" data-jdir value="'+esc(ja.install_dir||'/data/java')+'" style="width:320px">'+
+      '</select></div><label>'+esc(trText('Java 安装目录'))+'</label><div class="kfield"><input type="text" data-jdir value="'+esc(ja.install_dir||'/data/java')+'" style="width:100%;max-width:320px">'+
         '<div class="khint">'+esc(trText('各版本解压至 安装目录/jdk8、/jdk17…(多版本共存), 所选默认版本写入 JAVA_HOME(/etc/profile.d/java.sh, 登录时 /etc/profile 自动加载)'))+'</div></div></div>'+
       '<div class="krow"><label>'+esc(trText('部署目标'))+'</label><div class="kfield kchips" style="grid-template-columns:repeat(4,max-content)">'+
         '<label><input type="checkbox" data-jt="local"'+(ja.targets.includes('local')?' checked':'')+'> '+esc(trText('本机 (运行 deploy.sh)'))+'</label>'+
@@ -788,6 +787,12 @@ function renderJavaCard(){
           '<span data-jlabel="'+i+'">'+esc(jnodeLabel(i))+'</span></label>').join('')+
       '</div></div>'+
       '<div class="krow"><label></label><div class="kfield"><div class="khint">'+esc(trText('JDK 以 tar.gz 随包内置(Eclipse Temurin, Adoptium 发行版); 部署时先 sha256 校验再解压; 部署目标从上方「部署服务器池」选择, 多机按勾选分发(纯 Java 节点无需 Docker)'))+'</div></div></div>';
+  } else {
+    jhtml +=
+      '<div class="krow"><label>'+esc(trText('启用'))+'</label><div class="kfield">'+
+        '<label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;height:32px">'+
+        '<input type="checkbox" data-jen="1"> '+esc(trText('启用 Java 运行时 (随包离线分发)'))+'</label>'+
+      '</div></div>';
   }
   jhtml += '</div></details>';
   box.innerHTML = jhtml;

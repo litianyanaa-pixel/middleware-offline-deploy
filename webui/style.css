@@ -184,7 +184,7 @@
   #topoInfraBox .kform .ksec{font-weight:600;font-size:13px;margin:16px 0 8px;padding-top:12px;border-top:1px solid rgba(120,120,128,.15)}
   #topoInfraBox .kroles2{display:grid;grid-template-columns:1fr 1fr;gap:8px 24px;margin-bottom:4px}
   #topoInfraBox .kroles2 .krow{margin-bottom:0}
-  #topoInfraBox .kroles2 .krow>label{flex:1 1 auto;text-align:left;min-width:0}
+  #topoInfraBox .kroles2 .krow>label{flex:0 1 auto;text-align:left;min-width:0}
   #topoInfraBox .kroles2 .kfield{flex:0 0 150px}
   #topoInfraBox .kform .kcheck{display:flex;align-items:center;gap:6px;min-height:32px;font-size:13px;cursor:pointer}
   #topoInfraBox .kform .kinline{display:flex;gap:14px;flex-wrap:wrap;align-items:center;min-height:32px}
