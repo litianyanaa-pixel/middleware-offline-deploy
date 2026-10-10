@@ -2228,6 +2228,10 @@ function openProgress(){
   $('#modal').classList.remove('hidden');
   $$('#modal .msg').forEach(x => x.remove());
   $('#mTitle').innerHTML = '<span class="spin"></span>正在打包';
+  $('#mBar').style.width = '0%';                       // 清掉上一轮残留的 100% 进度条
+  $('#mPct').textContent = '0% · 0 MB / 0 MB';
+  $('#mFile').textContent = ''; $('#mStat').textContent = '';
+  $('#mDownloads').style.display = 'none'; $('#mDownloads').innerHTML = '';
   $('#mCancel').classList.remove('hidden'); $('#mClose').classList.add('hidden');
   clearInterval(pollTimer);
   pollTimer = setInterval(poll, 800);
@@ -2255,6 +2259,7 @@ async function poll(){
       }).join('');
   } else { dlBox.style.display = 'none'; dlBox.innerHTML = ''; }
   if (!s.running){
+    if (!s.result && !s.error) return;   // 打包线程尚未 begin()(校验/物料收集前置阶段): 继续轮询, 不误判结束
     clearInterval(pollTimer); pollTimer = null;
     $('#mBar').style.width = '100%';
     $('#mCancel').classList.add('hidden'); $('#mClose').classList.remove('hidden');

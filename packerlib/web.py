@@ -47,6 +47,7 @@ def start_pack_async(cfg, catalog):
     if prog is not None and prog.running:
         return False
     prog = PackProgress()
+    prog.start()   # 线程未 begin() 前先置 running, 避免 /api/progress 短暂返回未运行导致前端误判结束
     PACK_STATE["prog"] = prog
 
     def worker():

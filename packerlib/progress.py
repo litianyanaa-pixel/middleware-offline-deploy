@@ -31,6 +31,14 @@ class PackProgress:
     def running(self):
         return self._running
 
+    def start(self):
+        """打包线程启动即标记 running: begin() 之前的校验/物料收集阶段
+        不再出现 running=False 的窗口(否则 Web 轮询会误判为已结束)"""
+        with self._lock:
+            self._running = True
+            if self._t0 is None:
+                self._t0 = time.time()
+
     def begin(self, total):
         with self._lock:
             self._total = total; self._done = 0
