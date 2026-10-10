@@ -8,7 +8,7 @@ from pathlib import Path
 
 from .catalog import load_catalog
 from .builder import pack
-from .paths import log
+from .paths import PLUGINS_DIR, log
 from .progress import LogProgress
 from .util import PackError, tr
 from .web import run_web
@@ -69,6 +69,16 @@ def main():
             return 0
         if args.dump_catalog:
             cat = load_catalog()
+            # 防静默丢插件: 仓库存在 plugins/ 目录但一个插件都没加载到(典型原因是
+            # 在错误的目录/残缺副本中执行), 导出的目录会缺全部插件, 直接报错中止
+            if PLUGINS_DIR.is_dir():
+                plugins_loaded = sum(1 for s in cat["services"].values() if s.get("is_plugin"))
+                if plugins_loaded == 0:
+                    raise PackError(
+                        "plugins/ 目录存在但 0 个插件被加载(可能在错误目录执行), 拒绝导出残缺目录;"
+                        "请在仓库根目录运行: python packer.py --dump-catalog %s|"
+                        "plugins/ exists but 0 plugins loaded (likely wrong working dir); refusing to dump an incomplete catalog;"
+                        "run from the repo root: python packer.py --dump-catalog %s" % (args.dump_catalog, args.dump_catalog))
             Path(args.dump_catalog).write_bytes(
                 (json.dumps(cat, ensure_ascii=False, indent=2) + "\n").encode("utf-8"))
             log.info("已导出合并服务目录(%d 个服务)到 %s|Merged catalog (%d services) dumped to %s",
