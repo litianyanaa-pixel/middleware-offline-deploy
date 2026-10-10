@@ -182,6 +182,10 @@
   #topoInfraBox .kform textarea{width:100%;border:1px solid rgba(120,120,128,.28);border-radius:8px;padding:7px 10px;font-size:12.5px;font-family:var(--f-mono);background:#fff;color:var(--txt);line-height:1.5}
   #topoInfraBox .kform .khint{font-size:12px;color:var(--txt2);margin-top:4px;line-height:1.5}
   #topoInfraBox .kform .ksec{font-weight:600;font-size:13px;margin:16px 0 8px;padding-top:12px;border-top:1px solid rgba(120,120,128,.15)}
+  #topoInfraBox .kroles2{display:grid;grid-template-columns:1fr 1fr;gap:8px 24px;margin-bottom:4px}
+  #topoInfraBox .kroles2 .krow{margin-bottom:0}
+  #topoInfraBox .kroles2 .krow>label{flex:1 1 auto;text-align:left;min-width:0}
+  #topoInfraBox .kroles2 .kfield{flex:0 0 150px}
   #topoInfraBox .kform .kcheck{display:flex;align-items:center;gap:6px;min-height:32px;font-size:13px;cursor:pointer}
   #topoInfraBox .kform .kinline{display:flex;gap:14px;flex-wrap:wrap;align-items:center;min-height:32px}
   #topoInfraBox .kform .kinline label{display:inline-flex;align-items:center;gap:5px;cursor:pointer;font-size:13px}

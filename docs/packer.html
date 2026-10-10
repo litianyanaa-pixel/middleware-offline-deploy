@@ -190,6 +190,10 @@
   #topoInfraBox .kform textarea{width:100%;border:1px solid rgba(120,120,128,.28);border-radius:8px;padding:7px 10px;font-size:12.5px;font-family:var(--f-mono);background:#fff;color:var(--txt);line-height:1.5}
   #topoInfraBox .kform .khint{font-size:12px;color:var(--txt2);margin-top:4px;line-height:1.5}
   #topoInfraBox .kform .ksec{font-weight:600;font-size:13px;margin:16px 0 8px;padding-top:12px;border-top:1px solid rgba(120,120,128,.15)}
+  #topoInfraBox .kroles2{display:grid;grid-template-columns:1fr 1fr;gap:8px 24px;margin-bottom:4px}
+  #topoInfraBox .kroles2 .krow{margin-bottom:0}
+  #topoInfraBox .kroles2 .krow>label{flex:1 1 auto;text-align:left;min-width:0}
+  #topoInfraBox .kroles2 .kfield{flex:0 0 150px}
   #topoInfraBox .kform .kcheck{display:flex;align-items:center;gap:6px;min-height:32px;font-size:13px;cursor:pointer}
   #topoInfraBox .kform .kinline{display:flex;gap:14px;flex-wrap:wrap;align-items:center;min-height:32px}
   #topoInfraBox .kform .kinline label{display:inline-flex;align-items:center;gap:5px;cursor:pointer;font-size:13px}
@@ -770,7 +774,7 @@ const EN_DICT = {
   "至少 1 台控制面; 主部署机必须是集群节点之一": "at least 1 control plane; the primary deploy machine must join the cluster",
   "附带目标版本 kube 三件套与 upgrade-cluster.sh, 打包时自动下载目标版本二进制": "bundles target-version kube binaries and upgrade-cluster.sh, auto-downloaded at pack time",
   "与 Docker 加速器同一批实测源; K8s 组件镜像在离线/zone=cn 模式下自动走集群内仓库或国内源": "same verified mirrors as Docker; K8s images go through the in-cluster registry or CN mirrors in offline/zone=cn mode",
-  "镜像源前缀用于在线/镜像下载的仓库地址; 节点 containerd 侧的加速器即下方「镜像加速」": "prefix for online/image download repos; node-side containerd mirrors are the 'Registry mirrors' below",
+  "镜像源前缀用于在线/镜像下载的仓库地址; 节点 containerd 侧的加速器即「镜像加速」一栏": "prefix for online/image download repos; node-side containerd mirrors are the 'Registry mirrors' row",
   "部署在分配了「镜像仓库」角色的节点; 多仓库节点自动 keepalived HA": "deployed on nodes with the 'registry' role; keepalived HA automatically with multiple registry nodes",
   "CRI 运行时": "Container runtime", "Pod 子网掩码": "Pod subnet mask",
   "docker 运行时仅支持在线安装(K8s ≥1.24 由 kk 自动装 cri-dockerd); 纯离线包只预装 containerd": "docker runtime is online-install only (kk auto-installs cri-dockerd for K8s ≥1.24); offline bundles preinstall containerd",
@@ -1461,10 +1465,12 @@ function renderInfraTopology(){
   html += '<details data-dtl="roles"'+(rolesOpen?' open':'')+'><summary style="cursor:pointer"><h3 class="cat-h" style="margin:0">集群角色分配 '+
     '<span class="hint">(至少 1 台控制面; 主部署机必须是集群节点之一)</span> '+
     '<span class="jbadge'+(cpN+wkN+rgN?' on':'')+'">'+esc(rolesBadge)+'</span></h3></summary>'+
-    '<div class="kform" style="max-width:420px;margin-top:10px">'+
+    '<div class="kform" style="max-width:780px;margin-top:10px">'+
+    '<div class="kroles2">'+
     (state.servers.length ? state.servers.map(function(sv, i) { return roleSel(i, (cl.roles||{})[i]); }).join('') :
-      '<div class="khint">服务器池为空, 请先在上方「部署服务器池」添加节点</div>')+
-    '<div class="khint">镜像仓库角色: 部署私有镜像仓库时必需; etcd 默认堆叠在控制面</div></div></details>';
+      '<div class="khint" style="grid-column:1/-1">服务器池为空, 请先在上方「部署服务器池」添加节点</div>')+
+    '</div>'+
+    '<div class="khint" style="margin-top:10px">镜像仓库角色: 部署私有镜像仓库时必需; etcd 默认堆叠在控制面</div></div></details>';
 
   // ---- 2. 基础参数 ----
   const verOpts = Object.keys(cc.versions || {}).map(function(v) {
@@ -1634,6 +1640,9 @@ function renderInfraTopology(){
         'docker 数据目录', kfTxt('components.docker_root', comp.docker_root, '/var/lib/docker'))+
     kfRow('containerd 版本覆盖', kfTxt('components.containerd_version_override', comp.containerd_version_override, '可选, 如 v1.7.27'),
         'containerd 静态构建', kfChk('components.static_binary', comp.static_binary, 'glibc < 2.35 老系统必选'))+
+    kfRow('镜像加速 (docker.io)', kfLines('registry_mirrors', cl.registry_mirrors, 3, '每行一个 https://... , 写入节点 containerd')+
+      '<button type="button" class="mini" data-cfill="1" style="margin-top:6px">一键填入实测可用源</button>',
+      '与 Docker 加速器同一批实测源; K8s 组件镜像在离线/zone=cn 模式下自动走集群内仓库或国内源')+
     kHint('containerd 2.x 依赖 glibc ≥ 2.35, 老系统请勾选静态构建或降级 1.7.x')+
     kfRow('kubeadm 备份目录', kfTxt('kubeadm_config_dir', cl.kubeadm_config_dir, '/etc/kubekey/backup/kubernetes, 留空=禁用'))+
     kHint('kubeadm-config 每次部署自动带时间戳备份到该目录(配置生成先于 etcd/kubelet 安装, 故按部署顺序置顶)')+
@@ -1659,10 +1668,7 @@ function renderInfraTopology(){
     kHint('crontab 在主部署机执行 kk certs renew 并自动重启控制面静态 Pod(日志 /var/log/kk-certs-renew.log); kk 侧安装续期由 kubernetes.certs.renew 控制')+
     kfRow('节点 hostname', kfChk('set_hostname', cl.set_hostname !== false, '由 kk 设置节点 hostname (容器验证等特殊场景可关)'),
         'K8s 镜像源前缀', kfTxt('k8s_image_registry', cl.k8s_image_registry, '如 hub.kubesphere.com.cn'))+
-    kHint('镜像源前缀用于在线/镜像下载的仓库地址; 节点 containerd 侧的加速器即下方「镜像加速」')+
-    kfRow('镜像加速 (docker.io)', kfLines('registry_mirrors', cl.registry_mirrors, 3, '每行一个 https://... , 写入节点 containerd')+
-      '<button type="button" class="mini" data-cfill="1" style="margin-top:6px">一键填入实测可用源</button>',
-      '与 Docker 加速器同一批实测源; K8s 组件镜像在离线/zone=cn 模式下自动走集群内仓库或国内源')+
+    kHint('镜像源前缀用于在线/镜像下载的仓库地址; 节点 containerd 侧的加速器即「镜像加速」一栏')+
     kfRow('NTP 服务器', kfChk('ntp.enabled', ntp.enabled, '自定义时间同步 (默认关闭, 部署脚本只设时区)')+
       '<div style="margin-top:6px">'+kfLines('ntp.servers', ntp.servers, 2, '每行一台 NTP 服务器, 如 ntp.internal.corp')+'</div>')+
     kfRow('localpv 存储类', kfChk('storage.localpv_enabled', st.localpv_enabled, '启用 localpv 存储类')+
