@@ -214,7 +214,9 @@ if [ "${CLUSTER_MODE:-cache}" != "online" ] && ls cluster/images/*.tar >/dev/nul
     DK_TARBALL="$(ls cluster/cache/docker/*/*/docker-*.tgz 2>/dev/null | head -1 || true)"
     DOCKER_ROOT="${CLUSTER_DOCKER_DATA_ROOT:-/var/lib/docker}"
     IMP_SH="$(mktemp /tmp/.kk-oi-import.XXXXXX.sh)"
-    cat > "$IMP_SH" <<IMP_EOF
+    # 用户可控值(数据目录)以 %q 安全转义注入脚本头, 不再经 sed 占位符拼进脚本正文(审计 F-002)
+    printf 'IMP_DOCKER_ROOT=%q\n' "$DOCKER_ROOT" > "$IMP_SH"
+    cat >> "$IMP_SH" <<IMP_EOF
 set -e
 # 残留 kubelet unit 守卫: 上次失败部署遗留的 loaded+inactive unit 会让 kk precheck 卡死
 if systemctl list-unit-files 2>/dev/null | awk '{print \$1}' | grep -qx 'kubelet.service' \\
@@ -232,10 +234,10 @@ if ! command -v docker >/dev/null 2>&1; then
   tar -xzf /tmp/.kk-oi/@DK_TARBALL_NAME@ --strip-components=1 -C /usr/local/bin/
   PREINSTALLED=1
 fi
-mkdir -p /etc/docker '@DOCKER_ROOT@'
+mkdir -p /etc/docker "\$IMP_DOCKER_ROOT"
 cat > /etc/docker/daemon.json <<DAEMON_EOF
 {
-  "data-root": "@DOCKER_ROOT@",
+  "data-root": "\$IMP_DOCKER_ROOT",
   "log-driver": "json-file",
   "log-opts": { "max-size": "5Mi", "max-file": "3" },
   "live-restore": true,
@@ -292,14 +294,16 @@ echo "[INFO] 节点镜像数: \$N"
 rm -rf /tmp/.kk-oi
 [ "\$N" -ge 1 ] || { echo "[FAIL] 镜像导入后 docker 仍为空"; exit 1; }
 IMP_EOF
-    sed -i "s|@DK_TARBALL_NAME@|$(basename "$DK_TARBALL")|; s|@DOCKER_ROOT@|$DOCKER_ROOT|g" "$IMP_SH"
+    sed -i "s|@DK_TARBALL_NAME@|$(basename "$DK_TARBALL")|" "$IMP_SH"
     TARBALL="$DK_TARBALL"
   else
   CT_TARBALL="$(ls cluster/cache/containerd/*/*/containerd*-linux-*.tar.gz 2>/dev/null | head -1 || true)"
   DATA_ROOT="${CLUSTER_CONTAINERD_DATA_ROOT:-/var/lib/containerd}"
   SANDBOX="${CLUSTER_SANDBOX_IMAGE:-registry.k8s.io/pause:3.9}"
   IMP_SH="$(mktemp /tmp/.kk-oi-import.XXXXXX.sh)"
-  cat > "$IMP_SH" <<IMP_EOF
+  # 用户可控值(数据目录)以 %q 安全转义注入脚本头, 不经 heredoc 直接展开(审计 F-002)
+  printf 'IMP_DATA_ROOT=%q\nIMP_SANDBOX=%q\n' "$DATA_ROOT" "$SANDBOX" > "$IMP_SH"
+  cat >> "$IMP_SH" <<IMP_EOF
 set -e
 # 残留 kubelet unit 守卫: 上次失败部署遗留的 loaded+inactive unit 会让 kk precheck 卡死
 if systemctl list-unit-files 2>/dev/null | awk '{print \$1}' | grep -qx 'kubelet.service' \\
@@ -311,7 +315,7 @@ if systemctl list-unit-files 2>/dev/null | awk '{print \$1}' | grep -qx 'kubelet
   rm -rf /etc/systemd/system/kubelet.service.d
   systemctl daemon-reload
 fi
-mkdir -p /etc/containerd '$DATA_ROOT'
+mkdir -p /etc/containerd "\$IMP_DATA_ROOT"
 if ! command -v containerd >/dev/null 2>&1; then
   echo "[INFO] 预装 containerd (来自离线包)"
   [ -f /tmp/.kk-oi/@CT_TARBALL_NAME@ ] || { echo "[FAIL] 包内缺 containerd 归档且节点未装 containerd"; exit 1; }
@@ -322,8 +326,8 @@ if [ ! -s /etc/containerd/config.toml ]; then
 fi
 # root/sandbox 与约定不一致时改写: 节点已有旧配置指向别处时, 镜像会导错数据目录,
 # 随后 kk(config_policy=overwrite) 改 root 重启 containerd 会"丢"镜像
-sed -i "s#^root = .*#root = \\"$DATA_ROOT\\"#" /etc/containerd/config.toml
-sed -i "s#sandbox_image = \\"registry.k8s.io/pause:[^\"]*\\"#sandbox_image = \\"$SANDBOX\\"#" /etc/containerd/config.toml
+sed -i "s#^root = .*#root = \\"\$IMP_DATA_ROOT\\"#" /etc/containerd/config.toml
+sed -i "s#sandbox_image = \\"registry.k8s.io/pause:[^\"]*\\"#sandbox_image = \\"\$IMP_SANDBOX\\"#" /etc/containerd/config.toml
 cat > /etc/systemd/system/containerd.service <<'UNIT'
 [Unit]
 Description=containerd container runtime
@@ -408,16 +412,18 @@ if [ -n "$REG_DATA_DIR" ] && grep -q 'type: docker-registry' cluster/config.yaml
   # 仓库节点从 inventory 的 image_registry 组取(角色多选时主角色可能不是 registry)
   REG_HOSTS="$(awk '/^    image_registry:/{f=1;next} f&&/^        - /{print $2}' cluster/inventory.yaml)"
   REGFIX_SH="$(mktemp /tmp/.kk-regfix.XXXXXX.sh)"
-  cat > "$REGFIX_SH" <<REGFIX_EOF
+  # 用户可控值(仓库数据目录)以 %q 安全转义注入脚本头, 不再经 sed 占位符(审计 F-002)
+  printf 'IMP_REG_DATA=%q\n' "$REG_DATA_DIR" > "$REGFIX_SH"
+  cat >> "$REGFIX_SH" <<REGFIX_EOF
 set -e
-mkdir -p '@REG_DATA@'
+mkdir -p "\$IMP_REG_DATA"
 COMPOSE="\$(ls /opt/docker-registry/*/docker-compose.yml 2>/dev/null | head -1 || true)"
 [ -n "\$COMPOSE" ] || { echo "[INFO] 未找到 docker-registry compose(仓库未部署), 跳过"; exit 0; }
-if grep -q "source: '@REG_DATA@'" "\$COMPOSE"; then
+if grep -q "source: '\$IMP_REG_DATA'" "\$COMPOSE"; then
   echo "[INFO] 数据目录已绑定, 跳过"
 else
   cp -a "\$COMPOSE" "\$COMPOSE.bak"
-  awk -v ins="      - type: bind\\n        source: '@REG_DATA@'\\n        target: '@REG_DATA@'" '
+  awk -v ins="      - type: bind\\n        source: '\$IMP_REG_DATA'\\n        target: '\$IMP_REG_DATA'" '
     !done && /^    ports:/ { print ins; done=1 }
     { print }
   ' "\$COMPOSE" > "\$COMPOSE.new" && mv "\$COMPOSE.new" "\$COMPOSE"
@@ -427,7 +433,6 @@ else
   echo "[INFO] 仓库数据目录已绑定并重启生效"
 fi
 REGFIX_EOF
-  sed -i "s|@REG_DATA@|$REG_DATA_DIR|g" "$REGFIX_SH"
   LOCAL_IPS="$(hostname -I 2>/dev/null || true)"
   REG_FIXED=0; REG_FAIL=0
   for entry in ${CLUSTER_NODES[@]:-}; do
