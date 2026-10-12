@@ -657,6 +657,7 @@ def _auto_download_cluster_materials(cfg, catalog, cl_missing, prog):
         res["warnings"].append("备料脚本加载失败: %s" % e)
         return res
 
+    ccat = catalog["cluster"]   # 供下方 ensure_images/ensure_registry_image/ensure_charts 使用
     up_to = (cl.get("upgrade_to") or "").strip()
     if up_to:
         # 打包时缺升级物料同样自动下载; 升级三件套已在仓库则无需再下

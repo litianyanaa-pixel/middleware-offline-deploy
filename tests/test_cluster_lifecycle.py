@@ -117,6 +117,58 @@ def test_registry_tar_path_resolution():
         prep._docker = orig_docker
 
 
+def test_auto_download_wiring():
+    """回归: _auto_download_cluster_materials 曾引用未定义的 ccat(NameError 被外层 except
+    吞成一条 warning), 缺镜像/registry tar/chart 时自动补料入口整体静默不可达。
+    锁死接线: 缺什么就必须真的调起对应收集函数, 且不允许出现被吞异常的告警形态"""
+    import types
+    import packerlib.cluster as cl_mod
+    real_prep = cl_mod._PREPARE if cl_mod._PREPARE is not None else packer._prepare_module()
+    calls = []
+    fake = types.ModuleType("kk_prepare_fake")
+    for attr in dir(real_prep):          # 浅拷贝真实模块公开属性(纯函数保持真实实现)
+        if not attr.startswith("_"):
+            try:
+                setattr(fake, attr, getattr(real_prep, attr))
+            except Exception:
+                pass
+    fake.ensure_materials = lambda *a, **k: (calls.append("materials"), (0.0, []))[1]
+    fake.ensure_images = lambda ccat, v, arch, specs, cni, **k: (
+        calls.append(("images", v, len(specs))), (0.0, []))[1]
+    fake.ensure_registry_image = lambda *a, **k: (calls.append("registry"), (0.0, []))[1]
+    fake.ensure_charts = lambda *a, **k: (calls.append("charts"), (0.0, []))[1]
+
+    class _Prog:
+        def __init__(self):
+            self._downloads = {}
+        def stage(self, *a):
+            pass
+        def file(self, *a):
+            pass
+
+    cfg = _base_cluster()
+    cl_missing = ["缺 k8s 离线镜像包(k8s-1.28.15-flannel-amd64-images.tar)",
+                  "缺私有仓库 registry 镜像 tar",
+                  "缺 CNI chart 物料(tigera-operator)",
+                  "缺 kubeadm 二进制缓存"]
+    orig = cl_mod._PREPARE
+    cl_mod._PREPARE = fake
+    try:
+        res = cl_mod._auto_download_cluster_materials(cfg, CATALOG, cl_missing, _Prog())
+    finally:
+        cl_mod._PREPARE = orig
+    check("缺缓存目录调起 ensure_materials", "materials" in calls)
+    img_calls = [c for c in calls if isinstance(c, tuple)]
+    check("缺镜像包调起 ensure_images", len(img_calls) == 1)
+    check("ensure_images 收到 kube 版本与非空镜像清单", img_calls and img_calls[0][1] == "v1.28.15" and img_calls[0][2] > 0)
+    check("缺 registry tar 调起 ensure_registry_image", "registry" in calls)
+    check("缺 chart 调起 ensure_charts", "charts" in calls)
+    check("无被吞异常告警(修复前必现 '自动下载异常: name ccat is not defined')",
+          not any("自动下载异常" in w for w in res["warnings"]))
+    check("kk/artifact 缺失提示仍在", any("kk 二进制" in w for w in res["warnings"]) is False
+          and all("kk" not in w for w in res["warnings"]))
+
+
 def test_config_ha_vip_and_backup():
     """kube-vip 必须写 kube_vip.address(网卡自动发现依据); kubeadm 备份目录/证书续期显式落 config"""
     y = packer.gen_cluster_config(_base_cluster(ha_type="kube-vip", ha_vip="10.0.0.100"), CATALOG)
@@ -373,6 +425,7 @@ def test_scripts_bash_syntax():
 def main():
     for fn in (test_online_cn_static_fallback, test_config_custom_dirs, test_config_etcd_env_and_advance,
                test_config_ha_vip_and_backup, test_config_cri_cni_dns, test_config_validation_matrix,
+               test_registry_tar_path_resolution, test_auto_download_wiring,
                test_registry_auth_and_data_dir,
                test_manifest_lifecycle_vars, test_uninstall_flag_matrix,
                test_upgrade_sh_content, test_deploy_sh_branches, test_scripts_bash_syntax):

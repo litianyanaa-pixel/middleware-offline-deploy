@@ -230,6 +230,7 @@ if ! command -v docker >/dev/null 2>&1; then
   echo "[INFO] 预装 docker (来自离线包静态二进制)"
   [ -f /tmp/.kk-oi/@DK_TARBALL_NAME@ ] || { echo "[FAIL] 包内缺 docker 归档且节点未装 docker"; exit 1; }
   tar -xzf /tmp/.kk-oi/@DK_TARBALL_NAME@ --strip-components=1 -C /usr/local/bin/
+  PREINSTALLED=1
 fi
 mkdir -p /etc/docker '@DOCKER_ROOT@'
 cat > /etc/docker/daemon.json <<DAEMON_EOF
@@ -241,7 +242,10 @@ cat > /etc/docker/daemon.json <<DAEMON_EOF
   "exec-opts": ["native.cgroupdriver=systemd"]
 }
 DAEMON_EOF
-cat > /etc/systemd/system/docker.service <<'UNIT'
+if [ "\$PREINSTALLED" = "1" ]; then
+  # 仅预装分支覆写 unit; 节点已装发行版 docker 时其 unit ExecStart 指向自己的 dockerd,
+  # 覆写成硬编码 /usr/local/bin/dockerd 会让 enable --now 静默失败
+  cat > /etc/systemd/system/docker.service <<'UNIT'
 [Unit]
 Description=Docker Application Container Engine
 Documentation=https://docs.docker.com
@@ -262,9 +266,23 @@ OOMScoreAdjust=-999
 [Install]
 WantedBy=multi-user.target
 UNIT
-systemctl daemon-reload
-systemctl enable --now docker >/dev/null 2>&1 || true
-sleep 2
+  systemctl daemon-reload
+fi
+systemctl restart docker >/dev/null 2>&1 || systemctl start docker >/dev/null 2>&1 || true
+# 等引擎就绪并做 OCI 兼容预检: 离线镜像包是 OCI 格式合并 tar, docker load 需 Engine >= 25
+DK_OK=0
+for i in \$(seq 1 15); do
+  DK_VER=\$(docker version --format '{{.Server.Version}}' 2>/dev/null) && { DK_OK=1; break; }
+  sleep 2
+done
+[ "\$DK_OK" = "1" ] || { echo "[FAIL] docker 引擎未就绪, 无法导入离线镜像"; exit 1; }
+DK_MAJOR=\$(echo "\$DK_VER" | awk -F. '{print \$1}')
+if [ "\$DK_MAJOR" -lt 25 ] 2>/dev/null; then
+  echo "[FAIL] 节点 docker 版本 \$DK_VER 过旧(<25), 不支持导入 OCI 格式离线镜像包"
+  echo "       请升级节点 docker >= 25, 或改用 containerd CRI 重新打包"
+  exit 1
+fi
+echo "[INFO] docker \$DK_VER 就绪"
 for t in /tmp/.kk-oi/*.tar; do
   [ -f "\$t" ] || continue
   docker load -i "\$t" >/dev/null 2>&1 || echo "[WARN] \$(basename \$t) 导入部分报错(多为镜像已存在, 忽略)"

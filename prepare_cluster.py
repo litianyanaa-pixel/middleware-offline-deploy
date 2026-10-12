@@ -504,6 +504,7 @@ def ensure_images(ccat, kube_ver, arch, image_specs, cni_type="", progress_cb=No
     if len(image_specs) == 1:
         r = _docker("save", "-o", str(out), *image_specs, timeout=3600)
         if r.returncode != 0:
+            out.unlink(missing_ok=True)   # save 失败可能留下残缺 tar, 防重跑被 size>1MB 误判有效
             return 0.0, ["docker save 失败: %s" % (r.stderr or "").strip()[-200:]]
     else:
         parts = []
@@ -521,12 +522,14 @@ def ensure_images(ccat, kube_ver, arch, image_specs, cni_type="", progress_cb=No
                     if not ensure_docker_running(restart=True, wait_secs=240):
                         break
                 if not ok_part:
+                    part.unlink(missing_ok=True)   # 失败分片不在 parts 里, finally 清不到
                     return 0.0, ["docker save(%s)失败: %s" % (ref, (r.stderr or "").strip()[-160:])]
                 parts.append(part)
                 if progress_cb:
                     progress_cb("dl", "save " + ref, i + 1, len(image_specs))
             err = _merge_oci_tars(parts, out)
             if err:
+                out.unlink(missing_ok=True)   # 残缺合并 tar 留下会被下轮 size>1MB 判断当有效物料
                 return 0.0, ["镜像 tar 合并失败: %s" % err]
         finally:
             for p in parts:
@@ -563,6 +566,7 @@ def _merge_oci_tars(parts, out):
                         seen.add(m.name)
                         merged.addfile(m, tf.extractfile(m))
             if not manifests:
+                out.unlink(missing_ok=True)   # 残缺 tar 防下轮假成功
                 return "子包内未找到 OCI index manifest"
             idx = {"schemaVersion": 2, "mediaType": "application/vnd.oci.image.index.v1+json",
                    "manifests": manifests}
@@ -576,6 +580,7 @@ def _merge_oci_tars(parts, out):
                 ti.size = len(data); ti.mtime = 0; ti.mode = 0o644
                 merged.addfile(ti, io.BytesIO(data))
     except Exception as e:
+        out.unlink(missing_ok=True)
         return str(e)
     return ""
 
