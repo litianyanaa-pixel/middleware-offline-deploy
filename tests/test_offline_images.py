@@ -105,7 +105,9 @@ def test_gen_cluster_config_online_cn():
                        "timezone": "Asia/Shanghai", "os_distros": [], "roles": {},
                        "components": {}, "storage": {}, "kubelet": {}, "ntp": {}}}
     y = packer.gen_cluster_config(cfg, CATALOG)
-    check("在线cn有 imageRepository=hub", 'imageRepository: "hub.kubesphere.com.cn"' in y)
+    # online+cn 不显式写 imageRepository(裸域名会让 etcd/coredns 丢命名空间, hub 实测
+    # 400/404), 交 kk 按 zone=cn 内置映射走国内源 — 与 test_online_cn_static_fallback 一致
+    check("在线cn不写裸域名 imageRepository(kk 内置 CN 映射)", "imageRepository" not in y)
     check("在线 zone=cn", "zone: \"cn\"" in y)
     check("在线 fetch=true", "fetch: true" in y)
     check("在线无 config_policy(不覆盖节点配置)", "config_policy" not in y)

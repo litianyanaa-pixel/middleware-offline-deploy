@@ -20,11 +20,14 @@ jobs:
         run: pip install pytest pyyaml
 
       - name: Run unit tests
-        run: python -m pytest tests/test_packer.py -v
+        run: python -m pytest tests/ -v
 
       - name: Shell syntax check
         run: |
           bash -n server/deploy.sh
+          bash -n server/deploy-cluster.sh
+          bash -n server/uninstall-cluster.sh
+          bash -n server/upgrade-cluster.sh
           bash -n templates/backup.sh
           bash -n templates/restore.sh
           bash -n templates/uninstall.sh
@@ -33,7 +36,7 @@ jobs:
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
           # 部署脚本按零交互幂等部署编写, 告警不阻断 CI; 仅报错级问题
-          shellcheck -S error server/deploy.sh templates/*.sh
+          shellcheck -S error server/deploy.sh server/deploy-cluster.sh templates/*.sh
 
   # 仓库中含 warehouse/ 物料时(本地仓库未提交物料, CI 通常跳过)执行完整打包冒烟
   # 注意: hashFiles 只能用在 step 级 if, 不能用在 job 级 if (会导致 startup failure)

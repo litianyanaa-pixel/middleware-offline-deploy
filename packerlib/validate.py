@@ -162,8 +162,16 @@ def validate_config(cfg, catalog):
         comps_raw = cluster_raw.get("components") or {}
         def _abspath(v, what):
             v = str(v or "").strip()
-            if v and not v.startswith("/"):
-                raise PackError("%s 需为绝对路径: %s|%s must be an absolute path: %s" % (what, v, what, v))
+            if v:
+                if not v.startswith("/"):
+                    raise PackError("%s 需为绝对路径: %s|%s must be an absolute path: %s" % (what, v, what, v))
+                # 字符白名单(审计 F-002/F-007): 这些值会被拼进部署脚本/容器配置,
+                # 引号/$/分号/管道等 shell 元字符即注入; .. 防路径穿越, / 防误格式化根盘
+                if not LINUX_PATH_RE.match(v) or ".." in v or v == "/":
+                    raise PackError(
+                        "%s 仅允许 字母/数字/._-/ 组成且禁止 .. 与根目录: %s|"
+                        "%s allows only [A-Za-z0-9._/-] and forbids '..' and '/': %s"
+                        % (what, v, what, v))
             return v
         components = {
             "containerd_root": _abspath(comps_raw.get("containerd_root"), "containerd 数据目录"),
@@ -227,12 +235,18 @@ def validate_config(cfg, catalog):
                 raise PackError("kubelet extra_args 需为 key=value 形式: %s|kubelet extra_args must be key=value: %s" % (kv, kv))
             extra_args.append(kv)
         kubelet["extra_args"] = extra_args
-        kubelet["extra_config"] = str(kubelet_raw.get("extra_config") or "")
+        extra_config = str(kubelet_raw.get("extra_config") or "")
+        # 加固(审计 F-006): 值按原文(统一加 6 空格前缀)嵌入 kk config 的 kubelet 段,
+        # 禁 tab(YAML 非法)与文档标记, 防结构破坏; 缩进注入面由前缀兜底
+        for ln in extra_config.splitlines():
+            if "\t" in ln or ln.strip() in ("---", "..."):
+                raise PackError(
+                    "kubelet extra_config 含非法字符(tab 或文档标记): %s|"
+                    "kubelet extra_config has invalid characters (tab or document marker): %s"
+                    % (ln.strip()[:40], ln.strip()[:40]))
+        kubelet["extra_config"] = extra_config
         # kubelet 数据目录(root-dir 启动参数): 数据盘场景常用
-        root_dir = str(kubelet_raw.get("root_dir") or "").strip()
-        if root_dir and not root_dir.startswith("/"):
-            raise PackError("kubelet 数据目录需为绝对路径: %s|kubelet root-dir must be an absolute path: %s" % (root_dir, root_dir))
-        kubelet["root_dir"] = root_dir
+        kubelet["root_dir"] = _abspath(kubelet_raw.get("root_dir"), "kubelet 数据目录")
         # 镜像加速(docker.io)
         mirrors = [str(m).strip().rstrip("/") for m in (cluster_raw.get("registry_mirrors") or []) if str(m).strip()]
         for m in mirrors:
@@ -319,7 +333,13 @@ def validate_config(cfg, catalog):
         set_hostname = cluster_raw.get("set_hostname")
         set_hostname = True if set_hostname is None else bool(set_hostname)
         # 证书自动续期 crontab(部署后写入; 空=不启用)
+        # 白名单(审计 F-005): 值会被 echo 拼进 crontab -, 换行/分号可注入任意 root 定时任务
         certs_cron = str(cluster_raw.get("certs_renew_cron") or "").strip()
+        if certs_cron and not re.match(r"^[\d*,\-/ ]+$", certs_cron):
+            raise PackError(
+                "证书续期 crontab 仅允许 数字/逗号/星号/横线/斜杠/空格: %s|"
+                "certs renew crontab allows only digits , * - / space: %s"
+                % (certs_cron, certs_cron))
         # CRI 运行时(kk cri.container_manager): 离线模式下 docker 静态二进制与 cri-dockerd
         # 随 kk 缓存携带(deploy 阶段 kk 自动装), containerd 为默认推荐
         container_manager = str(cluster_raw.get("container_manager") or "containerd").strip()
@@ -353,10 +373,8 @@ def validate_config(cfg, catalog):
                "nodelocaldns_enabled": (bool(dns_raw["nodelocaldns_enabled"])
                                         if dns_raw.get("nodelocaldns_enabled") is not None else None)}
         # kubeadm 配置备份目录(kk post_install 带时间戳备份 /etc/kubernetes/kubeadm-config.yaml; 空=禁用备份)
-        kubeadm_config_dir = str(cluster_raw.get("kubeadm_config_dir") or "").strip()
-        if kubeadm_config_dir and not kubeadm_config_dir.startswith("/"):
-            raise PackError("kubeadm 备份目录需为绝对路径(留空禁用备份): %s|kubeadm backup dir must be an absolute path (empty disables backup): %s"
-                            % (kubeadm_config_dir, kubeadm_config_dir))
+        kubeadm_config_dir = _abspath(cluster_raw.get("kubeadm_config_dir"),
+                                      "kubeadm 备份目录(留空禁用备份)")
         # 安装时证书续期(kk kubernetes.certs.renew, 默认开; 三态: None=不写跟随 kk 默认)
         certs_renew = cluster_raw.get("certs_renew")
         certs_renew = None if certs_renew is None else bool(certs_renew)

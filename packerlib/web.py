@@ -170,12 +170,29 @@ def catalog_response(catalog):
             "suites": catalog.get("suites", [])}
 
 
-def make_handler(catalog):
+def make_handler(catalog, token="", port=8765):
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, fmt, *args):
             log.debug("%s %s", self.address_string(), fmt % args)
+
+        def _guard_host(self):
+            """DNS rebinding 防护: Host 必须是本机回环(rebinding 攻击的 Host 是恶意域名)"""
+            host = (self.headers.get("Host") or "").lower()
+            ok = host.rstrip(":") in ("127.0.0.1:%d" % port, "localhost:%d" % port,
+                                      "[::1]:%d" % port, "127.0.0.1", "localhost", "[::1]")
+            if not ok:
+                self._send_json({"error": "forbidden host"}, 403)
+            return ok
+
+        def _guard_token(self):
+            """drive-by 防护: 跨站简单请求带不了自定义头(强制 CORS 预检且预检必败),
+            校验由页面注入的一次性 token, 挡住恶意网页调本地打包 API"""
+            if not token or (self.headers.get("X-Packer-Token") or "") != token:
+                self._send_json({"error": "forbidden"}, 403)
+                return False
+            return True
 
         def _send_json(self, obj, code=200):
             data = json.dumps(obj, ensure_ascii=False).encode("utf-8")
@@ -187,6 +204,9 @@ def make_handler(catalog):
             self.wfile.write(data)
 
         def _read_body(self):
+            ctype = (self.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+            if ctype and ctype != "application/json":
+                raise PackError("不支持的 Content-Type: %s (需 application/json)" % ctype)
             length = int(self.headers.get("Content-Length", 0) or 0)
             if length <= 0:
                 return {}
@@ -194,8 +214,15 @@ def make_handler(catalog):
             return json.loads(raw.decode("utf-8"))
 
         def do_GET(self):
+            if not self._guard_host():
+                return
             if self.path in ("/", "/index.html"):
                 html = HTML_FILE.read_bytes()
+                inject = b'<script>window.PACKER_TOKEN="%s"</script>' % token.encode()
+                if b"<head>" in html:
+                    html = html.replace(b"<head>", b"<head>" + inject, 1)
+                else:
+                    html = inject + b"\n" + html
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
                 self.send_header("Cache-Control", "no-store")
@@ -238,6 +265,8 @@ def make_handler(catalog):
                 self._send_json({"error": "not found"}, 404)
 
         def do_POST(self):
+            if not self._guard_host() or not self._guard_token():
+                return
             try:
                 cfg = self._read_body()
                 if self.path == "/api/preview":
@@ -303,8 +332,10 @@ def make_handler(catalog):
 
 
 def run_web(port, no_browser=False):
+    import secrets
+    token = secrets.token_hex(16)   # 每次启动重新生成, 经页面注入给前端 API 调用
     catalog = load_catalog()
-    handler_cls, server_cls = make_handler(catalog)
+    handler_cls, server_cls = make_handler(catalog, token, port)
     httpd = server_cls(("127.0.0.1", port), handler_cls)
     url = "http://127.0.0.1:%d" % port
     log.info("打包器已启动: %s  (Ctrl+C 退出)", url)

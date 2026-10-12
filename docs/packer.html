@@ -1087,8 +1087,13 @@ function saveLocal(){
 async function api(path, body){
   if (typeof STATIC_MODE !== 'undefined' && STATIC_MODE && path !== '/api/catalog')
     throw new Error('静态演示版不支持该操作 — 请在本地运行 python packer.py 体验完整功能');
+  const headers = body !== undefined ? {'Content-Type':'application/json'} : {};
+  // 服务端启动时注入的一次性 token(见 web.py): 跨站页面带不了该自定义头(CORS 预检必败),
+  // 挡住恶意网页 drive-by 调本地打包 API
+  if (typeof window !== 'undefined' && window.PACKER_TOKEN && body !== undefined)
+    headers['X-Packer-Token'] = window.PACKER_TOKEN;
   const opt = body !== undefined
-    ? {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)}
+    ? {method:'POST', headers, body: JSON.stringify(body)}
     : {};
   const r = await fetch(path, opt);
   const data = await r.json().catch(() => ({error:'响应解析失败'}));

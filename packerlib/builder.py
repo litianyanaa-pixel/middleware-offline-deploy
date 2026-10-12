@@ -60,6 +60,9 @@ BUNDLE_README = """\
 - docker-compose.yml 与 .env 会复制到部署目录 {deploy_dir}; 数据/日志/配置全部持久化在该目录
 - 重复部署时旧的 docker-compose.yml/.env 会自动备份到包目录 backup/<时间戳>/
 - 账号密码见 .env (部署后位于 {deploy_dir}/.env)
+- ⚠ 包内 manifest.sh/.env/cluster/inventory.yaml/cluster/config.yaml 含明文密码
+  (SSH/中间件/私有仓库凭据, 已按 0o600 生成), 请勿经不可信渠道传输; 集群部署后可执行
+  chmod 600 cluster/inventory.yaml cluster/config.yaml 进一步收紧
 - 目标架构: {arch}; 项目: {project}; 生成时间: {ts}
 """
 
@@ -340,7 +343,14 @@ def pack(cfg, catalog, out_dir=None, progress=None):
             ("%s/images/retag-mirrors.sh" % bundle_name, gen_retag_mirrors_sh().encode("utf-8"), 0o755),
         ]
     for rel, content in cluster_small.items():
-        mode = 0o755 if rel.endswith(".sh") else 0o644
+        # 集群 inventory/config 内含节点 SSH 密码与仓库凭据, 0o600 收紧(审计 F-004);
+        # 部署脚本需 0o755, 其余(cluster/config.yaml 等)一律 0o600
+        if rel.endswith(".sh"):
+            mode = 0o755
+        elif rel.startswith("cluster/"):
+            mode = 0o600
+        else:
+            mode = 0o644
         small_files.append(("%s/%s" % (bundle_name, rel), content.encode("utf-8"), mode))
     for rel, content in sql_files.items():
         small_files.append(("%s/%s" % (bundle_name, rel), content.encode("utf-8"), 0o644))

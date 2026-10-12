@@ -44,6 +44,14 @@ def _base_cluster(**over):
             "ports": {}}
 
 
+def _vcfg(**over):
+    """validate 后的配置 — 模拟真实链路(WebUI 输入 -> validate_config -> gen_*):
+    gen_cluster_config 等生成器消费的是 validate 规整后的值(etcd_env 强转 int/
+    dns 补默认键/calico_values 归位), 直接喂原始 dict 会与生产行为不符(假阴性教训)"""
+    out, _ = packer.validate_config(_base_cluster(**over), CATALOG)
+    return out
+
+
 def test_online_cn_static_fallback():
     """online+zone=cn 必须自动回退非 static containerd(qingstor 镜像无 static-*, 404 实测),
     offline/cache 与国际源保留 static"""
@@ -85,7 +93,8 @@ def test_config_etcd_env_and_advance():
                                                  "quota_backend_bytes=8589934592",
                                                  "max_request_bytes=1572864", "max_snapshots=5",
                                                  "max_wals=5", "log_level=info"]})
-    y = packer.gen_cluster_config(cfg, CATALOG)
+    out, warns = packer.validate_config(cfg, CATALOG)
+    y = packer.gen_cluster_config(out, CATALOG)
     check("env 块包含 data_dir", "    env:\n      data_dir: \"/data1/etcd\"" in y)
     for k, v in (("heartbeat_interval", 250), ("election_timeout", 5000), ("compaction_retention", 8),
                  ("snapshot_count", 10000), ("quota_backend_bytes", 8589934592),
@@ -93,8 +102,8 @@ def test_config_etcd_env_and_advance():
         check("env.%s=%s" % (k, v), ("      %s: %d" % (k, v)) in y)
     check("env.log_level", '      log_level: "info"' in y)
     check("顶层无 etcd.data_dir 残留", "\n    data_dir:" not in y)
-    _, warns = packer.validate_config(cfg, CATALOG)
-    check("validate 不告警", not warns)
+    # SSH 免密提示属正常告警(测试节点未填密码); 除它之外必须零告警
+    check("validate 除 SSH 免密提示外无告警", not [w for w in warns if "SSH" not in w])
 
 
 def test_registry_tar_path_resolution():
@@ -107,14 +116,25 @@ def test_registry_tar_path_resolution():
           and "docker-registry-image/2.8.3/amd64" in out.as_posix())
     out_none, _ = prep.registry_image_tar_path(CCAT, "amd64", "amd64")   # 旧 bug 的传参形态
     check("kube_ver 传错(arch)时返回 None 而非静默成功", out_none is None)
-    # 失败上报: docker 拉取全失败时必须返回 failed, 不允许 0.0/[] 假成功
+    # 失败上报: docker 拉取全失败时必须返回 failed, 不允许 0.0/[] 假成功。
+    # 三个 patch: registry tar 路径指向临时空目录(消除本机 warehouse 已有 tar 的
+    # 环境依赖) + _docker 全失败 + 引擎探测恒就绪(否则会真去拉起 Docker Desktop)
+    import tempfile
     orig_docker = prep._docker
+    orig_path = prep.registry_image_tar_path
+    orig_engine = prep.ensure_docker_running
+    tmpd = tempfile.mkdtemp(prefix="kk-reg-test-")
     prep._docker = lambda *a, **k: subprocess.CompletedProcess(a, 1, "", "simulated pull failure")
+    prep.registry_image_tar_path = lambda ccat, kv="", arch="amd64": (
+        Path(tmpd) / "docker-registry-2.8.3-linux-amd64.tgz", "2.8.3")
+    prep.ensure_docker_running = lambda *a, **k: True
     try:
         dl, failed = prep.ensure_registry_image(CCAT, "v1.28.15", "amd64")
         check("registry 拉取失败上报 failed", dl == 0.0 and failed)
     finally:
         prep._docker = orig_docker
+        prep.registry_image_tar_path = orig_path
+        prep.ensure_docker_running = orig_engine
 
 
 def test_auto_download_wiring():
@@ -186,30 +206,32 @@ def test_config_ha_vip_and_backup():
 
 def test_config_cri_cni_dns():
     """container_manager 选择 / CNI 高级(掩码+multus+calico values) / DNS 覆盖必须落到对应键"""
-    y = packer.gen_cluster_config(_base_cluster(container_manager="docker"), CATALOG)
+    y = packer.gen_cluster_config(_vcfg(container_manager="docker"), CATALOG)
     check("docker 运行时写 container_manager", 'container_manager: "docker"' in y)
     check("docker 不写 containerd 子块", "    containerd:" not in y)
     check("离线 docker 写 daemon_policy: override(kk 重写 daemon.json 带加速器)", "      daemon_policy: override" in y)
-    y_d2 = packer.gen_cluster_config(_base_cluster(container_manager="docker", components={"docker_root": "/data1/docker"}), CATALOG)
+    y_d2 = packer.gen_cluster_config(_vcfg(container_manager="docker", components={"docker_root": "/data1/docker"}), CATALOG)
     check("docker 数据目录直写 data_root", 'data_root: "/data1/docker"' in y_d2)
-    y2 = packer.gen_cluster_config(_base_cluster(ipv4_mask_size=25, multi_cni="multus", multi_cni_tag="v4.3.0",
-                                                 calico_values="installation:\n  calicoNetwork:\n    mtu: 1440",
-                                                 dns={"coredns_tag": "v1.12.1", "nodelocaldns_enabled": True,
-                                                      "nodelocaldns_tag": "1.26.4"}), CATALOG)
+    y2 = packer.gen_cluster_config(_vcfg(cni_type="calico", ipv4_mask_size=25, multi_cni="multus", multi_cni_tag="v4.3.0",
+                                         calico_values="installation:\n  calicoNetwork:\n    mtu: 1440",
+                                         dns={"coredns_tag": "v1.12.1", "nodelocaldns_enabled": True,
+                                              "nodelocaldns_tag": "1.26.4"}), CATALOG)
     check("ipv4_mask_size 直写", "    ipv4_mask_size: 25" in y2)
     check("multi_cni: multus + multus tag", "    multi_cni: multus" in y2 and 'tag: "v4.3.0"' in y2)
     check("calico values 块透传(helm -f)", "    calico:\n      values: |\n        installation:" in y2)
     check("coredns/nodelocaldns tag 覆盖", 'tag: "v1.12.1"' in y2 and 'tag: "1.26.4"' in y2)
-    y3 = packer.gen_cluster_config(_base_cluster(dns={"nodelocaldns_enabled": False}), CATALOG)
+    y3 = packer.gen_cluster_config(_vcfg(dns={"nodelocaldns_enabled": False}), CATALOG)
     check("nodelocaldns 显式关闭", "    nodelocaldns:\n      enabled: false" in y3)
     check("关闭时不写 nodelocaldns tag", "k8s-dns-node-cache" not in y3)
-    # 离线镜像清单跟随 DNS 覆盖/multus(导入镜像必须与 config 生成的 tag 一致)
+    # 离线镜像清单跟随 DNS 覆盖/multus(导入镜像必须与 config 生成的 tag 一致);
+    # dns 需带 enabled 键(validate 后的形态, 生产链路 k8s_image_specs 只见规整值)
     prep = packer._prepare_module()
     specs = prep.k8s_image_specs(CCAT, "v1.28.15", "flannel",
-                                 dns={"coredns_tag": "v1.12.1", "nodelocaldns_tag": "1.26.4"},
+                                 dns={"coredns_tag": "v1.12.1", "nodelocaldns_enabled": True,
+                                      "nodelocaldns_tag": "1.26.4"},
                                  multi_cni="multus", multi_cni_tag="v4.4.0")
     check("镜像清单用覆盖后的 coredns tag", "registry.k8s.io/coredns/coredns:v1.12.1" in specs)
-    check("镜像清单用覆盖后的 nodelocaldns tag", "k8s-dns-node-cache:1.26.4" in specs)
+    check("镜像清单用覆盖后的 nodelocaldns tag", any("k8s-dns-node-cache:1.26.4" in s for s in specs))
     check("multus 镜像入清单", "ghcr.io/k8snetworkplumbingwg/multus-cni:v4.4.0" in specs)
     specs_off = prep.k8s_image_specs(CCAT, "v1.28.15", "flannel", dns={"nodelocaldns_enabled": False})
     check("nodelocaldns 关闭不出镜像", not any("k8s-dns-node-cache" in s for s in specs_off))
@@ -233,14 +255,16 @@ def test_config_validation_matrix():
     expect_err("etcd 非整数", {"components": {"etcd_env": ["heartbeat_interval=abc"]}})
     expect_err("mask 越界", {"ipv4_mask_size": 40})
     expect_err("multi_cni 非法", {"multi_cni": "spiderpool"})
-    expect_err("calico values 非 YAML", {"calico_values": ": : :"})
+    # YAML 校验仅对当前 CNI 的 values 生效(flannel 下 calico_values 提前短路忽略)
+    expect_err("calico values 非 YAML", {"cni_type": "calico", "calico_values": "{{{{"})
     expect_err("备份目录相对路径", {"kubeadm_config_dir": "rel/path"})
     # 在线模式 docker 放行
     out, _ = packer.validate_config(_base_cluster(mode="online", container_manager="docker"), CATALOG)
     check("online+docker 放行", out["cluster"]["container_manager"] == "docker")
-    # calico values 仅 calico 生效(其他 CNI 静默忽略+告警)
+    # calico values 仅 calico 生效(其他 CNI 静默忽略+告警); SSH 免密提示为常态告警需排除
     out2, w2 = packer.validate_config(_base_cluster(cni_type="flannel", calico_values="a: 1"), CATALOG)
-    check("非 calico 忽略 values 并告警", out2["cluster"]["calico_values"] == "" and len(w2) == 1)
+    check("非 calico 忽略 values 并告警", out2["cluster"]["calico_values"] == ""
+          and len([w for w in w2 if "SSH" not in w]) == 1)
 
 
 def test_registry_auth_and_data_dir():
