@@ -364,6 +364,9 @@ warehouse/images/postgres/15.19/arm64.tar   ← postgres-15.19-arm64.tar 放这�
 
 ## 🔐 七、安全
 
+- **打包器 Web API 三道闸**：写操作要求页面注入的 `X-Packer-Token` 请求头（防跨站 drive-by）、
+  Host 头回环校验（防 DNS rebinding）、`Content-Type: application/json` 约束（纵深防御）；
+  部署脚本中用户可控值经 `printf %q` 安全注入与白名单校验，杜绝引号逃逸注入
 - `.env` 与 `manifest.sh` 含全部明文密码，包内权限 600，分发与留存注意管控
 - `manifest.json` 为部署决策留档（含密码），建议随发布流程归档，不要进公共仓库
 - 本仓库**不含**任何真实部署密码：`versions.json` 里的默认值仅作表单预填（建议打包时点"随机"生成）；

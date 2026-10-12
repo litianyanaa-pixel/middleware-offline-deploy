@@ -2,6 +2,29 @@
 
 按时间倒序记录每次功能与修复。`docs/` 演示站随前端改动同步更新。
 
+## 2026-10-12（上线前全检修复 + 真机部署验证）
+
+- **上线前全检**: 产品 / 安全 / QA 三视角并行审查(代码审查 + 安全审计 + 测试基线核查),
+  修复全部 P0/P1 发现。产品结论: 代码达到可上线水平。
+- **Web 打包器 API 三道闸(安全修复)**: ①写操作要求 `X-Packer-Token` 请求头(token 由页面
+  注入, 浏览器跨站简单请求无法携带自定义头, 挡 drive-by CSRF); ②Host 头回环校验(挡
+  DNS rebinding); ③写接口强制 `Content-Type: application/json`(纵深)。GET 页面不受影响。
+- **部署脚本注入面根治(安全修复)**: deploy-cluster.sh 中用户可控值(数据目录等)弃用
+  sed 占位符 / heredoc 直接展开, 改为 `printf %q` 注入脚本头变量(IMP_*), 引号逃逸
+  即 RCE 的链路关闭; 配套校验器白名单加固(Linux 路径字符集、crontab 表达式、YAML
+  文档标记)。
+- **打包产物权限**: 集群配置(含凭据)在包内 0o600; BUNDLE_README 增加明文凭据警告。
+- **测试门禁**: pytest conftest 增加 check() 断言钩子(有失败必 ERROR, 杜绝"记录了但
+  没人看"的虚假绿灯); CI 跑全量测试 + 三个部署脚本 bash -n + shellcheck。
+- **部署健壮性**: 打包自动补料(compose/registry 物料)接线修复; 镜像 save 失败路径
+  清理残缺 tar; docker 引擎未就绪时自动拉起自愈; 节点 docker < 25 版本预检 fail-fast
+  (离线镜像为 OCI 合并 tar, 旧引擎 load 不支持)。
+- **真机验证**: 本地安全矩阵 curl 8/8(伪造 token/Host/Content-Type 全拒) + jsdom 全链路
+  e2e 5/5(从真实 HTTP 服务取页面防假阳性) + 真实打包产物核验(690MB 包内权限/manifest);
+  **真实服务器部署验证**(CentOS 7.9 + docker-ce 26.1.4, 两台): deploy.sh 中间件九步
+  全过、健康实测通过、密码替换正负验证全过(mysql/redis 对密码通过、错密码/无密码拒绝),
+  测试后服务器恢复原状。
+
 ## 2026-10-10（docker CRI 离线支持 + 私有仓库账号密码/数据目录）
 
 - **docker 运行时离线可用**: 去掉「docker 仅在线安装」限制。docker 静态二进制 tgz 与

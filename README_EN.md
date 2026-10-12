@@ -341,6 +341,7 @@ Port/password changes should go through "edit locally → repack → redeploy", 
 
 ## 🔐 7. Security
 
+- **Packer Web API triple gate**: write operations require the page-injected `X-Packer-Token` header (blocks cross-site drive-by), Host header loopback validation (blocks DNS rebinding), and `Content-Type: application/json` enforcement (defense in depth); user-controlled values in deploy scripts are injected via `printf %q` with allowlist validation, closing quote-escape injection
 - `.env` and `manifest.sh` contain all plaintext passwords, permission 600 inside the bundle — control their distribution and retention
 - `manifest.json` archives deployment decisions (incl. passwords); archive it with your release process, never in a public repo
 - This repo contains **no real deployment passwords**: defaults in `versions.json` are form pre-fills only (use the "random" button when packing);
