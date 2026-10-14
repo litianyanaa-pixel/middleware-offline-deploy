@@ -25,8 +25,8 @@ from .multinode import (gen_distribute_sh, gen_node_install_sh, gen_nodes,
                         gen_proxysql_conf)
 from .nginx_conf import gen_nginx_confs, px_ssl_rel
 from .nacos_sql import build_nacos_sql
-from .paths import (BASE_DIR, CLUSTER_SH, DIST_DIR, HTML_FILE, LOGOS_JS, SERVER_SH,
-                    SQL_DIR, TPL_DIR, WAREHOUSE, log)
+from .paths import (BASE_DIR, CATALOG_FILE, CLUSTER_SH, DIST_DIR, HTML_FILE, LOGOS_JS,
+                    SERVER_SH, SQL_DIR, TPL_DIR, WAREHOUSE, log)
 from .progress import PackProgress
 from .util import PackError, bash_quote, has_multihost, is_multihost, proxysql_name, tr
 from .validate import check_warehouse, validate_config
@@ -132,9 +132,13 @@ def materials_preview(cfg, catalog, nodes=None):
             up_dir = BASE_DIR / ("warehouse/cluster/kube/%s/%s" % (up_to, arch))
             if up_to and all((up_dir / b).is_file() for b in ("kubeadm", "kubelet", "kubectl")):
                 up_to = ""
+    # 可行内换源的行标注 (scope, key): 集群二进制 = component_sources.<组件键>,
+    # chart = chart_sources.<显示名>; 其余(docker pull 类/Java)由内置多源机制覆盖
             for out, urls, check, disp in pm.component_jobs(ccat, kube_ver, arch, up_to,
                                                             extra_comps=tuple(extra_comps)):
                 add("集群二进制", disp, out.is_file() and check(out), urls)
+                rows[-1]["scope"] = "component"
+                rows[-1]["key"] = disp.split("/", 1)[1] if disp.startswith("upgrade/") else disp.split("/", 1)[0]
             versions = [kube_ver] + ([cl["upgrade_to"].strip()]
                                      if (cl.get("upgrade_to") or "").strip() else [])
             for v in versions:
@@ -152,6 +156,8 @@ def materials_preview(cfg, catalog, nodes=None):
             for out, urls, check, disp in pm.chart_jobs(ccat, kube_ver, cl["cni_type"], arch,
                                                         storage=cl.get("storage") or {}):
                 add("CNI/存储 chart", disp, out.is_file() and check(out), urls)
+                rows[-1]["scope"] = "chart"
+                rows[-1]["key"] = disp
     if (cfg.get("java") or {}).get("enabled"):
         try:
             import prepare_java
@@ -183,6 +189,37 @@ def materials_preview(cfg, catalog, nodes=None):
             add("中间件镜像", ref, (BASE_DIR / rel).is_file(), ["docker pull(国内源候选)"])
     cached_n = sum(1 for r in rows if r["cached"])
     return {"rows": rows, "cached_n": cached_n, "total": len(rows)}
+
+
+_SRC_URL_RE = re.compile(r"^(https?://\S{1,500}|GH/\S{1,500})$")
+
+
+def set_material_sources(scope, key, sources):
+    """预览页行内换源: 把用户编辑的源列表写回 versions.json
+    cluster.download_mirrors.component_sources / chart_sources, 立即对后续打包生效"""
+    if scope not in ("component", "chart"):
+        raise PackError("不支持的物料源类型: %s|unsupported material source scope: %s" % (scope, scope))
+    if not re.match(r"^[A-Za-z0-9_./ -]{1,80}$", str(key or "")):   # chart 显示名含空格
+        raise PackError("物料键不合法: %s|invalid material key: %s" % (key, key))
+    if not isinstance(sources, list) or not (1 <= len(sources) <= 8):
+        raise PackError("源需为 1~8 条|sources must be 1..8 entries")
+    cleaned = []
+    for s in sources:
+        s = str(s or "").strip()
+        if not _SRC_URL_RE.match(s):
+            raise PackError("源需为 http(s):// 或 GH/ 开头的 URL: %s|source must start with http(s):// or GH/: %s"
+                            % (s[:80], s[:80]))
+        cleaned.append(s)
+    with open(CATALOG_FILE, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    dm = data.setdefault("cluster", {}).setdefault("download_mirrors", {})
+    bucket = dm.setdefault("component_sources" if scope == "component" else "chart_sources", {})
+    bucket[key] = cleaned
+    with open(CATALOG_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+        f.write("\n")
+    log.info("物料源已更新: %s.%s = %s", scope, key, cleaned)
+    return {"ok": True, "scope": scope, "key": key, "sources": cleaned}
 
 
 def pack(cfg, catalog, out_dir=None, progress=None):

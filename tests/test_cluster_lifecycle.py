@@ -207,6 +207,16 @@ def test_prepare_download_events():
         check("charts 缺失项下载成功且 dl/downloaded 齐备",
               dl_mb > 0 and not failed and any(e[0] == "dl" for e in events)
               and ("downloaded", "localpv chart", 1, 1) in events)
+        # ---- 源覆盖: component_sources(kube 三件套) 与 chart_sources ----
+        ccat_ovr = {"versions": {"v1.28.15": {"cni_versions": {"flannel": "v0.24.0"}}},
+                    "download_mirrors": {"component_sources": {"kubeadm": ["https://my/kubeadm"]},
+                                          "chart_sources": {"flannel chart": ["https://my/flannel.tgz"]}}}
+        ovr_jobs = prep.component_jobs(ccat_ovr, "v1.28.15", "amd64")
+        check("component_sources 覆盖 kube 三件套源",
+              ovr_jobs and ovr_jobs[0][3] == "kubeadm" and ovr_jobs[0][1] == ["https://my/kubeadm"])
+        ovr_cjobs = prep.chart_jobs(ccat_ovr, "v1.28.15", "flannel", "amd64")
+        check("chart_sources 覆盖 chart 源", ovr_cjobs and ovr_cjobs[0][3] == "flannel chart"
+              and ovr_cjobs[0][1] == ["https://my/flannel.tgz"])
         # ---- ensure_service_images: 缓存跳过 + 拉取成功(候选源+retag) ----
         nginx = tmp / "images/nginx.tar"
         redis = tmp / "images/redis.tar"
@@ -447,6 +457,38 @@ def test_materials_preview():
     check("registry tar 路径为 None 时不产生行", "私有仓库镜像 tar" not in by)
     check("统计自洽", out["total"] == len(rows)
           and out["cached_n"] == sum(1 for r in rows if r["cached"]))
+
+
+def test_set_material_sources():
+    """预览页行内换源: 合法源写入 versions.json 对应命名空间; 非法 scope/key/URL 拒绝"""
+    import json as _json
+    import packerlib.builder as bld
+    from packerlib.util import PackError
+    vj = Path(tempfile.mkdtemp(prefix="kk-src-")) / "versions.json"
+    vj.write_text('{"cluster": {}}', encoding="utf-8")
+    orig = bld.CATALOG_FILE
+    bld.CATALOG_FILE = vj
+    try:
+        bld.set_material_sources("component", "crictl",
+                                 ["https://my/crictl-v{ver}-linux-{arch}.tar.gz",
+                                  "GH/kubernetes-sigs/cri-tools/releases/download/{ver}/crictl-{ver}-linux-{arch}.tar.gz"])
+        data = _json.loads(vj.read_text(encoding="utf-8"))
+        check("component 源写入 versions.json",
+              data["cluster"]["download_mirrors"]["component_sources"]["crictl"][0] == "https://my/crictl-v{ver}-linux-{arch}.tar.gz")
+        bld.set_material_sources("chart", "flannel chart", ["https://my/flannel.tgz"])
+        data = _json.loads(vj.read_text(encoding="utf-8"))
+        check("chart 源写入独立命名空间",
+              "flannel chart" in data["cluster"]["download_mirrors"]["chart_sources"])
+        for i, bad in enumerate((("rpm", "x", ["https://a"]), ("component", "bad key!", ["https://a"]),
+                                 ("component", "crictl", "notalist"), ("component", "crictl", ["ftp://x"]),
+                                 ("component", "crictl", []))):
+            try:
+                bld.set_material_sources(*bad)
+                check("非法输入拒绝 #%d" % i, False)
+            except PackError:
+                check("非法输入拒绝 #%d(%s)" % (i, bad[0]), True)
+    finally:
+        bld.CATALOG_FILE = orig
 
 
 def test_config_ha_vip_and_backup():
@@ -710,7 +752,7 @@ def main():
     for fn in (test_online_cn_static_fallback, test_config_custom_dirs, test_config_etcd_env_and_advance,
                test_config_ha_vip_and_backup, test_config_cri_cni_dns, test_config_validation_matrix,
                test_registry_tar_path_resolution, test_prepare_download_events, test_auto_download_wiring,
-               test_auto_download_cancel_passthrough, test_materials_preview,
+               test_auto_download_cancel_passthrough, test_materials_preview, test_set_material_sources,
                test_registry_auth_and_data_dir,
                test_manifest_lifecycle_vars, test_uninstall_flag_matrix,
                test_upgrade_sh_content, test_deploy_sh_branches, test_scripts_bash_syntax):

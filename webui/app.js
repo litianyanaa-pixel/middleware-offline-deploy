@@ -2186,10 +2186,44 @@ function doImport(e){
 }
 
 /* ================= 预览 / 打包 ================= */
+let materialSourcesMap = {};   // 物料行内换源: 'scope|key' -> 当前源列表
+let mtlBound = false;
 function switchTab(t){
   curTab = t;
   $$('#previewCard .tabs button[data-t]').forEach(b => b.classList.toggle('on', b.dataset.t === t));
-  $('#previewPre').textContent = previewData[t] || '';
+  const pre = $('#previewPre');
+  if (t === 'materials'){ pre.innerHTML = previewData.materialsHtml || ''; bindMaterialEditor(); }
+  else pre.textContent = previewData[t] || '';
+}
+function bindMaterialEditor(){
+  if (mtlBound) return;
+  mtlBound = true;
+  $('#previewPre').addEventListener('click', async (e) => {
+    const btn = e.target.closest('.mtl-edit-btn');
+    if (!btn) return;
+    const row = btn.closest('.mtl-row');
+    const prev = row.nextElementSibling;
+    if (prev && prev.classList.contains('mtl-edit')){ prev.remove(); return; }   // 再点一次收起
+    const id = btn.dataset.scope + '|' + btn.dataset.key;
+    const box = document.createElement('div');
+    box.className = 'mtl-edit';
+    box.innerHTML = '<textarea rows="4" spellcheck="false"></textarea>' +
+      '<div class="mtl-edit-btns"><button class="mini mtl-save">' + trLabel('保存|Save') + '</button>' +
+      ' <button class="mini mtl-cancel">' + trLabel('取消|Cancel') + '</button>' +
+      '<span class="hint">' + trLabel('每行一个源, 按顺序尝试; 支持 http(s):// 与 GH/ 前缀|One URL per line, tried in order; http(s):// and GH/ supported') + '</span></div>';
+    box.querySelector('textarea').value = (materialSourcesMap[id] || []).join('\n');
+    row.after(box);
+    box.querySelector('.mtl-cancel').onclick = () => box.remove();
+    box.querySelector('.mtl-save').onclick = async () => {
+      const sources = box.querySelector('textarea').value.split('\n').map(s => s.trim()).filter(Boolean);
+      try {
+        await api('/api/material_sources', {scope: btn.dataset.scope, key: btn.dataset.key, sources});
+        toast(trLabel('源已写回 versions.json|Sources saved to versions.json'));
+        box.remove();
+        doPreview();   // 重新生成预览, 立即看到新源
+      } catch(err){ msg(err.message, 'err'); }
+    };
+  });
 }
 async function doCopy(){
   try { await navigator.clipboard.writeText(previewData[curTab] || ''); toast('已复制到剪贴板'); }
@@ -2212,28 +2246,58 @@ async function doPreview(){
     previewData.clusterCfg = d.cluster_config || '';
     $('#tabClusterInv').style.display = d.cluster_inventory ? '' : 'none';
     $('#tabClusterCfg').style.display = d.cluster_config ? '' : 'none';
-    // 物料下载清单: ✓ 已缓存 / ↓ 待下载 + 各自的下载源(打包前就知道要下什么、从哪下)
+    // 物料下载清单: ✓ 已缓存 / ↓ 待下载 + 各自的下载源(按顺序尝试); HTML 富文本渲染 + 行内换源
     const mts = d.materials || {rows: [], cached_n: 0, total: 0};
     const mrows = mts.rows || [];
+    materialSourcesMap = {};
     previewData.materials = '';
+    previewData.materialsHtml = '';
     if (mrows.length){
-      const lines = [trLabel('物料清单 (✓ 仓库已缓存 / ↓ 待下载, 打包时自动收集)|Materials (✓ cached in warehouse / ↓ to download; auto-collected at pack time)')];
+      mrows.forEach(r => { if (r.scope && r.key) materialSourcesMap[r.scope + '|' + r.key] = r.sources || []; });
+      // --- 纯文本版(复制用) ---
+      const lines = [trLabel('物料清单 (✓ 仓库已缓存 / ↓ 待下载; 源按顺序逐个尝试, 失败自动换下一源)|Materials (✓ cached / ↓ to download; sources tried in order with auto-failover)')];
       let lastGroup = '';
       for (const r of mrows){
-        if (r.group !== lastGroup){
-          lines.push(''); lines.push('# ---- ' + trLabel(r.group) + ' ----'); lastGroup = r.group;
-        }
+        if (r.group !== lastGroup){ lines.push(''); lines.push('# ---- ' + trLabel(r.group) + ' ----'); lastGroup = r.group; }
         lines.push((r.cached ? '✓ ' : '↓ ') + r.name + (r.note ? '    # ' + trMsg(r.note) : ''));
         if (!r.cached && r.sources && r.sources.length){
-          lines.push('      ' + trLabel('源|sources') + ': ' + r.sources.join('  |  '));
+          lines.push('      ' + trLabel('源|sources') + ' (' + trLabel('按顺序尝试|in order') + '): ' +
+            r.sources.map((s, i) => (i + 1) + '. ' + s).join('  ->  '));
         }
       }
       lines.push('');
       const miss = mts.total - mts.cached_n;
       lines.push(trLabel('已缓存|Cached') + ' ' + mts.cached_n + ' / ' + mts.total +
-        (miss > 0 ? '  ·  ' + trLabel('待下载|to download') + ' ' + miss + trLabel(' 项(打包时自动下载, 源失效可在 versions.json 换源)|(items; auto-download at pack, override sources in versions.json)')
+        (miss > 0 ? '  ·  ' + trLabel('待下载|to download') + ' ' + miss + trLabel(' 项(打包时自动下载)|(items; auto-download at pack)')
                   : '  ·  ' + trLabel('全部就绪, 无需下载|all ready, nothing to download')));
       previewData.materials = lines.join('\n');
+      // --- HTML 版(彩色高亮 + 行内换源) ---
+      let h = '<div class="mtl-note">' + esc(trLabel(
+        '↓ 待下载项按顺序逐源尝试下载, 失败自动切换下一源(30 秒无速度判失败); 点「换源」可直接修改源列表并写回 versions.json' +
+        '|Missing items try sources in order with auto-failover (30s no-speed = fail); "Edit sources" rewrites versions.json')) + '</div>';
+      lastGroup = '';
+      for (const r of mrows){
+        if (r.group !== lastGroup){ h += '<div class="mtl-group"># ---- ' + esc(trLabel(r.group)) + ' ----</div>'; lastGroup = r.group; }
+        if (r.cached){
+          h += '<div class="mtl-row ok"><span class="mk">✓</span><span class="mname">' + esc(r.name) + '</span>' +
+            (r.note ? '<span class="mtl-note2"># ' + esc(trMsg(r.note)) + '</span>' : '') + '</div>';
+        } else {
+          h += '<div class="mtl-row miss"><span class="mk">↓</span><span class="mname">' + esc(r.name) + '</span>' +
+            (r.note ? '<span class="mtl-note2"># ' + esc(trMsg(r.note)) + '</span>' : '') +
+            (r.scope && r.key ? '<button class="mini mtl-edit-btn" data-scope="' + esc(r.scope) + '" data-key="' + esc(r.key) + '">' + trLabel('换源|Edit sources') + '</button>' : '') +
+            '</div>';
+          if (r.sources && r.sources.length){
+            h += '<div class="mtl-srcs">' + r.sources.map((s, i) =>
+              '<span class="src"><b>' + (i + 1) + '</b>' + esc(s) + '</span>').join('') +
+              '<span class="src-order">' + esc(trLabel('↑ 按顺序尝试, 失败自动换下一源|tried in order, auto-failover')) + '</span></div>';
+          }
+        }
+      }
+      const miss2 = mts.total - mts.cached_n;
+      h += '<div class="mtl-sum">' + esc(trLabel('已缓存|Cached')) + ' <b>' + mts.cached_n + ' / ' + mts.total + '</b>' +
+        (miss2 > 0 ? ' · <span class="miss-c">' + esc(trLabel('待下载|to download')) + ' ' + miss2 + esc(trLabel(' 项|items')) + '</span>'
+                   : ' · <span class="ok-c">' + esc(trLabel('全部就绪, 无需下载|all ready')) + '</span>') + '</div>';
+      previewData.materialsHtml = h;
     }
     $('#tabMaterials').style.display = mrows.length ? '' : 'none';
     $('#previewCard').style.display = ''; switchTab(d.compose ? 'compose' : (d.cluster_inventory ? 'clusterInv' : 'compose'));

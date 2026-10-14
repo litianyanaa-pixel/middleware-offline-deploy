@@ -19,7 +19,7 @@ from .manifest import build_summary_lines, gen_images_txt, gen_manifest_sh
 from .multinode import gen_nodes, gen_proxysql_conf
 import prepare_java   # 顶层导入: 仓库状态需要 java 物料就绪判定(自身无重依赖)
 from .builder import (gen_pull_script, gen_retag_mirrors_sh, materials_preview,
-                      missing_materials, pack)
+                      missing_materials, pack, set_material_sources)
 from .paths import BASE_DIR, DIST_DIR, HTML_FILE, LOGOS_JS, log
 from .progress import PackProgress
 from .util import PackError, bash_quote, proxysql_name, tr
@@ -321,6 +321,11 @@ def make_handler(catalog, token="", port=8765):
                         self._send_json({"error": "已有打包任务正在进行中"}, 409)
                     else:
                         self._send_json({"started": True})
+                elif self.path == "/api/material_sources":
+                    # 预览页行内换源: 校验并写回 versions.json, 下次打包/预览即生效
+                    self._send_json(set_material_sources(str(cfg.get("scope") or ""),
+                                                         str(cfg.get("key") or ""),
+                                                         cfg.get("sources")))
                 elif self.path == "/api/cancel":
                     prog = PACK_STATE["prog"]
                     if prog is not None and prog.running:

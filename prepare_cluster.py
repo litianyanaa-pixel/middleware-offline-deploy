@@ -354,10 +354,11 @@ def component_jobs(ccat, kube_ver, arch, upgrade_to="", extra_comps=()):
     extra_comps: docker 系组件按需追加(docker/cridockerd/dockercompose), 避免 containerd
     用户被打包时自动下载 87MB+ 的 docker 静态包"""
     jobs = []
+    src_over = (ccat.get("download_mirrors") or {}).get("component_sources") or {}
     comps = ((ccat.get("versions") or {}).get(kube_ver) or {}).get("components") or {}
     kube_dir = BASE_DIR / ("warehouse/cluster/kube/%s/%s" % (kube_ver, arch))
     for b in ("kubeadm", "kubelet", "kubectl"):
-        jobs.append((kube_dir / b, [f"https://dl.k8s.io/release/{kube_ver}/bin/linux/{arch}/{b}"],
+        jobs.append((kube_dir / b, src_over.get(b) or [f"https://dl.k8s.io/release/{kube_ver}/bin/linux/{arch}/{b}"],
                      lambda p: p.is_file() and p.stat().st_size > 1_000_000, b))
     # docker 系组件(版本跟随 kk per-minor vars, 见 versions.json components): docker 用
     # {darch}(x86_64/aarch64)目录名; docker-compose 产物重命名为 kk 模板认的 docker-compose
@@ -897,6 +898,10 @@ def chart_jobs(ccat, kube_ver, cni_type, arch=ARCH, storage=None):
         jobs.append((BASE_DIR / "warehouse/cluster/charts/nfs" / ("nfs-subdir-external-provisioner-%s.tgz" % nf),
                      expand_urls("GH/kubernetes-sigs/nfs-subdir-external-provisioner/releases/download/nfs-subdir-external-provisioner-%s/nfs-subdir-external-provisioner-%s.tgz" % (nf, nf)),
                      is_tar_valid, "nfs provisioner chart"))
+    # chart 源可被 versions.json cluster.download_mirrors.chart_sources.<显示名> 覆盖
+    src_over = (ccat.get("download_mirrors") or {}).get("chart_sources") or {}
+    if src_over:
+        jobs = [(o, src_over.get(d) or u, c, d) for o, u, c, d in jobs]
     return jobs
 
 

@@ -385,3 +385,27 @@
 .bar-ind{display:block;height:100%;width:100%;border-radius:99px;background:repeating-linear-gradient(45deg,#9db9f7 0 8px,#3a7afe 8px 16px);background-size:23px 23px;animation:dlslide .6s linear infinite}
 
 .dlchip-dl{background:#e8f0fe;color:#1a56db}
+
+/* ---- 预览-物料清单(深底富文本: ✓ 缓存绿 / ↓ 待下载橙高亮 + 行内换源) ---- */
+#previewPre .mtl-note{color:#8b98ab;font-size:11.5px;margin-bottom:8px}
+#previewPre .mtl-group{color:#7d8aa0;font-weight:600;margin:10px 0 4px;font-size:12px}
+#previewPre .mtl-row{display:flex;align-items:center;gap:6px;padding:3px 8px;border-radius:6px;font-size:12.5px;line-height:1.6}
+#previewPre .mtl-row .mname{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#previewPre .mtl-row .mtl-note2{color:#7d8aa0;font-size:11px;font-weight:400}
+#previewPre .mtl-row.ok{color:#55d68a;background:rgba(46,160,67,.12)}
+#previewPre .mtl-row.ok .mk{font-weight:700}
+#previewPre .mtl-row.miss{color:#ffb224;background:rgba(249,115,22,.13);outline:1px solid rgba(249,115,22,.35);font-weight:600}
+#previewPre .mtl-row.miss .mk{font-weight:700}
+#previewPre .mtl-row.miss .mname{color:#ffc95c}
+#previewPre .mtl-row.miss .mini{margin-left:auto;flex:none}
+#previewPre .mtl-srcs{padding:2px 8px 6px 28px;font-size:11.5px;color:#8b98ab;display:flex;flex-direction:column;gap:2px}
+#previewPre .mtl-srcs .src{word-break:break-all}
+#previewPre .mtl-srcs .src b{color:#5ea0ff;margin-right:6px}
+#previewPre .mtl-srcs .src-order{color:#6b7787;font-size:10.5px}
+#previewPre .mtl-edit{padding:6px 8px 8px 28px}
+#previewPre .mtl-edit textarea{width:100%;box-sizing:border-box;min-height:72px;font-family:var(--f-mono);font-size:12px;color:#c9d4e3;background:#0d1424;border:1px solid rgba(255,255,255,.14);border-radius:8px;padding:8px;resize:vertical}
+#previewPre .mtl-edit-btns{margin-top:6px;display:flex;align-items:center;gap:6px}
+#previewPre .mtl-edit-btns .hint{color:#8b98ab}
+#previewPre .mtl-sum{margin-top:10px;font-size:12.5px;color:#c9d4e3}
+#previewPre .mtl-sum .miss-c{color:#ffb224;font-weight:600}
+#previewPre .mtl-sum .ok-c{color:#55d68a;font-weight:600}
