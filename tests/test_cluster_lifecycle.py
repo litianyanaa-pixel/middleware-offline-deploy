@@ -343,7 +343,7 @@ def test_auto_download_wiring():
     fake.ensure_registry_image = fake_registry
     fake.ensure_charts = fake_charts
 
-    cfg = _base_cluster()
+    cfg = _base_cluster(image_registry={"type": "docker-registry"})   # registry 收集器按仓库类型门控
     cl_missing = ["缺 k8s 离线镜像包(k8s-1.28.15-flannel-amd64-images.tar)",
                   "缺私有仓库 registry 镜像 tar",
                   "缺 CNI chart 物料(tigera-operator)",
@@ -457,14 +457,15 @@ def test_materials_preview():
     check("registry tar 路径为 None 时不产生行", "私有仓库镜像 tar" not in by)
     check("统计自洽", out["total"] == len(rows)
           and out["cached_n"] == sum(1 for r in rows if r["cached"]))
-    # ---- 镜像包缺失 -> 逐镜像明细 + 本地已有镜像批量探测(与打包跳过逻辑同口径) ----
+    # ---- 镜像包缺失 -> 逐镜像明细并入同组(不再单列 tar 行) + 本地已有镜像批量探测 ----
     fake.k8s_image_specs = lambda *a, **k: ["registry.k8s.io/kube-apiserver:v1.32.13",
                                             "registry.k8s.io/kube-proxy:v1.32.13"]
 
     class _InspectR:
-        returncode = 0
-        stdout = "[registry.k8s.io/kube-apiserver:v1.32.13]\n"   # apiserver 本地已有, proxy 没有
-        stderr = ""
+        # 部分镜像缺失时 docker inspect 返回码为 1, 但 stdout 仍列出已有的 —— 探测算成功
+        returncode = 1
+        stdout = "[registry.k8s.io/kube-apiserver:v1.32.13]\n"
+        stderr = "Error: No such image: registry.k8s.io/kube-proxy:v1.32.13\n"
 
     orig_sub, orig_shutil2, orig_base, orig_pm = bld.subprocess, bld.shutil, bld.BASE_DIR, bld._prepare_module
     bld.subprocess = types.SimpleNamespace(run=lambda *a, **k: _InspectR())
@@ -476,23 +477,27 @@ def test_materials_preview():
     finally:
         bld.subprocess, bld.shutil, bld.BASE_DIR, bld._prepare_module = (
             orig_sub, orig_shutil2, orig_base, orig_pm)
-    det = [r for r in out2["rows"] if r["group"] == "K8s 离线镜像包·明细"]
-    check("镜像包缺失展开逐镜像明细", len(det) == 2)
+    det = [r for r in out2["rows"]
+           if r["group"] == "K8s 离线镜像包" and not r["name"].endswith(".tar")]
+    check("镜像包缺失: 不再单列 tar 行, 直接逐镜像明细(同组)", len(det) == 2)
+    check("部分缺失(rc=1)不误报「未能检测」",
+          not any("未能检测" in (r.get("note") or "") for r in det))
     check("本地已有镜像判缓存/缺失镜像判待下载(与打包计数同口径)",
           any(r["name"].endswith("kube-apiserver:v1.32.13") and r["cached"] for r in det)
           and any(r["name"].endswith("kube-proxy:v1.32.13") and not r["cached"] for r in det))
     orig_shutil3 = bld.shutil
     bld.BASE_DIR = Path(tempfile.mkdtemp(prefix="kk-mat-bd-"))
     bld.shutil = types.SimpleNamespace(which=lambda n: None)
+    bld._prepare_module = lambda: fake
     try:
         out3 = bld.materials_preview(_vcfg(), CATALOG, [])
     finally:
-        bld.shutil, bld.BASE_DIR = orig_shutil3, orig_base
-    det3 = [r for r in out3["rows"] if r["group"] == "K8s 离线镜像包·明细"]
-    tar3 = next((r for r in out3["rows"] if r["group"] == "K8s 离线镜像包"), None)
-    check("Docker 不可用: 明细仍展开但全部按待拉取计(附未能检测说明)",
+        bld.shutil, bld.BASE_DIR, bld._prepare_module = orig_shutil3, orig_base, orig_pm
+    det3 = [r for r in out3["rows"]
+            if r["group"] == "K8s 离线镜像包" and not r["name"].endswith(".tar")]
+    check("Docker 不可用: 明细仍展开但全部按待拉取计 + 首行注明未能检测",
           det3 and all(not r["cached"] for r in det3)
-          and tar3 is not None and "未能检测" in (tar3.get("note") or ""))
+          and "未能检测" in (det3[0].get("note") or ""))
 
 
 def test_set_material_sources():

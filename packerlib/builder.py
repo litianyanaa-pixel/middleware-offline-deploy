@@ -145,11 +145,11 @@ def materials_preview(cfg, catalog, nodes=None):
                 img_tar = (BASE_DIR / "warehouse/cluster/images" /
                            pm.cluster_images_tar_name(v, cl["cni_type"], arch))
                 tar_cached = img_tar.is_file() and img_tar.stat().st_size > 1_000_000
-                add("K8s 离线镜像包", img_tar.name, tar_cached,
-                    ["docker pull(国内源候选, 需打包机 Docker)"])
+                specs, present, daemon_down = [], set(), False
                 if not tar_cached:
-                    # 镜像包缺失: 展开逐镜像明细, 并批量探测本地 docker 已有镜像
-                    # (与打包时 image inspect 跳过逻辑同口径, 计数才与实际拉取个数一致)
+                    # 镜像包缺失: 展开逐镜像明细(与打包逐镜像拉取同口径, 计数一致),
+                    # 并批量探测本地 docker 已有镜像(部分缺失时 inspect 返回码为 1,
+                    # 只要 stdout 有结果即探测成功; 全部缺失且报连接错误才是 Docker 不可用)
                     try:
                         specs = pm.k8s_image_specs(ccat, v, cl["cni_type"],
                                                    ha_type=cl.get("ha_type") or "local",
@@ -159,27 +159,39 @@ def materials_preview(cfg, catalog, nodes=None):
                                                    multi_cni_tag=cl.get("multi_cni_tag") or "")
                     except Exception:
                         specs = []
-                    rc, present = None, set()
                     if specs and shutil.which("docker"):
                         try:
                             r = subprocess.run(["docker", "image", "inspect", "--format",
                                                 "{{.RepoTags}}", *specs],
                                                capture_output=True, text=True, timeout=60)
-                            rc = r.returncode
                             for line in (r.stdout or "").splitlines():
                                 for tag in line.strip().strip("[]").replace(",", " ").split():
                                     present.add(tag)
+                            if r.returncode != 0 and not present:
+                                err_l = (r.stderr or "").lower()
+                                daemon_down = any(m in err_l for m in (
+                                    "cannot connect", "error during connect", "is the docker daemon"))
                         except Exception:
-                            rc = -1
+                            daemon_down = True
                     elif specs:
-                        rc = -1   # docker 不在: 无法探测本地已有, 明细全部按待拉取计
-                    for ref in specs:
-                        add("K8s 离线镜像包·明细", ref, ref in present,
-                            ["docker pull(国内源候选)"])
-                    if specs and rc:
-                        rows[-len(specs) - 1]["note"] = (
-                            "未能检测本地已有镜像(Docker 未运行?), 明细按待拉取计"
-                            "|cannot detect local images (Docker off?); detail counted as to-download")
+                        daemon_down = True   # docker 不在: 无法探测本地已有, 全部按待拉取计
+                if tar_cached or not specs:
+                    add("K8s 离线镜像包", img_tar.name, tar_cached,
+                        ["docker pull(国内源候选, 需打包机 Docker)"],
+                        note=("未能检测本地已有镜像(Docker 未运行?), 打包时逐镜像拉取"
+                              "|cannot detect local images (Docker off?); images pulled at pack time"
+                              if daemon_down else ""))
+                else:
+                    for i, ref in enumerate(specs):
+                        if i == 0:
+                            note = ("未能检测本地已有镜像(Docker 未运行?), 以下按待拉取计"
+                                    "|cannot detect local images (Docker off?); counted as to-download"
+                                    if daemon_down else
+                                    "镜像源为内置国内候选(打包时状态行可见), 不支持行内换源"
+                                    "|pulled via built-in CN mirror candidates; not editable here")
+                        else:
+                            note = ""
+                        add("K8s 离线镜像包", ref, ref in present, note=note)
             if (cl.get("image_registry") or {}).get("type") == "docker-registry":
                 reg_tar, _ver = pm.registry_image_tar_path(ccat, kube_ver, arch)
                 if reg_tar is not None:

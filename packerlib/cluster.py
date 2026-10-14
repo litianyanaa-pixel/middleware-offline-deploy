@@ -668,20 +668,17 @@ def _auto_download_cluster_materials(cfg, catalog, cl_missing, prog):
     arch = cfg["arch"]
     cl = cfg["cluster"]
     res = {"downloaded_mb": 0.0, "warnings": []}
-    # 判定缺失项是否全部为可自动下载的缓存组件; kk/artifact 缺失不走自动下载
+    # kk/artifact 缺失不走自动下载, 明确提示备料途径
     needs_kk = any("kk 二进制" in m for m in cl_missing)
     needs_artifact = any("artifact 产物" in m for m in cl_missing)
-    needs_cache = any("二进制缓存目录" in m or "缺 kubeadm" in m or "缺 kubelet" in m or "缺 kubectl" in m for m in cl_missing)
-    needs_images = any("离线镜像包" in m for m in cl_missing)
-    needs_reg_img = any("registry 镜像 tar" in m for m in cl_missing)
-    needs_charts = any("chart" in m or "calicoctl" in m for m in cl_missing)
     if needs_kk:
         res["warnings"].append("缺 kk 二进制: 运行 python prepare_cluster.py --kk-build 生成构建脚本"
                                "|Missing kk binary: run prepare_cluster.py --kk-build")
     if needs_artifact:
         res["warnings"].append("缺 artifact 产物: 打包时自动构建(需 Docker Desktop), 或运行 python prepare_cluster.py --artifact-export 后执行生成的 .bat"
                                "|Missing artifact: auto-built at pack time (Docker Desktop), or run prepare_cluster.py --artifact-export then the generated .bat")
-    if not needs_cache and not needs_images and not needs_reg_img and not needs_charts:
+    if cl.get("mode") != "cache":
+        # online/artifact 模式: 二进制/镜像包/chart 不落本地仓库(随 kk artifact 或部署时联网)
         return res
 
     pm_path = BASE_DIR / "prepare_cluster.py"
@@ -706,60 +703,57 @@ def _auto_download_cluster_materials(cfg, catalog, cl_missing, prog):
     cb = make_collect_progress_cb(prog)
 
     try:
-        if needs_cache:
-            # docker 系组件按需追加: 选 docker CRI 才下 docker/cri-dockerd,
-            # 选 docker-registry 仓库才下 docker-compose(避免 containerd 用户被连带 87MB+)
-            extra_comps = []
-            if (cl.get("container_manager") or "containerd") == "docker":
-                extra_comps += ["docker", "cridockerd"]
-            if (cl.get("image_registry") or {}).get("type") == "docker-registry":
-                extra_comps.append("dockercompose")
-            downloaded, failed = pm.ensure_materials(catalog["cluster"], cl["kube_version"], arch, up_to,
-                                                     progress_cb=cb, extra_comps=tuple(extra_comps),
-                                                     abort_check=prog.check)
-            res["downloaded_mb"] += downloaded / 1048576
-            if failed:
-                res["warnings"].append(
-                    "自动下载失败: %s (网络恢复后重跑或 python prepare_cluster.py --download); "
-                    "某组件源失效时可在 versions.json 的 cluster.download_mirrors.component_sources."
-                    "<组件名> 配置自定义源|Auto-download failed; override sources via "
-                    "versions.json cluster.download_mirrors.component_sources" % ", ".join(failed))
-        if needs_images:
-            # ensure_images 事件单位是镜像个数(dlc/dli), cb 已按单位分流; docker pull 无字节回调
-            prog.stage("收集离线镜像包(docker, 需数分钟)")
-            cl = cfg["cluster"]
-            versions = [cl["kube_version"]]
-            if (cl.get("upgrade_to") or "").strip():
-                versions.append(cl["upgrade_to"].strip())   # 升级目标版本的镜像同样随包携带
-            for v in versions:
-                img_dl, img_failed = pm.ensure_images(ccat, v, arch,
-                                                      pm.k8s_image_specs(ccat, v, cl["cni_type"],
-                                                                         ha_type=cl.get("ha_type") or "local",
-                                                                         storage=cl.get("storage") or {}, arch=arch,
-                                                                         dns=cl.get("dns") or {},
-                                                                         multi_cni=cl.get("multi_cni") or "none",
-                                                                         multi_cni_tag=cl.get("multi_cni_tag") or ""),
-                                                      cl["cni_type"], progress_cb=cb, abort_check=prog.check)
-                res["downloaded_mb"] += img_dl   # ensure_images 返回值已是 MB
-                if img_failed:
-                    res["warnings"].append("离线镜像收集失败(%s): %s (需 Docker Desktop 运行中)" % (v, ", ".join(img_failed)))
-        if needs_reg_img:
+        # cache 模式无条件调起各收集器: 全缓存的分类同样发 plan/skip,「已缓存 N/M」才完整;
+        # 收集器对已缓存物料只做文件检查即返回, 零网络开销
+        extra_comps = []
+        if (cl.get("container_manager") or "containerd") == "docker":
+            extra_comps += ["docker", "cridockerd"]
+        if (cl.get("image_registry") or {}).get("type") == "docker-registry":
+            extra_comps.append("dockercompose")
+        downloaded, failed = pm.ensure_materials(catalog["cluster"], cl["kube_version"], arch, up_to,
+                                                 progress_cb=cb, extra_comps=tuple(extra_comps),
+                                                 abort_check=prog.check)
+        res["downloaded_mb"] += downloaded / 1048576
+        if failed:
+            res["warnings"].append(
+                "自动下载失败: %s (网络恢复后重跑或 python prepare_cluster.py --download); "
+                "某组件源失效时可在 versions.json 的 cluster.download_mirrors.component_sources."
+                "<组件名> 配置自定义源|Auto-download failed; override sources via "
+                "versions.json cluster.download_mirrors.component_sources" % ", ".join(failed))
+        # ensure_images 事件单位是镜像个数(dlc/dli), cb 已按单位分流; docker pull 无字节回调
+        prog.stage("收集离线镜像包(docker, 需数分钟)")
+        cl = cfg["cluster"]
+        versions = [cl["kube_version"]]
+        if (cl.get("upgrade_to") or "").strip():
+            versions.append(cl["upgrade_to"].strip())   # 升级目标版本的镜像同样随包携带
+        for v in versions:
+            img_dl, img_failed = pm.ensure_images(ccat, v, arch,
+                                                  pm.k8s_image_specs(ccat, v, cl["cni_type"],
+                                                                     ha_type=cl.get("ha_type") or "local",
+                                                                     storage=cl.get("storage") or {}, arch=arch,
+                                                                     dns=cl.get("dns") or {},
+                                                                     multi_cni=cl.get("multi_cni") or "none",
+                                                                     multi_cni_tag=cl.get("multi_cni_tag") or ""),
+                                                  cl["cni_type"], progress_cb=cb, abort_check=prog.check)
+            res["downloaded_mb"] += img_dl   # ensure_images 返回值已是 MB
+            if img_failed:
+                res["warnings"].append("离线镜像收集失败(%s): %s (需 Docker Desktop 运行中)" % (v, ", ".join(img_failed)))
+        if (cl.get("image_registry") or {}).get("type") == "docker-registry":
             prog.stage("收集私有仓库 registry 镜像 tar(docker)")
             reg_dl, reg_failed = pm.ensure_registry_image(ccat, cl["kube_version"], arch,
                                                           progress_cb=cb, abort_check=prog.check)
             res["downloaded_mb"] += reg_dl
             if reg_failed:
                 res["warnings"].append("registry 镜像收集失败: %s (需 Docker Desktop 运行中)" % ", ".join(reg_failed))
-        if needs_charts:
-            prog.stage("下载 CNI/存储 chart")
-            cl = cfg["cluster"]
-            ch_dl, ch_failed = pm.ensure_charts(ccat, cl["kube_version"], cl["cni_type"], arch,
-                                                storage=cl.get("storage") or {}, progress_cb=cb,
-                                                abort_check=prog.check)
-            res["downloaded_mb"] += ch_dl
-            if ch_failed:
-                res["warnings"].append("chart 下载失败: %s (检查网络或手工放置到 warehouse/cluster/charts/)"
-                                       % ", ".join(ch_failed))
+        prog.stage("下载 CNI/存储 chart")
+        cl = cfg["cluster"]
+        ch_dl, ch_failed = pm.ensure_charts(ccat, cl["kube_version"], cl["cni_type"], arch,
+                                            storage=cl.get("storage") or {}, progress_cb=cb,
+                                            abort_check=prog.check)
+        res["downloaded_mb"] += ch_dl
+        if ch_failed:
+            res["warnings"].append("chart 下载失败: %s (检查网络或手工放置到 warehouse/cluster/charts/)"
+                                   % ", ".join(ch_failed))
     except PackError:
         raise   # 「打包已取消」必须穿透直达打包线程, 不得被吞成 warning
     except Exception as e:

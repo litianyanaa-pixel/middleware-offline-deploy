@@ -23,6 +23,7 @@
 
 import argparse
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -588,6 +589,8 @@ def ensure_images(ccat, kube_ver, arch, image_specs, cni_type="", progress_cb=No
         progress_cb("startc", "images", 0, len(image_specs))
         if to_pull:
             progress_cb("dlc", "拉取镜像", 0, len(to_pull))   # 起始 0/N: 拉取一开始就有进度行
+            for ref in to_pull:                               # 待拉镜像全部先入队, 拉哪个清哪个
+                progress_cb("pending", ref, 1, 1)
     failed = []
     for i, ref in enumerate(to_pull):
         if abort_check:
@@ -1108,14 +1111,18 @@ echo [OK ] 已生成 {out_name}
 def cmd_kk_build():
     """生成 kk 构建 .bat (调本机 Go 直接交叉编译 linux 二进制, 与在 Linux 上 make kk 等价)"""
     root = BASE_DIR
+    # 源码已收编入库(third_party/kubekey, Apache-2.0); 可用环境变量 KK_SRC 覆盖为外部源码目录
+    default_src = root / "third_party" / "kubekey"
+    kk_src = Path(os.environ.get("KK_SRC") or default_src)
     bat = f"""@echo off
 REM 一键构建打过信创补丁的 kk (需本机安装 Go 1.22+ 并加入 PATH)
+REM 源码: third_party/kubekey (修改声明见其 MODIFICATIONS.md); 可 set KK_SRC=... 指向外部源码
 REM 产物放置: warehouse/cluster/kk/v4.0.7-xc1/{{amd64,arm64}}/kk
 setlocal
-set KK_SRC={root.parent}\\kubekey
+set KK_SRC={kk_src}
 if not exist "%KK_SRC%\\cmd\\kk\\kubekey.go" (
   echo [FAIL] 未找到 KubeKey 源码: %KK_SRC%
-  echo        请将打补丁的 kubekey 源码仓库放到 E:\\project\\kubekey 或修改本脚本 KK_SRC
+  echo        库内源码应位于 {default_src}; 或 set KK_SRC=... 指向外部源码目录
   exit /b 1
 )
 where go >nul 2>nul || (echo [FAIL] 未找到 go, 请安装 Go 1.22+ 并加入 PATH & exit /b 1)

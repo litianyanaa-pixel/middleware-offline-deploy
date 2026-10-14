@@ -226,7 +226,6 @@ const EN_DICT = {
   "节点分发预览": "Node distribution", "集群 inventory": "Cluster inventory", "集群 config": "Cluster config",
   "待下载物料": "Materials to download", "集群控制端": "Cluster control", "集群二进制": "Cluster binaries",
   "K8s 离线镜像包": "K8s offline image bundle", "私有仓库镜像 tar": "Private registry image tar",
-  "K8s 离线镜像包·明细": "K8s image bundle detail",
   "CNI/存储 chart": "CNI/storage charts", "Java 运行时": "Java runtime", "中间件镜像": "Middleware images",
   "工作节点": "Worker", "镜像仓库": "Image registry", "未分配": "Unassigned", "K8s 版本": "K8s version", "时区": "Timezone",
   "离线物料": "Offline materials", "OS 依赖包": "OS packages", "部署服务器池": "Server pool",
