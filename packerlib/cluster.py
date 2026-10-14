@@ -646,6 +646,8 @@ def make_collect_progress_cb(prog):
         elif event == "startc":
             if total:
                 prog.status("共 %d 项待收集" % total)
+        elif event in ("src", "srcfail"):
+            prog.status(name)   # 源尝试/源失败实时可见(哪个 URL 下不动一目了然)
         elif event in ("dl", "dlc", "dli"):
             prog.download(name, done, total, {"dl": "bytes", "dlc": "count", "dli": "indeterminate"}[event])
             prog.pending_remove(name)   # 下载行出现即离开待下载队列(行名与排队名一致时)
@@ -713,10 +715,15 @@ def _auto_download_cluster_materials(cfg, catalog, cl_missing, prog):
             if (cl.get("image_registry") or {}).get("type") == "docker-registry":
                 extra_comps.append("dockercompose")
             downloaded, failed = pm.ensure_materials(catalog["cluster"], cl["kube_version"], arch, up_to,
-                                                     progress_cb=cb, extra_comps=tuple(extra_comps))
+                                                     progress_cb=cb, extra_comps=tuple(extra_comps),
+                                                     abort_check=prog.check)
             res["downloaded_mb"] += downloaded / 1048576
             if failed:
-                res["warnings"].append("自动下载失败: %s (网络恢复后重跑或 python prepare_cluster.py --download)" % ", ".join(failed))
+                res["warnings"].append(
+                    "自动下载失败: %s (网络恢复后重跑或 python prepare_cluster.py --download); "
+                    "某组件源失效时可在 versions.json 的 cluster.download_mirrors.component_sources."
+                    "<组件名> 配置自定义源|Auto-download failed; override sources via "
+                    "versions.json cluster.download_mirrors.component_sources" % ", ".join(failed))
         if needs_images:
             # ensure_images 事件单位是镜像个数(dlc/dli), cb 已按单位分流; docker pull 无字节回调
             prog.stage("收集离线镜像包(docker, 需数分钟)")
@@ -732,13 +739,14 @@ def _auto_download_cluster_materials(cfg, catalog, cl_missing, prog):
                                                                          dns=cl.get("dns") or {},
                                                                          multi_cni=cl.get("multi_cni") or "none",
                                                                          multi_cni_tag=cl.get("multi_cni_tag") or ""),
-                                                      cl["cni_type"], progress_cb=cb)
+                                                      cl["cni_type"], progress_cb=cb, abort_check=prog.check)
                 res["downloaded_mb"] += img_dl   # ensure_images 返回值已是 MB
                 if img_failed:
                     res["warnings"].append("离线镜像收集失败(%s): %s (需 Docker Desktop 运行中)" % (v, ", ".join(img_failed)))
         if needs_reg_img:
             prog.stage("收集私有仓库 registry 镜像 tar(docker)")
-            reg_dl, reg_failed = pm.ensure_registry_image(ccat, cl["kube_version"], arch, progress_cb=cb)
+            reg_dl, reg_failed = pm.ensure_registry_image(ccat, cl["kube_version"], arch,
+                                                          progress_cb=cb, abort_check=prog.check)
             res["downloaded_mb"] += reg_dl
             if reg_failed:
                 res["warnings"].append("registry 镜像收集失败: %s (需 Docker Desktop 运行中)" % ", ".join(reg_failed))
@@ -746,11 +754,14 @@ def _auto_download_cluster_materials(cfg, catalog, cl_missing, prog):
             prog.stage("下载 CNI/存储 chart")
             cl = cfg["cluster"]
             ch_dl, ch_failed = pm.ensure_charts(ccat, cl["kube_version"], cl["cni_type"], arch,
-                                                storage=cl.get("storage") or {}, progress_cb=cb)
+                                                storage=cl.get("storage") or {}, progress_cb=cb,
+                                                abort_check=prog.check)
             res["downloaded_mb"] += ch_dl
             if ch_failed:
                 res["warnings"].append("chart 下载失败: %s (检查网络或手工放置到 warehouse/cluster/charts/)"
                                        % ", ".join(ch_failed))
+    except PackError:
+        raise   # 「打包已取消」必须穿透直达打包线程, 不得被吞成 warning
     except Exception as e:
         res["warnings"].append("自动下载异常: %s" % e)
     prog.downloads_reset()

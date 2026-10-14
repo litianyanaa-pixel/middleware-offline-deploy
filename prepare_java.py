@@ -132,29 +132,34 @@ def _download_whole(url, out: Path):
     return r.returncode == 0 and out.is_file() and out.stat().st_size > 1024 * 1024
 
 
-def download(major, api_arch, meta, out: Path, tick=None):
+def download(major, api_arch, meta, out: Path, tick=None, abort_check=None):
     """按多源顺序下载单个 JDK 包; 成功返回实际使用的源描述"""
     gh = meta["gh_link"]
     urls = [TUNA_TMPL % (major, api_arch, meta["filename"]), gh]
     urls += [m + gh[len(GH_RAW):] for m in _gh_mirrors() if gh.startswith(GH_RAW)]
     last_err = ""
     for u in urls:
+        if abort_check:
+            abort_check()
         src = u.split("/https://")[0] if "/https://" in u else u
         _log("  尝试: %s" % (src if src != gh else "GitHub"))
         try:
             out.unlink(missing_ok=True)
             size = meta.get("size") or _head_size(u)
-            if size > 1024 * 1024:
-                from prepare_cluster import fetch_parallel
-                if fetch_parallel(u, out, size, n=4, tick=tick):
-                    return src, size
-                last_err = "分段下载校验失败"
-            elif _download_whole(u, out):
-                return src, out.stat().st_size
-            else:
-                last_err = "整文件下载失败"
         except Exception as e:
             last_err = str(e)
+            out.unlink(missing_ok=True)
+            continue
+        # fetch_parallel 只有取消才会抛异常(失败返回 False), 必须放在 try 外让取消直达上级
+        if size > 1024 * 1024:
+            from prepare_cluster import fetch_parallel
+            if fetch_parallel(u, out, size, n=4, tick=tick, abort_check=abort_check):
+                return src, size
+            last_err = "分段下载校验失败"
+        elif _download_whole(u, out):
+            return src, out.stat().st_size
+        else:
+            last_err = "整文件下载失败"
         out.unlink(missing_ok=True)
     raise RuntimeError("全部下载源失败 (最后错误: %s)" % last_err)
 
@@ -171,9 +176,9 @@ def resolved_of(versions, major, arch):
     return r.get("x86_64" if arch == "amd64" else "aarch64") or None
 
 
-def ensure(majors, arch, progress_cb=None):
+def ensure(majors, arch, progress_cb=None, abort_check=None):
     """确保 JDK tar 就绪 (缺则 resolve+下载+校验+回填 versions.json)。
-    progress_cb(event: dict) 可选; 返回 (missing: list[str], warnings: list[str])"""
+    progress_cb(event: dict) 可选; abort_check 抛异常即取消下载; 返回 (missing: list[str], warnings: list[str])"""
     from prepare_cluster import fetch_parallel   # noqa: F401  (提前失败优于下载到一半)
     versions = _load_versions()
     jmeta = versions.get("java") or {}
@@ -195,6 +200,8 @@ def ensure(majors, arch, progress_cb=None):
         _save_versions(versions)
 
     for major in majors:
+        if abort_check:
+            abort_check()
         done_ev = {"stage": "java", "major": major, "arch": arch, "done": 0}
         meta = resolved.get(major, {}).get(sub)
         cached = meta and (ddir / meta["filename"]).is_file()
@@ -217,7 +224,8 @@ def ensure(majors, arch, progress_cb=None):
         try:
             src, size = download(major, api_arch, meta, out,
                                  tick=lambda n: (done_ev.__setitem__("done", done_ev["done"] + n),
-                                                 progress_cb(dict(done_ev, event="progress")))[1] if progress_cb else None)
+                                                 progress_cb(dict(done_ev, event="progress")))[1] if progress_cb else None,
+                                 abort_check=abort_check)
         except (RuntimeError, ImportError) as e:
             missing.append("Java %s (%s): 下载失败 - %s" % (major, arch, e))
             out.unlink(missing_ok=True)

@@ -162,6 +162,25 @@ def test_prepare_download_events():
         check("fetch_simple 下载成功", ok and dst.stat().st_size == 2621440)
         check("tick 字节递增且终值=文件大小", ticks == sorted(ticks) and len(ticks) >= 3
               and ticks[-1] == 2621440)
+        check("原子落盘: 成功后无 .tmp 残留", not (tmp / "dst.bin.tmp").exists())
+
+        def _boom():
+            raise RuntimeError("cancelled")
+
+        try:
+            prep.fetch_simple(big.as_uri(), tmp / "dst2.bin", abort_check=_boom)
+            check("fetch_simple 取消异常向上传播", False)
+        except RuntimeError:
+            check("fetch_simple 取消异常向上传播", True)
+        check("取消后无半截正式/临时文件", not (tmp / "dst2.bin").exists()
+              and not (tmp / "dst2.bin.tmp").exists())
+        # ---- ensure_materials: abort_check 异常穿透 ----
+        try:
+            prep.ensure_materials({"versions": {"v1.28.15": {}}}, "v1.28.15", "amd64", "",
+                                  abort_check=_boom)
+            check("ensure_materials 取消异常向上传播", False)
+        except RuntimeError:
+            check("ensure_materials 取消异常向上传播", True)
         # ---- ensure_charts: 混合缓存逐项 skip(修复前只在全缓存时发 skip) ----
         ccat = {"versions": {"v1.28.15": {"cni_versions": {"flannel": "v0.24.0"}}}}
         fl_path = tmp / "warehouse/cluster/charts/flannel/flannel-v0.24.0.tgz"
@@ -170,7 +189,7 @@ def test_prepare_download_events():
             tf.addfile(tarfile.TarInfo("x"))
         events = []
 
-        def fake_fetch(url, out, timeout=1800, tick=None):
+        def fake_fetch(url, out, timeout=1800, tick=None, abort_check=None):
             out.parent.mkdir(parents=True, exist_ok=True)
             with tarfile.open(out, "w:gz") as tf:
                 tf.addfile(tarfile.TarInfo("y"))
@@ -247,6 +266,7 @@ def test_auto_download_wiring():
     from packerlib.progress import PackProgress
     real_prep = cl_mod._PREPARE if cl_mod._PREPARE is not None else packer._prepare_module()
     calls = []
+    abort_ok = []   # 各收集器是否收到 abort_check(取消钩子接线)
     prog = PackProgress()
     snaps = []   # 收集过程中的中间快照(断言子进度行单位/生命周期)
     fake = types.ModuleType("kk_prepare_fake")
@@ -257,21 +277,25 @@ def test_auto_download_wiring():
             except Exception:
                 pass
 
-    def fake_materials(ccat, kv, arch, up_to="", progress_cb=None, only_missing=True, extra_comps=()):
+    def fake_materials(ccat, kv, arch, up_to="", progress_cb=None, only_missing=True, extra_comps=(),
+                       abort_check=None):
         calls.append("materials")
+        abort_ok.append(abort_check is not None)
         if progress_cb:
             progress_cb("plan", "materials", 2, 5)
             progress_cb("skip", "etcd/v3.5.6", 1, 1)
             progress_cb("skip", "helm/v3.12.3", 1, 1)
             progress_cb("pending", "cni-plugins", 1, 1)
+            progress_cb("src", "cni-plugins 源 1/1: mirrors.huaweicloud.com", 1, 1)
             progress_cb("start", "download", 0, 1000)
             progress_cb("dl", "cni-plugins", 400, 1000)
             snaps.append(prog.snapshot())
             progress_cb("downloaded", "cni-plugins", 1, 1)
         return 0.0, []
 
-    def fake_images(ccat, v, arch, specs, cni, progress_cb=None):
+    def fake_images(ccat, v, arch, specs, cni, progress_cb=None, abort_check=None):
         calls.append(("images", v, len(specs)))
+        abort_ok.append(abort_check is not None)
         if progress_cb:
             progress_cb("plan", "images", 0, 1)
             progress_cb("pending", "k8s-v1.28.15-images.tar", 1, 1)
@@ -286,6 +310,7 @@ def test_auto_download_wiring():
 
     def fake_registry(*a, **k):
         calls.append("registry")
+        abort_ok.append(k.get("abort_check") is not None)
         cb = k.get("progress_cb")
         if cb:
             cb("plan", "registry", 0, 1)
@@ -296,6 +321,7 @@ def test_auto_download_wiring():
 
     def fake_charts(*a, **k):
         calls.append("charts")
+        abort_ok.append(k.get("abort_check") is not None)
         cb = k.get("progress_cb")
         if cb:
             cb("skip", "flannel chart", 1, 1)
@@ -328,6 +354,7 @@ def test_auto_download_wiring():
           not any("自动下载异常" in w for w in res["warnings"]))
     check("kk/artifact 缺失提示仍在", any("kk 二进制" in w for w in res["warnings"]) is False
           and all("kk" not in w for w in res["warnings"]))
+    check("取消钩子接线(abort_check 传入全部 4 个收集器)", len(abort_ok) == 4 and all(abort_ok))
     # ---- 进度事件映射 ----
     snap = prog.snapshot()
     check("plan 总数跨收集阶段累加(5+1+1+2)", snap["cached"]["total"] == 9)
@@ -354,6 +381,34 @@ def test_auto_download_wiring():
           and set(snap["downloaded"]["names"]) == {"cni-plugins", "k8s-v1.28.15-images.tar",
                                                    "docker-registry-2.8.3.tgz"})
     check("收集结束待下载清空(残留即失败项, 由 warnings 上报)", snap["pending"] == [])
+
+
+def test_auto_download_cancel_passthrough():
+    """「打包已取消」必须穿透自动补料直达打包线程, 不得被 except Exception 吞成 warning"""
+    import types
+    import packerlib.cluster as cl_mod
+    from packerlib.progress import PackProgress
+    from packerlib.util import PackError
+    fake = types.ModuleType("kk_prepare_fake")
+
+    def boom(*a, **k):
+        raise PackError("打包已取消")
+
+    fake.ensure_materials = boom
+    fake.ensure_images = boom
+    fake.ensure_registry_image = boom
+    fake.ensure_charts = boom
+    orig = cl_mod._PREPARE
+    cl_mod._PREPARE = fake
+    raised = False
+    try:
+        cl_mod._auto_download_cluster_materials(_base_cluster(), CATALOG,
+                                                ["缺 kubeadm 二进制缓存"], PackProgress())
+    except PackError:
+        raised = True
+    finally:
+        cl_mod._PREPARE = orig
+    check("PackError(打包已取消)穿透不被吞成 warning", raised)
 
 
 def test_config_ha_vip_and_backup():
@@ -617,6 +672,7 @@ def main():
     for fn in (test_online_cn_static_fallback, test_config_custom_dirs, test_config_etcd_env_and_advance,
                test_config_ha_vip_and_backup, test_config_cri_cni_dns, test_config_validation_matrix,
                test_registry_tar_path_resolution, test_prepare_download_events, test_auto_download_wiring,
+               test_auto_download_cancel_passthrough,
                test_registry_auth_and_data_dir,
                test_manifest_lifecycle_vars, test_uninstall_flag_matrix,
                test_upgrade_sh_content, test_deploy_sh_branches, test_scripts_bash_syntax):

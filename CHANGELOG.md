@@ -8,6 +8,19 @@
   warehouse 已有的物料(集群二进制/chart/registry 镜像 tar/k8s 镜像包/Java/中间件镜像)在收集阶段
   逐项打 ✓ 标记跳过下载, 命中明细直接可见; 统计从收集开始一直保留到打包完成(全缓存不触发收集时
   由主页物料清单兜底展示)。
+- **取消即时生效 + 原子落盘**: 取消信号此前只在压缩打包阶段被检查, 下载/收集阶段完全不响应
+  (点取消后 docker pull/文件下载继续跑数分钟); 现在取消钩子(abort_check=prog.check)穿透全部
+  下载循环与 docker pull/save(可取消 Popen 轮询, 约 0.4s 内杀进程停止), 并根治两处会把取消
+  吞成普通失败的 except(自动补料/中间件拉取的 except Exception; fetch_simple 的网络异常分支;
+  prepare_java 换源循环)。落盘全部原子化(先写 .tmp 完整后改名): fetch_simple/fetch_parallel
+  合并/OCI tar 合并/docker save —— 进程被杀只会留下不入物料库的 .tmp, 不再可能产生
+  「截断但 >1MB 过检」的半截 kube 二进制/镜像 tar。
+- **下载源可见 + 卡死快断 + 可自行换源**: curl 全部加停滞检测(30 秒速度 <1KB/s 判失败换
+  下一源, 替代此前连接假死最长干等 30 分钟且零反馈); 正在尝试的源/源失败换源实时显示在
+  进度状态行(src/srcfail 事件); 组件下载源支持 versions.json
+  `cluster.download_mirrors.component_sources.<组件名>` 覆盖默认源(源失效自行改配置换源,
+  下载失败提示附指引)。排查确认 crictl/helm 各源 HEAD 均 200——「一直下不了也无提示」实为
+  传输假死 + 零反馈 + 取消无效三者的叠加, 由本条与上条共同根治。
 - **物料状态全程追溯**: 收集过程四态可见——「· 排队待下载」(提前知道要下哪些)、「下载中」
   实时条、「↓ 已下载」常驻行(修复完成行立即消失导致看不出下载过什么的问题)、「✓ 已缓存」;
   标题行双 chip: 已缓存 N/M + 本次下载 N。prepare_cluster 事件协议扩展 pending/downloaded

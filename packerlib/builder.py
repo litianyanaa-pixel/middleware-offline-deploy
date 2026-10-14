@@ -215,9 +215,11 @@ def pack(cfg, catalog, out_dir=None, progress=None):
         prog.cached_plan(len(cfg["java"]["versions"]))
         for _m in cfg["java"]["versions"]:
             prog.pending_add("Java %s" % _m)
+        prog.check()   # 阶段边界响应取消(下载循环内由 abort_check 实时响应)
         try:
             jmissing, jwarns = prepare_java.ensure(cfg["java"]["versions"], arch,
-                                                   progress_cb=_java_progress_cb(prog))
+                                                   progress_cb=_java_progress_cb(prog),
+                                                   abort_check=prog.check)
         except ImportError:
             jmissing = ["prepare_java.py 模块加载失败"]
         warns += ["%s|%s" % (w, w) for w in jwarns]
@@ -252,12 +254,16 @@ def pack(cfg, catalog, out_dir=None, progress=None):
                 mw_items.append((ref, BASE_DIR / rel))
     if mw_items:
         mw_absent = sum(1 for _, p in mw_items if not p.is_file())
+        prog.check()   # 阶段边界响应取消
         prog.stage("收集中间件镜像" + ("(缺失 %d 个, 自动拉取需 Docker)" % mw_absent if mw_absent
                                        else "(全部已缓存)"))
         mw_saved, mw_failed = 0.0, []
         try:
             pm = _prepare_module()
-            mw_saved, mw_failed = pm.ensure_service_images(mw_items, progress_cb=make_collect_progress_cb(prog))
+            mw_saved, mw_failed = pm.ensure_service_images(mw_items, progress_cb=make_collect_progress_cb(prog),
+                                                           abort_check=prog.check)
+        except PackError:
+            raise   # 「打包已取消」直达打包线程, 不得被吞成 warning
         except Exception as e:
             mw_failed = [ref for ref, p in mw_items if not p.is_file()]
             warns.append("中间件镜像自动拉取异常: %s|%s" % (e, e))
