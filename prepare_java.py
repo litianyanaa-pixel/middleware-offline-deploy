@@ -64,9 +64,11 @@ def _load_versions():
 
 
 def _save_versions(data):
-    with open(VERSIONS_FILE, "w", encoding="utf-8") as f:
+    tmp = VERSIONS_FILE.with_name(VERSIONS_FILE.name + ".tmp")   # 原子写: 防并发读到半截 JSON
+    with open(tmp, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
         f.write("\n")
+    tmp.replace(VERSIONS_FILE)
 
 
 def _sha256(path: Path, tick=None):

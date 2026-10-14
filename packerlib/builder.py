@@ -163,7 +163,7 @@ def materials_preview(cfg, catalog, nodes=None):
                         try:
                             r = subprocess.run(["docker", "image", "inspect", "--format",
                                                 "{{.RepoTags}}", *specs],
-                                               capture_output=True, text=True, timeout=60)
+                                               capture_output=True, text=True, timeout=20)
                             for line in (r.stdout or "").splitlines():
                                 for tag in line.strip().strip("[]").replace(",", " ").split():
                                     present.add(tag)
@@ -260,9 +260,11 @@ def set_material_sources(scope, key, sources):
     dm = data.setdefault("cluster", {}).setdefault("download_mirrors", {})
     bucket = dm.setdefault("component_sources" if scope == "component" else "chart_sources", {})
     bucket[key] = cleaned
-    with open(CATALOG_FILE, "w", encoding="utf-8") as f:
+    tmp = CATALOG_FILE.with_name(CATALOG_FILE.name + ".tmp")   # 原子写: 防并发预览读到半截 JSON
+    with open(tmp, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
         f.write("\n")
+    os.replace(tmp, CATALOG_FILE)
     log.info("物料源已更新: %s.%s = %s", scope, key, cleaned)
     return {"ok": True, "scope": scope, "key": key, "sources": cleaned}
 

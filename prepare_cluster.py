@@ -29,6 +29,7 @@ import shutil
 import subprocess
 import sys
 import tarfile
+import tempfile
 import threading
 import time
 import urllib.error
@@ -187,37 +188,41 @@ _CURL_STALL = ["--speed-time", "30", "--speed-limit", "1024"]
 def _run_stream(cmd, timeout, out_path=None, tick=None, abort_check=None):
     """Popen 轮询执行外部命令: 支持 ①取消(abort_check 抛异常即杀进程并向上一级传播)
     ②落盘增量进度(tick(已写字节), 轮询 out_path 大小) ③超时强杀。
+    stderr 先落临时文件、进程退出后回读 —— 防 docker pull 这类持续写 stderr 的子进程
+    把管道缓冲区写满卡死(PIPE 无人读的经典死锁)。
     返回 CompletedProcess(stderr 为文本; 超时返回码 28=curl OPERATION_TIMEDOUT 语义)"""
-    proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
-                            text=True, errors="replace")
-    t0 = time.time()
-    last = -1
-    rc = None
-    try:
-        while True:
-            rc = proc.poll()
-            if rc is not None:
-                break
-            if tick and out_path is not None:
-                try:
-                    sz = out_path.stat().st_size
-                    if sz != last:
-                        last = sz
-                        tick(sz)
-                except OSError:
-                    pass
-            if abort_check:
-                abort_check()
-            if timeout and time.time() - t0 > timeout:
+    with tempfile.TemporaryFile(mode="w+", encoding="utf-8", errors="replace") as errf:
+        proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=errf)
+        t0 = time.time()
+        last = -1
+        rc = None
+        try:
+            while True:
+                rc = proc.poll()
+                if rc is not None:
+                    break
+                if tick and out_path is not None:
+                    try:
+                        sz = out_path.stat().st_size
+                        if sz != last:
+                            last = sz
+                            tick(sz)
+                    except OSError:
+                        pass
+                if abort_check:
+                    abort_check()
+                if timeout and time.time() - t0 > timeout:
+                    proc.kill()
+                    proc.wait()
+                    return subprocess.CompletedProcess(cmd, 28, "", "下载超时")
+                time.sleep(0.4)
+        finally:
+            if proc.poll() is None:
                 proc.kill()
-                proc.wait()
-                return subprocess.CompletedProcess(cmd, 28, "", "下载超时")
-            time.sleep(0.4)
-    finally:
-        if proc.poll() is None:
-            proc.kill()
-    err = proc.stderr.read() if proc.stderr else ""
-    return subprocess.CompletedProcess(cmd, rc, "", err or "")
+        proc.wait()
+        errf.seek(0)
+        err = errf.read()
+        return subprocess.CompletedProcess(cmd, rc, "", err or "")
 
 
 def _host_of(url):
@@ -579,11 +584,15 @@ def ensure_images(ccat, kube_ver, arch, image_specs, cni_type="", progress_cb=No
         return 0.0, ["docker 不可用(需 Docker Desktop 运行中)"]
     if not ensure_docker_running():
         return 0.0, ["docker 引擎不可用(已尝试自动启动 Docker Desktop, 请检查其界面报错)"]
-    # 已存在的本地镜像不重复拉
-    to_pull = []
-    for ref in image_specs:
-        if _docker("image", "inspect", ref).returncode != 0:
-            to_pull.append(ref)
+    # 已存在的本地镜像不重复拉(单次批量 inspect; 逐个串行 inspect 十几个镜像要数秒,
+    # 会拖慢「待拉清单」出现, 也拖慢打包)
+    local = set()
+    if image_specs:
+        r = _docker("image", "inspect", "--format", "{{.RepoTags}}", *image_specs)
+        for line in (r.stdout or "").splitlines():
+            for tag in line.strip().strip("[]").replace(",", " ").split():
+                local.add(tag)
+    to_pull = [ref for ref in image_specs if ref not in local]
     if progress_cb:
         progress_cb("pending", out.name, 1, 1)
         progress_cb("startc", "images", 0, len(image_specs))

@@ -3071,8 +3071,8 @@ async function poll(){
   else if ((s.downloads || []).length) spd = trLabel('镜像拉取/处理中(无字节统计)|pulling / processing (no byte stats)');
   else spd = '速度 0 MB/s';
   $('#mStat').textContent = spd + ' · 已用 ' + fmtTime(s.elapsed) + (s.eta ? ' · 预计剩余 ' + fmtTime(s.eta) : '');
-  // 物料收集 → 压缩打包 的转变: 提示一次「物料就绪」
-  const collecting = (s.downloads || []).length > 0 || /收集|下载/.test(s.stage || '');
+  // 物料收集 → 压缩打包 的转变: 提示一次「物料就绪」(构建 kk artifact 也是物料准备的一部分)
+  const collecting = (s.downloads || []).length > 0 || /收集|下载|构建/.test(s.stage || '');
   if (wasCollecting && !collecting && s.running && s.total > 0 && !mtlReadyShown){
     mtlReadyShown = true;
     toast(trLabel('物料准备完毕, 开始压缩打包|Materials ready; packing (compress) started'));
