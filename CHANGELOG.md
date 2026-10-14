@@ -2,6 +2,26 @@
 
 按时间倒序记录每次功能与修复。`docs/` 演示站随前端改动同步更新。
 
+## 2026-10-14（物料缓存命中展示 + 逐物料子进度条 + 中间件镜像自动补齐）
+
+- **物料缓存命中展示**: 打包进度弹窗新增「已缓存 N/M」统计(绿色 chip, 悬浮显示命中名单)——
+  warehouse 已有的物料(集群二进制/chart/registry 镜像 tar/k8s 镜像包/Java/中间件镜像)在收集阶段
+  逐项打 ✓ 标记跳过下载, 命中明细直接可见; 统计从收集开始一直保留到打包完成(全缓存不触发收集时
+  由主页物料清单兜底展示)。
+- **逐物料独立子进度条**: 打包器所有自动收集链路全部接上子进度: 集群二进制(字节)、chart(字节,
+  fetch_simple 新增逐 MiB 回调)、k8s 镜像收集(个数: 拉取镜像 x/N + 导出镜像 tar x/N)、registry
+  镜像(不确定进度动画条)、Java 运行时(字节, 曾完全无进度)、中间件镜像(个数 + 当前镜像动画条)。
+  进度行按单位分流显示: MB / 个数 / 下载中…(dlc=个数、dli=不确定, 事件名编码, CLI 旧回调零兼容风险)。
+- **中间件镜像缺失自动拉取(行为变更)**: 此前 warehouse 缺中间件镜像 tar 时打包直接报错拦截; 现在
+  打包时自动 docker pull(国内源候选逐试 + retag 原生名) + docker save 落盘 warehouse(单镜像 save
+  规避 Docker Desktop 流式 502), 拉取后仍缺才报错。validate.check_warehouse 移出 validate_config
+  (打包器不再被缺物料直接拦截), /api/preview 改为警告提示; docker/compose 安装包仍需手工放置。
+- **修复**: ensure_charts 混合缓存时命中项不发 skip 事件的怪癖(曾只在全缓存时发); 收集阶段状态
+  文本不再污染阶段标签(file() 的「压缩打包」副作用改由新增 status() 承担); PackProgress 私有属性
+  `_downloads` 直捅改为公开 API(download/download_done/downloads_reset)。
+- 验证: pytest 71 passed 1 skipped(新增 test_progress.py; test_auto_download_wiring 扩展锁死
+  plan/skip/dl/dlc/dli 事件映射; 新增备料层事件协议 + service 镜像三态测试) + build_webui 同步门禁。
+
 ## 2026-10-12（上线前全检修复 + 真机部署验证）
 
 - **上线前全检**: 产品 / 安全 / QA 三视角并行审查(代码审查 + 安全审计 + 测试基线核查),

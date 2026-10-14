@@ -177,11 +177,13 @@ def content_length(url):
     return 0
 
 
-def fetch_simple(url, out: Path, timeout=1800):
+def fetch_simple(url, out: Path, timeout=1800, tick=None):
     out.parent.mkdir(parents=True, exist_ok=True)
     if has_curl():
         r = subprocess.run(["curl", "-sL", "-m", str(timeout), "-o", str(out), url])
         if r.returncode == 0 and out.is_file() and out.stat().st_size > 0:
+            if tick:
+                tick(out.stat().st_size)
             return True
     try:
         with urllib.request.urlopen(url, timeout=timeout) as resp, open(out, "wb") as f:
@@ -190,6 +192,8 @@ def fetch_simple(url, out: Path, timeout=1800):
                 if not chunk:
                     break
                 f.write(chunk)
+                if tick:
+                    tick(f.tell())
         return out.stat().st_size > 0
     except Exception as e:
         warn(f"urllib 下载失败 {url}: {e}")
@@ -310,7 +314,8 @@ def out_suffix_is_tgz(name):
 
 def ensure_materials(ccat, kube_ver, arch=ARCH, upgrade_to="", progress_cb=None, only_missing=True, extra_comps=()):
     """补齐缺失物料(可被 packer 导入)。progress_cb(event, name, done, total)
-    event: 'start'(总览) / 'dl'(组件字节进度) / 'done'(单组件完成) / 'skip'
+    event: 'plan'(缓存命中/总数总览) / 'start'(总览, 字节) / 'dl'(组件字节进度) /
+    'done'(单组件完成) / 'skip'(缓存命中跳过)
     返回 (downloaded_mb, failed_names)"""
     jobs = component_jobs(ccat, kube_ver, arch, upgrade_to, extra_comps=extra_comps)
     to_do = []
@@ -320,6 +325,8 @@ def ensure_materials(ccat, kube_ver, arch=ARCH, upgrade_to="", progress_cb=None,
                 progress_cb("skip", disp, 1, 1)
             continue
         to_do.append((out, urls, check, disp))
+    if progress_cb:
+        progress_cb("plan", "materials", len(jobs) - len(to_do), len(jobs))
     total = 0
     for out, urls, check, disp in to_do:
         size = 0
@@ -346,7 +353,11 @@ def ensure_materials(ccat, kube_ver, arch=ARCH, upgrade_to="", progress_cb=None,
                         progress_cb("dl", disp, min(done, _n), _n)
                 ok = fetch_parallel(url, out, size, tick=tick)
             else:
-                ok = fetch_simple(url, out)
+                stick = None
+                if progress_cb and size:
+                    def stick(done, _n=size, _d=disp):
+                        progress_cb("dl", _d, min(done, _n), _n)
+                ok = fetch_simple(url, out, tick=stick)
                 if progress_cb:
                     progress_cb("dl", disp, size if ok else 0, size)
             if ok and check(out):
@@ -462,7 +473,10 @@ def ensure_images(ccat, kube_ver, arch, image_specs, cni_type="", progress_cb=No
     """收集纯离线镜像包: docker pull(国内源逐个尝试) -> retag 原生 -> docker save 单 tar。
     可被 packer 导入调用。返回 (downloaded_mb, failed_refs)"""
     out = BASE_DIR / "warehouse" / "cluster" / "images" / cluster_images_tar_name(kube_ver, cni_type, arch)
-    if out.is_file() and out.stat().st_size > 1_000_000:
+    cached = out.is_file() and out.stat().st_size > 1_000_000
+    if progress_cb:
+        progress_cb("plan", "images", 1 if cached else 0, 1)
+    if cached:
         if progress_cb:
             progress_cb("skip", out.name, 1, 1)
         return 0.0, []
@@ -476,9 +490,11 @@ def ensure_images(ccat, kube_ver, arch, image_specs, cni_type="", progress_cb=No
         if _docker("image", "inspect", ref).returncode != 0:
             to_pull.append(ref)
     if progress_cb:
-        progress_cb("start", "images", 0, len(image_specs))
+        progress_cb("startc", "images", 0, len(image_specs))
     failed = []
     for i, ref in enumerate(to_pull):
+        if progress_cb:
+            progress_cb("dli", ref, 0, 1)
         ok = False
         for src in _pull_candidates(ref):
             r = _docker("pull", src, timeout=1800)
@@ -487,11 +503,12 @@ def ensure_images(ccat, kube_ver, arch, image_specs, cni_type="", progress_cb=No
                 ok = True
                 break
             warn(f"拉取 {src} 失败, 换下一源")
+        if progress_cb:
+            progress_cb("done", ref, 1, 1)   # 弹出当前镜像的不确定行(成败都弹)
+            progress_cb("dlc", "拉取镜像", i + 1, len(to_pull))
         if not ok:
             failed.append(ref)
             continue
-        if progress_cb:
-            progress_cb("dl", ref, i + 1, len(to_pull))
     if failed:
         return 0.0, failed
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -506,6 +523,8 @@ def ensure_images(ccat, kube_ver, arch, image_specs, cni_type="", progress_cb=No
         if r.returncode != 0:
             out.unlink(missing_ok=True)   # save 失败可能留下残缺 tar, 防重跑被 size>1MB 误判有效
             return 0.0, ["docker save 失败: %s" % (r.stderr or "").strip()[-200:]]
+        if progress_cb:
+            progress_cb("dlc", "导出镜像 tar", 1, 1)
     else:
         parts = []
         try:
@@ -526,7 +545,7 @@ def ensure_images(ccat, kube_ver, arch, image_specs, cni_type="", progress_cb=No
                     return 0.0, ["docker save(%s)失败: %s" % (ref, (r.stderr or "").strip()[-160:])]
                 parts.append(part)
                 if progress_cb:
-                    progress_cb("dl", "save " + ref, i + 1, len(image_specs))
+                    progress_cb("dlc", "导出镜像 tar", i + 1, len(image_specs))
             err = _merge_oci_tars(parts, out)
             if err:
                 out.unlink(missing_ok=True)   # 残缺合并 tar 留下会被下轮 size>1MB 判断当有效物料
@@ -606,7 +625,10 @@ def ensure_registry_image(ccat, kube_ver="", arch=ARCH, progress_cb=None):
     out, ver = registry_image_tar_path(ccat, kube_ver, arch)
     if out is None:
         return 0.0, []
-    if out.is_file() and out.stat().st_size > 1_000_000:
+    cached = out.is_file() and out.stat().st_size > 1_000_000
+    if progress_cb:
+        progress_cb("plan", "registry", 1 if cached else 0, 1)
+    if cached:
         if progress_cb:
             progress_cb("skip", out.name, 1, 1)
         return 0.0, []
@@ -614,7 +636,7 @@ def ensure_registry_image(ccat, kube_ver="", arch=ARCH, progress_cb=None):
     if not ensure_docker_running():
         return 0.0, ["docker 引擎不可用(已尝试自动启动 Docker Desktop)"]
     if progress_cb:
-        progress_cb("start", "images", 0, 1)
+        progress_cb("dli", out.name, 0, 1)
     ok = False
     for src in _pull_candidates(ref):
         r = _docker("pull", src, timeout=1800)
@@ -624,14 +646,70 @@ def ensure_registry_image(ccat, kube_ver="", arch=ARCH, progress_cb=None):
             break
         warn(f"拉取 {src} 失败, 换下一源")
     if not ok:
+        if progress_cb:
+            progress_cb("done", out.name, 1, 1)
         return 0.0, [ref]
     out.parent.mkdir(parents=True, exist_ok=True)
     r = _docker("save", "-o", str(out), ref, timeout=1800)
     if r.returncode != 0:
+        if progress_cb:
+            progress_cb("done", out.name, 1, 1)
         return 0.0, ["docker save 失败: %s" % (r.stderr or "").strip()[-200:]]
     if progress_cb:
-        progress_cb("done", "images", 1, 1)
+        progress_cb("done", out.name, 1, 1)
     return out.stat().st_size / 1048576, []
+
+
+def ensure_service_images(items, progress_cb=None):
+    """补齐中间件服务镜像 tar(可被 packer 导入)。items: [(镜像 ref, 目标 tar Path)]。
+    已有 tar(>1MB) 视为缓存命中跳过; 缺失则 docker pull(国内源逐个尝试) -> retag 原生
+    ref -> docker save 单镜像 tar(单镜像 save 实测可靠, 规避 Docker Desktop 流式导出 502)。
+    返回 (saved_mb: float, failed_refs: [ref])"""
+    saved = 0.0
+    failed = []
+    to_do = []
+    for ref, out in items:
+        if out.is_file() and out.stat().st_size > 1_000_000:
+            if progress_cb:
+                progress_cb("skip", ref, 1, 1)
+            continue
+        to_do.append((ref, out))
+    if progress_cb:
+        progress_cb("plan", "services", len(items) - len(to_do), len(items))
+    if not to_do:
+        return 0.0, []
+    if shutil.which("docker") is None:
+        return 0.0, [ref for ref, _ in to_do]
+    if not ensure_docker_running():
+        return 0.0, [ref for ref, _ in to_do]
+    if progress_cb:
+        progress_cb("dlc", "收集中间件镜像", 0, len(to_do))
+    for i, (ref, out) in enumerate(to_do):
+        if progress_cb:
+            progress_cb("dli", ref, 0, 1)
+        ok = False
+        for src in _pull_candidates(ref):
+            r = _docker("pull", src, timeout=1800)
+            if r.returncode == 0:
+                if src != ref:
+                    _docker("tag", src, ref)
+                ok = True
+                break
+            warn(f"拉取 {src} 失败, 换下一源")
+        if ok:
+            out.parent.mkdir(parents=True, exist_ok=True)
+            r = _docker("save", "-o", str(out), ref, timeout=3600)
+            if r.returncode != 0 or not (out.is_file() and out.stat().st_size > 1_000_000):
+                out.unlink(missing_ok=True)   # 残缺 tar 防下轮 size>1MB 误判有效
+                ok = False
+        if progress_cb:
+            progress_cb("done", ref, 1, 1)   # 弹出当前镜像的不确定行(成败都弹)
+            progress_cb("dlc", "收集中间件镜像", i + 1, len(to_do))
+        if ok:
+            saved += out.stat().st_size / 1048576
+        else:
+            failed.append(ref)
+    return saved, failed
 
 
 def chart_jobs(ccat, kube_ver, cni_type, arch=ARCH, storage=None):
@@ -685,23 +763,37 @@ def chart_jobs(ccat, kube_ver, cni_type, arch=ARCH, storage=None):
 def ensure_charts(ccat, kube_ver, cni_type, arch=ARCH, storage=None, progress_cb=None):
     """补齐 CNI/存储 chart 物料(可被 packer 导入)。返回 (downloaded_mb, failed_names)"""
     jobs = chart_jobs(ccat, kube_ver, cni_type, arch, storage)
-    to_do = [(o, u, c, d) for o, u, c, d in jobs if not (o.is_file() and c(o))]
-    if not to_do:
-        for _, _, _, d in jobs:
+    to_do = []
+    for out, urls, check, disp in jobs:
+        if out.is_file() and check(out):
             if progress_cb:
-                progress_cb("skip", d, 1, 1)
-        return 0.0, []
+                progress_cb("skip", disp, 1, 1)
+            continue
+        to_do.append((out, urls, check, disp))
+    if progress_cb:
+        progress_cb("plan", "charts", len(jobs) - len(to_do), len(jobs))
     downloaded = 0
     failed = []
     for out, urls, check, disp in to_do:
+        size = 0
+        for u in urls:
+            size = content_length(u)
+            if size:
+                break
         ok = False
         for url in urls:
-            ok = fetch_simple(url, out)
+            tick = None
+            if progress_cb and size:
+                def tick(done, _n=size, _d=disp):
+                    progress_cb("dl", _d, min(done, _n), _n)
+            ok = fetch_simple(url, out, tick=tick)
             if ok and check(out):
                 break
             if out.exists():
                 out.unlink()
             ok = False
+        if progress_cb and size:
+            progress_cb("dl", disp, size if ok else 0, size)   # 终态校准(curl 路径无增量)
         if ok:
             downloaded += out.stat().st_size
             if progress_cb:

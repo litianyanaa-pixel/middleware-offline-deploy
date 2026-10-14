@@ -2249,19 +2249,40 @@ async function poll(){
   $('#mPct').textContent = s.percent + '% · ' + fmtGB(Math.round(s.done/1048576)) + ' / ' + fmtGB(Math.round(s.total/1048576));
   $('#mFile').textContent = s.current ? '正在打包: ' + s.current : (s.stage || '');
   $('#mStat').textContent = '速度 ' + s.speed + ' MB/s · 已用 ' + fmtTime(s.elapsed) + (s.eta ? ' · 预计剩余 ' + fmtTime(s.eta) : '');
-  // 集群物料自动下载: 每组件一条进度
+  // 物料自动收集: 逐物料子进度条(单位分流) + 缓存命中统计(warehouse 已有的跳过下载)
   const dlBox = $('#mDownloads');
-  if (s.downloads && s.downloads.length){
+  const cached = s.cached || {n: 0, total: 0, names: []};
+  const dls = s.downloads || [];
+  if (dls.length || cached.n){
     dlBox.style.display = '';
-    dlBox.innerHTML = '<div class="hint" style="margin-bottom:6px">正在下载缺失集群物料 (国内可达源, 自动切换):</div>' +
-      s.downloads.map(d => {
-        const pct = d.total ? Math.min(100, Math.round(d.done * 100 / d.total)) : 0;
-        return '<div style="display:flex;align-items:center;gap:8px;margin-bottom:5px;font-size:12px">'+
-          '<span style="flex:0 0 240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+esc(d.name)+'">'+esc(d.name)+'</span>'+
-          '<span style="flex:1;height:8px;border-radius:99px;background:#e8e8ed;overflow:hidden;display:block">'+
-          '<span style="display:block;height:100%;width:'+pct+'%;background:#3a7afe;border-radius:99px"></span></span>'+
-          '<span style="flex:0 0 110px;text-align:right;color:#666">'+fmtGB(Math.round(d.done/1048576*10)/10)+' / '+fmtGB(Math.round(d.total/1048576*10)/10)+'</span></div>';
-      }).join('');
+    let html = '<div class="hint" style="margin-bottom:6px">物料自动收集(缺失自动下载, 国内可达源自动切换)';
+    if (cached.total){
+      html += ' <span class="dlchip" title="已缓存(跳过下载): ' + esc(cached.names.join('、')) + '">已缓存 ' + cached.n + '/' + cached.total + '</span>';
+    }
+    html += '</div>';
+    cached.names.slice(0, 10).forEach(n => {
+      html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:5px;font-size:12px;color:#8a8a93">'+
+        '<span style="flex:0 0 240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+esc(n)+'">✓ '+esc(n)+'</span>'+
+        '<span style="flex:1;font-size:11px;color:#1a7f37">已缓存, 跳过下载</span></div>';
+    });
+    if (cached.names.length > 10){
+      html += '<div style="font-size:11px;color:#8a8a93;margin-bottom:5px">…以及另外 ' + (cached.names.length - 10) + ' 项已缓存</div>';
+    }
+    html += dls.map(d => {
+      const pct = d.total ? Math.min(100, Math.round(d.done * 100 / d.total)) : 0;
+      let right;
+      if (d.unit === 'count') right = d.done + ' / ' + d.total + ' 个';
+      else if (d.unit === 'indeterminate') right = '下载中…';
+      else right = fmtGB(Math.round(d.done/1048576*10)/10) + ' / ' + fmtGB(Math.round(d.total/1048576*10)/10);
+      const bar = d.unit === 'indeterminate'
+        ? '<span class="bar-ind"></span>'
+        : '<span style="display:block;height:100%;width:'+pct+'%;background:#3a7afe;border-radius:99px"></span>';
+      return '<div style="display:flex;align-items:center;gap:8px;margin-bottom:5px;font-size:12px">'+
+        '<span style="flex:0 0 240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+esc(d.name)+'">'+esc(d.name)+'</span>'+
+        '<span style="flex:1;height:8px;border-radius:99px;background:#e8e8ed;overflow:hidden;display:block">'+bar+'</span>'+
+        '<span style="flex:0 0 110px;text-align:right;color:#666">'+right+'</span></div>';
+    }).join('');
+    dlBox.innerHTML = html;
   } else { dlBox.style.display = 'none'; dlBox.innerHTML = ''; }
   if (!s.running){
     if (!s.result && !s.error) return;   // 打包线程尚未 begin()(校验/物料收集前置阶段): 继续轮询, 不误判结束

@@ -975,11 +975,8 @@ def validate_config(cfg, catalog):
         db[app] = conf
     cfg["db"] = db
 
-    # ---- 仓库文件存在性 ----
-    missing = check_warehouse(cfg, catalog)
-    if missing:
-        raise PackError("离线包物料缺失, 请补齐后再打包:\n  - %s|Offline bundle files missing, add them to the warehouse first:\n  - %s"
-                        % ("\n  - ".join(missing), "\n  - ".join(missing)))
+    # 仓库文件存在性检查已移出 validate_config: pack() 对缺失镜像先自动拉取再复检(builder),
+    # /api/preview 转为警告提示(web)
     return cfg, warns
 
 

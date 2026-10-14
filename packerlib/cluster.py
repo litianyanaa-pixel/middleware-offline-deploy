@@ -625,6 +625,33 @@ KUBECONFIG=/etc/kubernetes/admin.conf kubectl get nodes -o wide
 """.replace("{ver}", up_to).replace("{arch}", cfg["arch"]).replace("{sandbox}", sandbox)
 
 
+def make_collect_progress_cb(prog):
+    """把 prepare_cluster 的收集事件映射到进度条: dl=字节, dlc=个数, dli=不确定进度
+    (docker pull 无字节回调); plan/skip 喂「已缓存 N/M」物料缓存命中统计"""
+    def cb(event, name, done, total):
+        if event == "plan":
+            prog.cached_plan(total)
+        elif event == "skip":
+            prog.cached_add(name)
+        elif event == "start":
+            if total:
+                prog.status("需下载 %.0f MB" % (total / 1048576))
+        elif event == "startc":
+            if total:
+                prog.status("共 %d 项待收集" % total)
+        elif event in ("dl", "dlc", "dli"):
+            prog.download(name, done, total, {"dl": "bytes", "dlc": "count", "dli": "indeterminate"}[event])
+            if event == "dl":
+                prog.status("%s (%.1f/%.1f MB)" % (name, done / 1048576, total / 1048576))
+            elif event == "dlc":
+                prog.status("%s %d/%d" % (name, done, total))
+            else:
+                prog.status("处理 %s…" % name)
+        elif event == "done":
+            prog.download_done(name)
+    return cb
+
+
 def _auto_download_cluster_materials(cfg, catalog, cl_missing, prog):
     """打包时自动补齐缺失的集群二进制物料(调 prepare_cluster.py 的下载器)。
     返回 {"downloaded_mb": float, "warnings": [...]}; 无法自动生成的物料(kk/artifact)提示人工途径。"""
@@ -665,18 +692,8 @@ def _auto_download_cluster_materials(cfg, catalog, cl_missing, prog):
         if all((kube_dir / b).is_file() for b in ("kubeadm", "kubelet", "kubectl")):
             up_to = ""
     prog.stage("下载缺失集群物料")
-    prog._downloads.clear()
-
-    def cb(event, name, done, total):
-        if event == "start":
-            if total:
-                info_msg = "需下载 %.0f MB" % (total / 1048576)
-                prog.file(info_msg, total)
-        elif event == "dl":
-            prog._downloads[name] = [done, total]
-            prog.file("%s (%.1f/%.1f MB)" % (name, done / 1048576, total / 1048576), total)
-        elif event == "done":
-            prog._downloads.pop(name, None)
+    prog.downloads_reset()
+    cb = make_collect_progress_cb(prog)
 
     try:
         if needs_cache:
@@ -693,8 +710,7 @@ def _auto_download_cluster_materials(cfg, catalog, cl_missing, prog):
             if failed:
                 res["warnings"].append("自动下载失败: %s (网络恢复后重跑或 python prepare_cluster.py --download)" % ", ".join(failed))
         if needs_images:
-            # 不接 cb: ensure_images 的事件单位是镜像个数, 与进度条的字节模型不兼容;
-            # docker pull 本身无字节回调, 阶段提示即可
+            # ensure_images 事件单位是镜像个数(dlc/dli), cb 已按单位分流; docker pull 无字节回调
             prog.stage("收集离线镜像包(docker, 需数分钟)")
             cl = cfg["cluster"]
             versions = [cl["kube_version"]]
@@ -708,13 +724,13 @@ def _auto_download_cluster_materials(cfg, catalog, cl_missing, prog):
                                                                          dns=cl.get("dns") or {},
                                                                          multi_cni=cl.get("multi_cni") or "none",
                                                                          multi_cni_tag=cl.get("multi_cni_tag") or ""),
-                                                      cl["cni_type"])
+                                                      cl["cni_type"], progress_cb=cb)
                 res["downloaded_mb"] += img_dl   # ensure_images 返回值已是 MB
                 if img_failed:
                     res["warnings"].append("离线镜像收集失败(%s): %s (需 Docker Desktop 运行中)" % (v, ", ".join(img_failed)))
         if needs_reg_img:
             prog.stage("收集私有仓库 registry 镜像 tar(docker)")
-            reg_dl, reg_failed = pm.ensure_registry_image(ccat, cl["kube_version"], arch)
+            reg_dl, reg_failed = pm.ensure_registry_image(ccat, cl["kube_version"], arch, progress_cb=cb)
             res["downloaded_mb"] += reg_dl
             if reg_failed:
                 res["warnings"].append("registry 镜像收集失败: %s (需 Docker Desktop 运行中)" % ", ".join(reg_failed))
@@ -722,14 +738,14 @@ def _auto_download_cluster_materials(cfg, catalog, cl_missing, prog):
             prog.stage("下载 CNI/存储 chart")
             cl = cfg["cluster"]
             ch_dl, ch_failed = pm.ensure_charts(ccat, cl["kube_version"], cl["cni_type"], arch,
-                                                storage=cl.get("storage") or {})
+                                                storage=cl.get("storage") or {}, progress_cb=cb)
             res["downloaded_mb"] += ch_dl
             if ch_failed:
                 res["warnings"].append("chart 下载失败: %s (检查网络或手工放置到 warehouse/cluster/charts/)"
                                        % ", ".join(ch_failed))
     except Exception as e:
         res["warnings"].append("自动下载异常: %s" % e)
-    prog._downloads.clear()
+    prog.downloads_reset()
     return res
 
 
@@ -778,12 +794,12 @@ def _auto_build_artifact(cfg, catalog, prog):
            "-v", BASE_DIR.resolve().as_posix() + ":/work", "-w", "/work",
            "ubuntu:22.04", "bash", "-c", inner]
     prog.stage("构建 kk artifact 产物(拉取全量镜像, 约 5~20 分钟; 需 Docker Desktop)")
-    prog._downloads["artifact 构建"] = [0, 1]
+    prog.download("artifact 构建", 0, 1, unit="count")
     try:
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                 text=True, errors="replace")
     except Exception as e:
-        prog._downloads.clear()
+        prog.downloads_reset()
         return False, "Docker 启动失败: %s" % e
     tail = []
     for line in proc.stdout:
@@ -792,17 +808,17 @@ def _auto_build_artifact(cfg, catalog, prog):
             tail.append(line)
             if len(tail) > 200:
                 tail.pop(0)
-        prog._downloads["artifact 构建"] = [min(len(tail) + 1, 60), 60]
+        prog.download("artifact 构建", min(len(tail) + 1, 60), 60, unit="count")
         if prog._cancelled:
             proc.kill()
             # docker CLI 被杀后容器仍会运行, 强制清理, 避免孤儿容器占用挂载
             subprocess.run(["docker", "rm", "-f", "kk-artifact-build"],
                            capture_output=True, timeout=30)
-            prog._downloads.clear()
+            prog.downloads_reset()
             shutil.rmtree(BASE_DIR / "kkstage", ignore_errors=True)
             raise PackError("已取消|Cancelled")
     proc.wait()
-    prog._downloads.clear()
+    prog.downloads_reset()
     # kk 固定把产物写到 {workdir}/artifact/kubekey-artifact.tgz; 搬到仓库目录并改名
     stage_tgz = BASE_DIR / "kkstage" / "artifact" / "kubekey-artifact.tgz"
     ok = proc.returncode == 0 and stage_tgz.is_file()

@@ -15,8 +15,9 @@ from pathlib import Path
 
 from .catalog import PLUGINS, load_catalog
 from .cluster import (_auto_build_artifact, _auto_download_cluster_materials,
-                      cluster_materials, gen_cluster_config, gen_cluster_inventory,
-                      gen_upgrade_sh)
+                      _prepare_module, cluster_materials, gen_cluster_config,
+                      gen_cluster_inventory, gen_upgrade_sh,
+                      make_collect_progress_cb)
 from .compose import (gen_backup_conf, gen_compose, gen_env, plugin_ctx,
                       resolve_db, validate_compose_with_docker)
 from .manifest import build_summary_lines, gen_images_txt, gen_manifest_sh
@@ -65,6 +66,25 @@ BUNDLE_README = """\
   chmod 600 cluster/inventory.yaml cluster/config.yaml 进一步收紧
 - 目标架构: {arch}; 项目: {project}; 生成时间: {ts}
 """
+
+
+def _java_progress_cb(prog):
+    """prepare_java.ensure 的 dict 事件 -> 下载子进度条(字节) + 缓存命中统计"""
+    state = {}
+    def cb(d):
+        ev = d.get("event")
+        major = d.get("major")
+        if ev == "skip":
+            prog.cached_add("Java %s" % major)
+        elif ev == "download":
+            state["total"] = d.get("total", 0)
+            prog.download("Java %s" % major, 0, state["total"], "bytes")
+        elif ev == "progress":
+            total = state.get("total", 0)
+            done = d.get("done", 0)
+            prog.download("Java %s" % major, done, total, "bytes")
+            prog.status("Java %s (%.1f/%.1f MB)" % (major, done / 1048576, total / 1048576))
+    return cb
 
 
 def pack(cfg, catalog, out_dir=None, progress=None):
@@ -187,8 +207,10 @@ def pack(cfg, catalog, out_dir=None, progress=None):
         prog.stage("收集 Java 运行时物料")
         import prepare_java
         jwarns, jmissing = [], []
+        prog.cached_plan(len(cfg["java"]["versions"]))
         try:
-            jmissing, jwarns = prepare_java.ensure(cfg["java"]["versions"], arch)
+            jmissing, jwarns = prepare_java.ensure(cfg["java"]["versions"], arch,
+                                                   progress_cb=_java_progress_cb(prog))
         except ImportError:
             jmissing = ["prepare_java.py 模块加载失败"]
         warns += ["%s|%s" % (w, w) for w in jwarns]
@@ -209,6 +231,42 @@ def pack(cfg, catalog, out_dir=None, progress=None):
             warns.append("纯集群包不安装 Java 运行时(deploy.sh 链路未包含): JDK 包已置于包内 java/ 目录可手动解压, "
                          "或勾选至少一个中间件|Cluster-only bundle does not auto-install Java; JDK tars are under "
                          "java/ for manual install, or select at least one middleware")
+
+    # ---- 中间件镜像物料: warehouse 缺失时打包机自动 pull+save(需 Docker), 仍缺才报错 ----
+    mw_items, mw_seen = [], set()
+    for _f, rel, ref in gen_images_txt(cfg, catalog):
+        if rel not in mw_seen:
+            mw_seen.add(rel)
+            mw_items.append((ref, BASE_DIR / rel))
+    for nd in nodes:
+        for _f, rel, ref in nd["images"]:
+            if rel not in mw_seen:
+                mw_seen.add(rel)
+                mw_items.append((ref, BASE_DIR / rel))
+    if mw_items:
+        mw_absent = sum(1 for _, p in mw_items if not p.is_file())
+        prog.stage("收集中间件镜像" + ("(缺失 %d 个, 自动拉取需 Docker)" % mw_absent if mw_absent
+                                       else "(全部已缓存)"))
+        mw_saved, mw_failed = 0.0, []
+        try:
+            pm = _prepare_module()
+            mw_saved, mw_failed = pm.ensure_service_images(mw_items, progress_cb=make_collect_progress_cb(prog))
+        except Exception as e:
+            mw_failed = [ref for ref, p in mw_items if not p.is_file()]
+            warns.append("中间件镜像自动拉取异常: %s|%s" % (e, e))
+        if mw_saved:
+            warns.append("已自动拉取缺失中间件镜像 %.0f MB|Auto-pulled %.0f MB of missing middleware images"
+                         % (mw_saved, mw_saved))
+        if mw_failed:
+            warns.append("中间件镜像拉取失败: %s|Failed to pull middleware images: %s"
+                         % (", ".join(mw_failed), ", ".join(mw_failed)))
+    # 仓库文件存在性复检(缺失镜像已尝试自动拉取; docker/compose 安装包无自动下载途径)
+    mw_missing = check_warehouse(cfg, catalog)
+    if mw_missing:
+        raise PackError("离线包物料缺失(缺失镜像已尝试自动拉取, 请确认打包机 Docker 可用后重试; "
+                        "安装包需手工放置 warehouse):\n  - %s|Offline bundle files missing (missing image tars were "
+                        "auto-pulled once; ensure Docker is running and retry):\n  - %s"
+                        % ("\n  - ".join(mw_missing), "\n  - ".join(mw_missing)))
 
     total_bytes = sum(p.stat().st_size for _, p in big_files)
     prog.begin(total_bytes)

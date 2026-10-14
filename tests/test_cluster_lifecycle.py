@@ -137,14 +137,116 @@ def test_registry_tar_path_resolution():
         prep.ensure_docker_running = orig_engine
 
 
+def test_prepare_download_events():
+    """锁死备料下载层进度协议: plan/skip 事件、ensure_charts 逐项缓存判定(曾全有全无)、
+    fetch_simple 字节 tick、ensure_service_images 三态(缓存跳过/拉取成功/save 失败清理残缺 tar)"""
+    import tarfile
+    import types
+    prep = packer._prepare_module()
+    tmp = Path(tempfile.mkdtemp(prefix="kk-dl-test-"))
+    (orig_base, orig_fetch, orig_clen, orig_docker, orig_engine,
+     orig_shutil, orig_curl) = (prep.BASE_DIR, prep.fetch_simple, prep.content_length,
+                                prep._docker, prep.ensure_docker_running, prep.shutil, prep.has_curl)
+    try:
+        prep.BASE_DIR = tmp
+        prep.content_length = lambda u: 4096
+        prep.ensure_docker_running = lambda *a, **k: True
+        prep.has_curl = lambda: False
+        prep.shutil = types.SimpleNamespace(which=lambda n: "/usr/bin/docker")
+        # ---- fetch_simple: urllib 分支逐 MiB 字节 tick ----
+        big = tmp / "src.bin"
+        big.write_bytes(b"z" * 2621440)   # 2.5MiB -> 3 个 tick
+        ticks = []
+        dst = tmp / "dst.bin"
+        ok = prep.fetch_simple(big.as_uri(), dst, tick=ticks.append)
+        check("fetch_simple 下载成功", ok and dst.stat().st_size == 2621440)
+        check("tick 字节递增且终值=文件大小", ticks == sorted(ticks) and len(ticks) >= 3
+              and ticks[-1] == 2621440)
+        # ---- ensure_charts: 混合缓存逐项 skip(修复前只在全缓存时发 skip) ----
+        ccat = {"versions": {"v1.28.15": {"cni_versions": {"flannel": "v0.24.0"}}}}
+        fl_path = tmp / "warehouse/cluster/charts/flannel/flannel-v0.24.0.tgz"
+        fl_path.parent.mkdir(parents=True, exist_ok=True)
+        with tarfile.open(fl_path, "w:gz") as tf:
+            tf.addfile(tarfile.TarInfo("x"))
+        events = []
+
+        def fake_fetch(url, out, timeout=1800, tick=None):
+            out.parent.mkdir(parents=True, exist_ok=True)
+            with tarfile.open(out, "w:gz") as tf:
+                tf.addfile(tarfile.TarInfo("y"))
+            if tick:
+                tick(4096)
+            return True
+
+        prep.fetch_simple = fake_fetch
+        dl_mb, failed = prep.ensure_charts(ccat, "v1.28.15", "flannel", "amd64",
+                                           storage={"localpv_enabled": True},
+                                           progress_cb=lambda *e: events.append(e))
+        check("charts 命中项逐项发 skip", ("skip", "flannel chart", 1, 1) in events)
+        check("charts plan 事件(命中1/共2)", ("plan", "charts", 1, 2) in events)
+        check("charts 缺失项下载成功且 dl/done 齐备",
+              dl_mb > 0 and not failed and any(e[0] == "dl" for e in events)
+              and any(e[0] == "done" for e in events))
+        # ---- ensure_service_images: 缓存跳过 + 拉取成功(候选源+retag) ----
+        nginx = tmp / "images/nginx.tar"
+        redis = tmp / "images/redis.tar"
+        nginx.parent.mkdir(parents=True, exist_ok=True)
+        nginx.write_bytes(b"n" * 1_500_000)   # 已缓存(>1MB)
+        items = [("docker.io/library/nginx:1.25", nginx), ("docker.io/library/redis:7", redis)]
+        pulls = []
+
+        def docker_ok(*a, **k):
+            if a[0] == "pull":
+                pulls.append(a[1])
+            elif a[0] == "save":
+                Path(a[2]).write_bytes(b"r" * 2_000_000)
+            return subprocess.CompletedProcess(a, 0, "", "")
+
+        prep._docker = docker_ok
+        events2 = []
+        saved_mb, failed2 = prep.ensure_service_images(items, progress_cb=lambda *e: events2.append(e))
+        check("service 缓存项跳过", ("skip", "docker.io/library/nginx:1.25", 1, 1) in events2)
+        check("service plan(命中1/共2)", ("plan", "services", 1, 2) in events2)
+        check("service 拉取成功: tar 落盘且无 failed",
+              saved_mb > 0 and failed2 == [] and redis.stat().st_size > 1_000_000)
+        check("service 拉取走镜像源候选(首个命中, 不再兜底官方源)",
+              len(pulls) == 1 and pulls[0] != "docker.io/library/redis:7")
+        check("service dli/done/dlc 事件齐备", any(e[0] == "dli" for e in events2)
+              and ("done", "docker.io/library/redis:7", 1, 1) in events2
+              and ("dlc", "收集中间件镜像", 1, 1) in events2)
+        # ---- ensure_service_images: save 失败 -> 上报 failed + 清理残缺 tar ----
+        redis.unlink()
+
+        def docker_save_fail(*a, **k):
+            if a[0] == "save":
+                Path(a[2]).write_bytes(b"broken")   # 模拟残缺产物
+                return subprocess.CompletedProcess(a, 1, "", "simulated save failure")
+            return subprocess.CompletedProcess(a, 0, "", "")
+
+        prep._docker = docker_save_fail
+        events3 = []
+        saved3, failed3 = prep.ensure_service_images(items, progress_cb=lambda *e: events3.append(e))
+        check("save 失败上报 failed", saved3 == 0.0 and failed3 == ["docker.io/library/redis:7"])
+        check("save 失败清理残缺 tar(防下轮 size>1MB 误判有效)", not redis.exists())
+        check("save 失败也弹出在途不确定行", ("done", "docker.io/library/redis:7", 1, 1) in events3)
+    finally:
+        (prep.BASE_DIR, prep.fetch_simple, prep.content_length, prep._docker,
+         prep.ensure_docker_running, prep.shutil, prep.has_curl) = (
+            orig_base, orig_fetch, orig_clen, orig_docker, orig_engine, orig_shutil, orig_curl)
+
+
 def test_auto_download_wiring():
     """回归: _auto_download_cluster_materials 曾引用未定义的 ccat(NameError 被外层 except
     吞成一条 warning), 缺镜像/registry tar/chart 时自动补料入口整体静默不可达。
-    锁死接线: 缺什么就必须真的调起对应收集函数, 且不允许出现被吞异常的告警形态"""
+    锁死接线: 缺什么就必须真的调起对应收集函数, 不允许出现被吞异常的告警形态;
+    同时锁死进度事件映射(plan/skip -> 已缓存 N/M, dl/dlc/dli -> 三种单位的子进度行)"""
     import types
     import packerlib.cluster as cl_mod
+    from packerlib.progress import PackProgress
     real_prep = cl_mod._PREPARE if cl_mod._PREPARE is not None else packer._prepare_module()
     calls = []
+    prog = PackProgress()
+    snaps = []   # 收集过程中的中间快照(断言子进度行单位/生命周期)
     fake = types.ModuleType("kk_prepare_fake")
     for attr in dir(real_prep):          # 浅拷贝真实模块公开属性(纯函数保持真实实现)
         if not attr.startswith("_"):
@@ -152,19 +254,52 @@ def test_auto_download_wiring():
                 setattr(fake, attr, getattr(real_prep, attr))
             except Exception:
                 pass
-    fake.ensure_materials = lambda *a, **k: (calls.append("materials"), (0.0, []))[1]
-    fake.ensure_images = lambda ccat, v, arch, specs, cni, **k: (
-        calls.append(("images", v, len(specs))), (0.0, []))[1]
-    fake.ensure_registry_image = lambda *a, **k: (calls.append("registry"), (0.0, []))[1]
-    fake.ensure_charts = lambda *a, **k: (calls.append("charts"), (0.0, []))[1]
 
-    class _Prog:
-        def __init__(self):
-            self._downloads = {}
-        def stage(self, *a):
-            pass
-        def file(self, *a):
-            pass
+    def fake_materials(ccat, kv, arch, up_to="", progress_cb=None, only_missing=True, extra_comps=()):
+        calls.append("materials")
+        if progress_cb:
+            progress_cb("plan", "materials", 2, 5)
+            progress_cb("skip", "etcd/v3.5.6", 1, 1)
+            progress_cb("skip", "helm/v3.12.3", 1, 1)
+            progress_cb("start", "download", 0, 1000)
+            progress_cb("dl", "cni-plugins", 400, 1000)
+            snaps.append(prog.snapshot())
+            progress_cb("done", "cni-plugins", 1, 1)
+        return 0.0, []
+
+    def fake_images(ccat, v, arch, specs, cni, progress_cb=None):
+        calls.append(("images", v, len(specs)))
+        if progress_cb:
+            progress_cb("plan", "images", 0, 1)
+            progress_cb("startc", "images", 0, 2)
+            progress_cb("dli", "registry.k8s.io/pause:3.9", 0, 1)
+            snaps.append(prog.snapshot())
+            progress_cb("done", "registry.k8s.io/pause:3.9", 1, 1)
+            progress_cb("dlc", "拉取镜像", 1, 2)
+            snaps.append(prog.snapshot())
+        return 0.0, []
+
+    def fake_registry(*a, **k):
+        calls.append("registry")
+        cb = k.get("progress_cb")
+        if cb:
+            cb("plan", "registry", 0, 1)
+            cb("dli", "docker-registry-2.8.3.tgz", 0, 1)
+            cb("done", "docker-registry-2.8.3.tgz", 1, 1)
+        return 0.0, []
+
+    def fake_charts(*a, **k):
+        calls.append("charts")
+        cb = k.get("progress_cb")
+        if cb:
+            cb("skip", "flannel chart", 1, 1)
+            cb("plan", "charts", 1, 2)
+        return 0.0, []
+
+    fake.ensure_materials = fake_materials
+    fake.ensure_images = fake_images
+    fake.ensure_registry_image = fake_registry
+    fake.ensure_charts = fake_charts
 
     cfg = _base_cluster()
     cl_missing = ["缺 k8s 离线镜像包(k8s-1.28.15-flannel-amd64-images.tar)",
@@ -174,7 +309,7 @@ def test_auto_download_wiring():
     orig = cl_mod._PREPARE
     cl_mod._PREPARE = fake
     try:
-        res = cl_mod._auto_download_cluster_materials(cfg, CATALOG, cl_missing, _Prog())
+        res = cl_mod._auto_download_cluster_materials(cfg, CATALOG, cl_missing, prog)
     finally:
         cl_mod._PREPARE = orig
     check("缺缓存目录调起 ensure_materials", "materials" in calls)
@@ -187,6 +322,24 @@ def test_auto_download_wiring():
           not any("自动下载异常" in w for w in res["warnings"]))
     check("kk/artifact 缺失提示仍在", any("kk 二进制" in w for w in res["warnings"]) is False
           and all("kk" not in w for w in res["warnings"]))
+    # ---- 进度事件映射 ----
+    snap = prog.snapshot()
+    check("plan 总数跨收集阶段累加(5+1+1+2)", snap["cached"]["total"] == 9)
+    check("skip 名单去重登记(etcd/helm/flannel chart)",
+          snap["cached"]["n"] == 3 and set(snap["cached"]["names"]) == {"etcd/v3.5.6", "helm/v3.12.3", "flannel chart"})
+    d0 = {d["name"]: d for d in snaps[0]["downloads"]}
+    check("dl 事件 -> 字节单位子进度行", d0.get("cni-plugins", {}).get("unit") == "bytes"
+          and d0["cni-plugins"]["done"] == 400 and d0["cni-plugins"]["total"] == 1000)
+    d1 = {d["name"]: d for d in snaps[1]["downloads"]}
+    check("dli 事件 -> 不确定进度单位(docker pull 无字节回调)",
+          d1.get("registry.k8s.io/pause:3.9", {}).get("unit") == "indeterminate")
+    d2 = {d["name"]: d for d in snaps[2]["downloads"]}
+    check("dlc 事件 -> 个数单位子进度行", d2.get("拉取镜像", {}).get("unit") == "count"
+          and d2["拉取镜像"]["done"] == 1 and d2["拉取镜像"]["total"] == 2)
+    check("done 事件弹出在途子进度行", "registry.k8s.io/pause:3.9" not in d2)
+    check("收集结束子进度行清空(downloads_reset)", snap["downloads"] == [])
+    check("缓存命中统计保留到收集结束之后(显示至打包完成)",
+          snap["cached"]["n"] == 3 and snap["cached"]["total"] == 9)
 
 
 def test_config_ha_vip_and_backup():
@@ -449,7 +602,7 @@ def test_scripts_bash_syntax():
 def main():
     for fn in (test_online_cn_static_fallback, test_config_custom_dirs, test_config_etcd_env_and_advance,
                test_config_ha_vip_and_backup, test_config_cri_cni_dns, test_config_validation_matrix,
-               test_registry_tar_path_resolution, test_auto_download_wiring,
+               test_registry_tar_path_resolution, test_prepare_download_events, test_auto_download_wiring,
                test_registry_auth_and_data_dir,
                test_manifest_lifecycle_vars, test_uninstall_flag_matrix,
                test_upgrade_sh_content, test_deploy_sh_branches, test_scripts_bash_syntax):

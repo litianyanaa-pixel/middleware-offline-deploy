@@ -25,7 +25,9 @@ class PackProgress:
         self._error = None
         self._t0 = None
         self._t1 = None
-        self._downloads = {}   # 组件下载进度: {显示名: [done, total]}(打包时自动补料展示)
+        self._downloads = {}   # 组件下载进度: {显示名: [done, total, unit]}(打包时自动补料展示)
+        self._cached = {}      # 仓库缓存命中名单(有序去重): warehouse 已有、跳过下载的物料
+        self._cached_total = 0  # 本轮打包涉及的物料总数(各收集阶段 plan 事件累加)
 
     @property
     def running(self):
@@ -38,6 +40,9 @@ class PackProgress:
             self._running = True
             if self._t0 is None:
                 self._t0 = time.time()
+            self._downloads.clear()
+            self._cached.clear()
+            self._cached_total = 0
 
     def begin(self, total):
         with self._lock:
@@ -45,6 +50,9 @@ class PackProgress:
             self._running = True; self._cancelled = False
             self._result = None; self._error = None
             self._t0 = time.time(); self._t1 = None
+            # 下载子进度此时应已随 done 事件清空, 兜底再清一次;
+            # 缓存命中统计保留 —— 「已缓存 N/M」要一直显示到打包完成
+            self._downloads.clear()
 
     def stage(self, s):
         with self._lock:
@@ -53,6 +61,36 @@ class PackProgress:
     def file(self, name, size):
         with self._lock:
             self._current = name; self._stage = "压缩打包"
+
+    def status(self, name):
+        """仅更新状态行文本, 不改阶段标签(下载/收集阶段用, 区别于 file() 的压缩打包语义)"""
+        with self._lock:
+            self._current = name
+
+    # ---- 物料缓存命中(warehouse 已有则跳过下载) ----
+    def cached_plan(self, total):
+        """登记一个收集阶段的物料总数(多次调用累加: 集群二进制/chart/镜像包/中间件镜像/Java)"""
+        with self._lock:
+            self._cached_total += total
+
+    def cached_add(self, name):
+        """登记一个命中仓库缓存的物料(跳过下载)"""
+        with self._lock:
+            self._cached[name] = True
+
+    # ---- 逐物料下载子进度 ----
+    def download(self, name, done, total, unit="bytes"):
+        """设置/更新一个物料的下载子进度; unit: bytes|count|indeterminate"""
+        with self._lock:
+            self._downloads[name] = [done, total, unit]
+
+    def download_done(self, name):
+        with self._lock:
+            self._downloads.pop(name, None)
+
+    def downloads_reset(self):
+        with self._lock:
+            self._downloads.clear()
 
     def add(self, n):
         with self._lock:
@@ -94,7 +132,10 @@ class PackProgress:
                 "elapsed": round(elapsed),
                 "eta": round((self._total - self._done) / speed) if speed > 1048576 else 0,
                 "result": self._result,
-                "downloads": [{"name": k, "done": v[0], "total": v[1]} for k, v in self._downloads.items()],
+                "downloads": [{"name": k, "done": v[0], "total": v[1], "unit": v[2] if len(v) > 2 else "bytes"}
+                              for k, v in self._downloads.items()],
+                "cached": {"n": len(self._cached), "total": self._cached_total,
+                           "names": list(self._cached.keys())},
                 "error": self._error,
             }
 
@@ -109,3 +150,7 @@ class LogProgress(PackProgress):
     def file(self, name, size):
         super().file(name, size)
         log.info("打包 %s (%d MB)", name, size // 1048576)
+
+    def cached_add(self, name):
+        super().cached_add(name)
+        log.info("已缓存(跳过下载) %s", name)

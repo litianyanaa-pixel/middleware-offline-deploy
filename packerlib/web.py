@@ -22,7 +22,7 @@ from .builder import (gen_pull_script, gen_retag_mirrors_sh, missing_materials, 
 from .paths import BASE_DIR, DIST_DIR, HTML_FILE, LOGOS_JS, log
 from .progress import PackProgress
 from .util import PackError, bash_quote, proxysql_name, tr
-from .validate import validate_config
+from .validate import check_warehouse, validate_config
 
 
 # ---------------------------------------------------------------- Web 界面
@@ -271,6 +271,12 @@ def make_handler(catalog, token="", port=8765):
                 cfg = self._read_body()
                 if self.path == "/api/preview":
                     cfg2, warns = validate_config(dict(cfg), catalog)
+                    _mw_miss = check_warehouse(cfg2, catalog)
+                    if _mw_miss:
+                        warns = warns + ["物料缺失(打包时缺失镜像将自动拉取, 需打包机 Docker 可用): "
+                                         + ", ".join(_mw_miss)
+                                         + "|Missing materials (missing image tars auto-pull at pack time, Docker required): "
+                                         + ", ".join(_mw_miss)]
                     compose = gen_compose(cfg2, catalog) if cfg2["services"] else ""
                     env = gen_env(cfg2, catalog) if cfg2["services"] else ""
                     _nodes = gen_nodes(cfg2, catalog)
