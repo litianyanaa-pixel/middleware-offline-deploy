@@ -2966,6 +2966,8 @@ async function doPack(){
   openProgress();
 }
 let pollTimer = null;
+let wasCollecting = false;    // 上一轮是否处于物料收集阶段(检测「物料就绪」转变)
+let mtlReadyShown = false;    // 「物料就绪」toast 只弹一次
 function openProgress(){
   $('#modal').classList.remove('hidden');
   $$('#modal .msg').forEach(x => x.remove());
@@ -2976,6 +2978,7 @@ function openProgress(){
   $('#mDownloads').style.display = 'none'; $('#mDownloads').innerHTML = '';
   $('#mCancel').classList.remove('hidden'); $('#mClose').classList.add('hidden');
   clearInterval(pollTimer);
+  wasCollecting = false; mtlReadyShown = false;
   pollTimer = setInterval(poll, 800);
   poll();
 }
@@ -2985,7 +2988,19 @@ async function poll(){
   $('#mBar').style.width = s.percent + '%';
   $('#mPct').textContent = s.percent + '% · ' + fmtGB(Math.round(s.done/1048576)) + ' / ' + fmtGB(Math.round(s.total/1048576));
   $('#mFile').textContent = s.current ? '正在打包: ' + s.current : (s.stage || '');
-  $('#mStat').textContent = '速度 ' + s.speed + ' MB/s · 已用 ' + fmtTime(s.elapsed) + (s.eta ? ' · 预计剩余 ' + fmtTime(s.eta) : '');
+  // 速度双通道: 收集阶段=网络速率(后端 8s 窗口); docker pull 无字节回调时明确显示处理中
+  let spd;
+  if (s.speed > 0) spd = '速度 ' + s.speed + ' MB/s';
+  else if ((s.downloads || []).length) spd = trLabel('镜像拉取/处理中(无字节统计)|pulling / processing (no byte stats)');
+  else spd = '速度 0 MB/s';
+  $('#mStat').textContent = spd + ' · 已用 ' + fmtTime(s.elapsed) + (s.eta ? ' · 预计剩余 ' + fmtTime(s.eta) : '');
+  // 物料收集 → 压缩打包 的转变: 提示一次「物料就绪」
+  const collecting = (s.downloads || []).length > 0 || /收集|下载/.test(s.stage || '');
+  if (wasCollecting && !collecting && s.running && s.total > 0 && !mtlReadyShown){
+    mtlReadyShown = true;
+    toast(trLabel('物料准备完毕, 开始压缩打包|Materials ready; packing (compress) started'));
+  }
+  wasCollecting = collecting;
   // 物料自动收集: 逐物料子进度条(单位分流) + 物料状态全程追溯(缓存✓/待下载/已下载↓/下载中条)
   const dlBox = $('#mDownloads');
   const cached = s.cached || {n: 0, total: 0, names: []};

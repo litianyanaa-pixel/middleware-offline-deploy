@@ -413,6 +413,7 @@ def pack(cfg, catalog, out_dir=None, progress=None):
 
     total_bytes = sum(p.stat().st_size for _, p in big_files)
     prog.begin(total_bytes)
+    prog.stage("物料就绪, 开始压缩打包")   # Web 端检测该转变弹提示; CLI 由 LogProgress 打日志
 
     # ---- SQL ----
     prog.stage("准备 SQL")

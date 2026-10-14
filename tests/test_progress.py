@@ -103,6 +103,25 @@ def test_pending_and_downloaded_lifecycle():
     assert s["downloaded"] == {"n": 0, "names": []} and s["pending"] == []
 
 
+def test_net_speed_dual_channel():
+    """速度双通道: 收集阶段速度=网络字节速率(约 8s 窗口); docker pull 类无字节不产生速度;
+    begin() 进入压缩阶段后网络采样清零, 速度回归压缩字节流速率"""
+    import time as _t
+    p = PackProgress()
+    p.start()
+    p.download("jdk.tar", 0, 200 << 20, "bytes")
+    _t.sleep(0.6)
+    p.download("jdk.tar", 120 << 20, 200 << 20, "bytes")
+    assert p.snapshot()["speed"] > 0, "收集阶段应显示网络下载速度"
+    p.download("pull", 0, 1, "indeterminate")   # docker pull 无字节: 不动网络窗口
+    assert p.snapshot()["speed"] > 0
+    p.begin(500 << 20)   # 收集结束进入压缩: 网络采样清零
+    assert p.snapshot()["speed"] == 0
+    p.add(10 << 20)
+    _t.sleep(0.6)
+    assert p.snapshot()["speed"] > 0, "压缩阶段应显示压缩速率"
+
+
 def test_snapshot_shape_stable():
     """Web 前端消费的字段不可悄悄改名/缺失"""
     p = PackProgress()
