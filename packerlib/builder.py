@@ -69,12 +69,13 @@ BUNDLE_README = """\
 
 
 def _java_progress_cb(prog):
-    """prepare_java.ensure 的 dict 事件 -> 下载子进度条(字节) + 缓存命中统计"""
+    """prepare_java.ensure 的 dict 事件 -> 下载子进度条(字节) + 物料状态统计(缓存/待下载/已下载)"""
     state = {}
     def cb(d):
         ev = d.get("event")
         major = d.get("major")
         if ev == "skip":
+            prog.pending_remove("Java %s" % major)
             prog.cached_add("Java %s" % major)
         elif ev == "download":
             state["total"] = d.get("total", 0)
@@ -84,6 +85,10 @@ def _java_progress_cb(prog):
             done = d.get("done", 0)
             prog.download("Java %s" % major, done, total, "bytes")
             prog.status("Java %s (%.1f/%.1f MB)" % (major, done / 1048576, total / 1048576))
+        elif ev == "downloaded":
+            prog.download_done("Java %s" % major)
+            prog.pending_remove("Java %s" % major)
+            prog.downloaded_add("Java %s" % major)
     return cb
 
 
@@ -208,6 +213,8 @@ def pack(cfg, catalog, out_dir=None, progress=None):
         import prepare_java
         jwarns, jmissing = [], []
         prog.cached_plan(len(cfg["java"]["versions"]))
+        for _m in cfg["java"]["versions"]:
+            prog.pending_add("Java %s" % _m)
         try:
             jmissing, jwarns = prepare_java.ensure(cfg["java"]["versions"], arch,
                                                    progress_cb=_java_progress_cb(prog))

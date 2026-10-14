@@ -28,6 +28,8 @@ class PackProgress:
         self._downloads = {}   # 组件下载进度: {显示名: [done, total, unit]}(打包时自动补料展示)
         self._cached = {}      # 仓库缓存命中名单(有序去重): warehouse 已有、跳过下载的物料
         self._cached_total = 0  # 本轮打包涉及的物料总数(各收集阶段 plan 事件累加)
+        self._downloaded = {}  # 本次打包实际下载完成的物料(区别于缓存命中, 常驻展示)
+        self._pending = {}     # 已排队待下载的物料(下载开始/完成后移除)
 
     @property
     def running(self):
@@ -43,6 +45,8 @@ class PackProgress:
             self._downloads.clear()
             self._cached.clear()
             self._cached_total = 0
+            self._downloaded.clear()
+            self._pending.clear()
 
     def begin(self, total):
         with self._lock:
@@ -51,8 +55,10 @@ class PackProgress:
             self._result = None; self._error = None
             self._t0 = time.time(); self._t1 = None
             # 下载子进度此时应已随 done 事件清空, 兜底再清一次;
-            # 缓存命中统计保留 —— 「已缓存 N/M」要一直显示到打包完成
+            # 缓存命中/已下载统计保留 —— 要一直显示到打包完成;
+            # 待下载清单清空(收集已结束, 残留项即失败项, 由 warnings 上报)
             self._downloads.clear()
+            self._pending.clear()
 
     def stage(self, s):
         with self._lock:
@@ -78,6 +84,21 @@ class PackProgress:
         with self._lock:
             self._cached[name] = True
 
+    # ---- 物料下载状态(待下载 / 已下载, 供前端全程追溯) ----
+    def pending_add(self, name):
+        """登记一个排队待下载的物料(开始下载/完成时移除)"""
+        with self._lock:
+            self._pending[name] = True
+
+    def pending_remove(self, name):
+        with self._lock:
+            self._pending.pop(name, None)
+
+    def downloaded_add(self, name):
+        """登记一个本次实际下载完成的物料(常驻展示, 区别于缓存命中)"""
+        with self._lock:
+            self._downloaded[name] = True
+
     # ---- 逐物料下载子进度 ----
     def download(self, name, done, total, unit="bytes"):
         """设置/更新一个物料的下载子进度; unit: bytes|count|indeterminate"""
@@ -91,6 +112,7 @@ class PackProgress:
     def downloads_reset(self):
         with self._lock:
             self._downloads.clear()
+            self._pending.clear()
 
     def add(self, n):
         with self._lock:
@@ -136,6 +158,8 @@ class PackProgress:
                               for k, v in self._downloads.items()],
                 "cached": {"n": len(self._cached), "total": self._cached_total,
                            "names": list(self._cached.keys())},
+                "downloaded": {"n": len(self._downloaded), "names": list(self._downloaded.keys())},
+                "pending": list(self._pending.keys()),
                 "error": self._error,
             }
 
@@ -154,3 +178,7 @@ class LogProgress(PackProgress):
     def cached_add(self, name):
         super().cached_add(name)
         log.info("已缓存(跳过下载) %s", name)
+
+    def downloaded_add(self, name):
+        super().downloaded_add(name)
+        log.info("已下载 %s", name)

@@ -79,10 +79,35 @@ def test_start_resets_between_runs():
     assert s["downloads"] == []
 
 
+def test_pending_and_downloaded_lifecycle():
+    """待下载/已下载物料的登记与生命周期: 排队离队、begin 保留已下载清待下载、start 整轮重置"""
+    p = PackProgress()
+    p.start()
+    p.pending_add("etcd tgz")
+    p.pending_add("helm tgz")
+    p.pending_remove("etcd tgz")   # 下载行出现即离队
+    assert p.snapshot()["pending"] == ["helm tgz"]
+    p.downloaded_add("helm tgz")
+    p.pending_remove("helm tgz")
+    s = p.snapshot()
+    assert s["downloaded"] == {"n": 1, "names": ["helm tgz"]}
+    assert s["pending"] == []
+    p.pending_add("registry tar")
+    p.begin(100)   # 收集结束后 begin: 已下载保留(显示到打包完成), 待下载清空(残留即失败项)
+    s = p.snapshot()
+    assert s["pending"] == [] and s["downloaded"]["n"] == 1
+    p.downloads_reset()
+    assert p.snapshot()["downloaded"]["n"] == 1   # downloads_reset 只清行/队列, 不清已下载登记
+    p.start()      # 新一轮打包: 全部清零
+    s = p.snapshot()
+    assert s["downloaded"] == {"n": 0, "names": []} and s["pending"] == []
+
+
 def test_snapshot_shape_stable():
     """Web 前端消费的字段不可悄悄改名/缺失"""
     p = PackProgress()
     s = p.snapshot()
     for key in ("running", "stage", "current", "total", "done", "percent", "speed",
-                "elapsed", "eta", "result", "downloads", "cached", "error"):
+                "elapsed", "eta", "result", "downloads", "cached", "downloaded",
+                "pending", "error"):
         assert key in s, "snapshot 缺字段: %s" % key

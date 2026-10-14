@@ -184,9 +184,10 @@ def test_prepare_download_events():
                                            progress_cb=lambda *e: events.append(e))
         check("charts 命中项逐项发 skip", ("skip", "flannel chart", 1, 1) in events)
         check("charts plan 事件(命中1/共2)", ("plan", "charts", 1, 2) in events)
-        check("charts 缺失项下载成功且 dl/done 齐备",
+        check("charts 缺失项排队发 pending", ("pending", "localpv chart", 1, 1) in events)
+        check("charts 缺失项下载成功且 dl/downloaded 齐备",
               dl_mb > 0 and not failed and any(e[0] == "dl" for e in events)
-              and any(e[0] == "done" for e in events))
+              and ("downloaded", "localpv chart", 1, 1) in events)
         # ---- ensure_service_images: 缓存跳过 + 拉取成功(候选源+retag) ----
         nginx = tmp / "images/nginx.tar"
         redis = tmp / "images/redis.tar"
@@ -211,8 +212,9 @@ def test_prepare_download_events():
               saved_mb > 0 and failed2 == [] and redis.stat().st_size > 1_000_000)
         check("service 拉取走镜像源候选(首个命中, 不再兜底官方源)",
               len(pulls) == 1 and pulls[0] != "docker.io/library/redis:7")
-        check("service dli/done/dlc 事件齐备", any(e[0] == "dli" for e in events2)
-              and ("done", "docker.io/library/redis:7", 1, 1) in events2
+        check("service 缺失项排队发 pending", ("pending", "docker.io/library/redis:7", 1, 1) in events2)
+        check("service dli/downloaded/dlc 事件齐备", any(e[0] == "dli" for e in events2)
+              and ("downloaded", "docker.io/library/redis:7", 1, 1) in events2
               and ("dlc", "收集中间件镜像", 1, 1) in events2)
         # ---- ensure_service_images: save 失败 -> 上报 failed + 清理残缺 tar ----
         redis.unlink()
@@ -261,22 +263,25 @@ def test_auto_download_wiring():
             progress_cb("plan", "materials", 2, 5)
             progress_cb("skip", "etcd/v3.5.6", 1, 1)
             progress_cb("skip", "helm/v3.12.3", 1, 1)
+            progress_cb("pending", "cni-plugins", 1, 1)
             progress_cb("start", "download", 0, 1000)
             progress_cb("dl", "cni-plugins", 400, 1000)
             snaps.append(prog.snapshot())
-            progress_cb("done", "cni-plugins", 1, 1)
+            progress_cb("downloaded", "cni-plugins", 1, 1)
         return 0.0, []
 
     def fake_images(ccat, v, arch, specs, cni, progress_cb=None):
         calls.append(("images", v, len(specs)))
         if progress_cb:
             progress_cb("plan", "images", 0, 1)
+            progress_cb("pending", "k8s-v1.28.15-images.tar", 1, 1)
             progress_cb("startc", "images", 0, 2)
             progress_cb("dli", "registry.k8s.io/pause:3.9", 0, 1)
             snaps.append(prog.snapshot())
             progress_cb("done", "registry.k8s.io/pause:3.9", 1, 1)
             progress_cb("dlc", "拉取镜像", 1, 2)
             snaps.append(prog.snapshot())
+            progress_cb("downloaded", "k8s-v1.28.15-images.tar", 1, 1)
         return 0.0, []
 
     def fake_registry(*a, **k):
@@ -284,8 +289,9 @@ def test_auto_download_wiring():
         cb = k.get("progress_cb")
         if cb:
             cb("plan", "registry", 0, 1)
+            cb("pending", "docker-registry-2.8.3.tgz", 1, 1)
             cb("dli", "docker-registry-2.8.3.tgz", 0, 1)
-            cb("done", "docker-registry-2.8.3.tgz", 1, 1)
+            cb("downloaded", "docker-registry-2.8.3.tgz", 1, 1)
         return 0.0, []
 
     def fake_charts(*a, **k):
@@ -330,9 +336,12 @@ def test_auto_download_wiring():
     d0 = {d["name"]: d for d in snaps[0]["downloads"]}
     check("dl 事件 -> 字节单位子进度行", d0.get("cni-plugins", {}).get("unit") == "bytes"
           and d0["cni-plugins"]["done"] == 400 and d0["cni-plugins"]["total"] == 1000)
+    check("排队物料在下载行出现后离队", snaps[0]["pending"] == [])
     d1 = {d["name"]: d for d in snaps[1]["downloads"]}
     check("dli 事件 -> 不确定进度单位(docker pull 无字节回调)",
           d1.get("registry.k8s.io/pause:3.9", {}).get("unit") == "indeterminate")
+    check("镜像包下载期间保持待下载标记(物料级待完成)",
+          snaps[1]["pending"] == ["k8s-v1.28.15-images.tar"])
     d2 = {d["name"]: d for d in snaps[2]["downloads"]}
     check("dlc 事件 -> 个数单位子进度行", d2.get("拉取镜像", {}).get("unit") == "count"
           and d2["拉取镜像"]["done"] == 1 and d2["拉取镜像"]["total"] == 2)
@@ -340,6 +349,11 @@ def test_auto_download_wiring():
     check("收集结束子进度行清空(downloads_reset)", snap["downloads"] == [])
     check("缓存命中统计保留到收集结束之后(显示至打包完成)",
           snap["cached"]["n"] == 3 and snap["cached"]["total"] == 9)
+    check("已下载登记(cni + k8s 镜像包 + registry tar)",
+          snap["downloaded"]["n"] == 3
+          and set(snap["downloaded"]["names"]) == {"cni-plugins", "k8s-v1.28.15-images.tar",
+                                                   "docker-registry-2.8.3.tgz"})
+    check("收集结束待下载清空(残留即失败项, 由 warnings 上报)", snap["pending"] == [])
 
 
 def test_config_ha_vip_and_backup():

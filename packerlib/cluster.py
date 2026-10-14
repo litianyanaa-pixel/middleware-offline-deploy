@@ -627,12 +627,19 @@ KUBECONFIG=/etc/kubernetes/admin.conf kubectl get nodes -o wide
 
 def make_collect_progress_cb(prog):
     """把 prepare_cluster 的收集事件映射到进度条: dl=字节, dlc=个数, dli=不确定进度
-    (docker pull 无字节回调); plan/skip 喂「已缓存 N/M」物料缓存命中统计"""
+    (docker pull 无字节回调); plan/skip/pending/downloaded 喂物料状态统计
+    (已缓存 N/M / 待下载 / 已下载)"""
     def cb(event, name, done, total):
         if event == "plan":
             prog.cached_plan(total)
         elif event == "skip":
             prog.cached_add(name)
+        elif event == "pending":
+            prog.pending_add(name)
+        elif event == "downloaded":
+            prog.download_done(name)
+            prog.pending_remove(name)
+            prog.downloaded_add(name)
         elif event == "start":
             if total:
                 prog.status("需下载 %.0f MB" % (total / 1048576))
@@ -641,6 +648,7 @@ def make_collect_progress_cb(prog):
                 prog.status("共 %d 项待收集" % total)
         elif event in ("dl", "dlc", "dli"):
             prog.download(name, done, total, {"dl": "bytes", "dlc": "count", "dli": "indeterminate"}[event])
+            prog.pending_remove(name)   # 下载行出现即离开待下载队列(行名与排队名一致时)
             if event == "dl":
                 prog.status("%s (%.1f/%.1f MB)" % (name, done / 1048576, total / 1048576))
             elif event == "dlc":

@@ -383,3 +383,5 @@
 .dlchip{display:inline-block;margin-left:8px;padding:1px 8px;border-radius:99px;background:#e6f6ec;color:#1a7f37;font-size:11px;font-weight:600;vertical-align:middle}
 @keyframes dlslide{0%{background-position:0 0}100%{background-position:23px 0}}
 .bar-ind{display:block;height:100%;width:100%;border-radius:99px;background:repeating-linear-gradient(45deg,#9db9f7 0 8px,#3a7afe 8px 16px);background-size:23px 23px;animation:dlslide .6s linear infinite}
+
+.dlchip-dl{background:#e8f0fe;color:#1a56db}

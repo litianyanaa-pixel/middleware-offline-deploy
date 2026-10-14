@@ -227,6 +227,8 @@ def ensure(majors, arch, progress_cb=None):
             out.unlink(missing_ok=True)
             missing.append("Java %s (%s): sha256 校验失败" % (major, arch))
             continue
+        if progress_cb:
+            progress_cb(dict(done_ev, event="downloaded", filename=meta["filename"]))
         if not meta["checksum"]:
             warns.append("Java %s (%s): API 未提供 checksum, 已按下载实测值回填" % (major, arch))
         meta["size"] = size
