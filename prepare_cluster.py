@@ -586,6 +586,8 @@ def ensure_images(ccat, kube_ver, arch, image_specs, cni_type="", progress_cb=No
     if progress_cb:
         progress_cb("pending", out.name, 1, 1)
         progress_cb("startc", "images", 0, len(image_specs))
+        if to_pull:
+            progress_cb("dlc", "拉取镜像", 0, len(to_pull))   # 起始 0/N: 拉取一开始就有进度行
     failed = []
     for i, ref in enumerate(to_pull):
         if abort_check:
@@ -616,6 +618,8 @@ def ensure_images(ccat, kube_ver, arch, image_specs, cni_type="", progress_cb=No
     if failed:
         return 0.0, failed
     out.parent.mkdir(parents=True, exist_ok=True)
+    if progress_cb:
+        progress_cb("dlc", "导出镜像 tar", 0, len(image_specs))   # 起始 0/N: 导出一开始就有进度行
     # Docker Desktop(Windows 命名管道)对多镜像 save 流式导出不稳定(3 个起随机
     # unexpected EOF/500/502, 与数量和总量相关, 重试无效), 而**单镜像 save 实测可靠**。
     # 因此逐镜像 save 成临时 tar, 再按 OCI 规范合并为单 tar:

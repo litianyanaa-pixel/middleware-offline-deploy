@@ -226,6 +226,7 @@ const EN_DICT = {
   "节点分发预览": "Node distribution", "集群 inventory": "Cluster inventory", "集群 config": "Cluster config",
   "待下载物料": "Materials to download", "集群控制端": "Cluster control", "集群二进制": "Cluster binaries",
   "K8s 离线镜像包": "K8s offline image bundle", "私有仓库镜像 tar": "Private registry image tar",
+  "K8s 离线镜像包·明细": "K8s image bundle detail",
   "CNI/存储 chart": "CNI/storage charts", "Java 运行时": "Java runtime", "中间件镜像": "Middleware images",
   "工作节点": "Worker", "镜像仓库": "Image registry", "未分配": "Unassigned", "K8s 版本": "K8s version", "时区": "Timezone",
   "离线物料": "Offline materials", "OS 依赖包": "OS packages", "部署服务器池": "Server pool",
@@ -2188,6 +2189,82 @@ function doImport(e){
 /* ================= 预览 / 打包 ================= */
 let materialSourcesMap = {};   // 物料行内换源: 'scope|key' -> 当前源列表
 let mtlBound = false;
+let mtlBoxSig = '';            // 物料盒结构签名(行集合不变则只做动态更新, 动画不重启)
+let mtlRefs = null;
+function dlRightText(d){
+  if (d.unit === 'count') return d.done + ' / ' + d.total + ' 个';
+  if (d.unit === 'indeterminate') return trLabel('下载中…|downloading…');
+  return fmtGB(Math.round(d.done/1048576*10)/10) + ' / ' + fmtGB(Math.round(d.total/1048576*10)/10);
+}
+function renderMaterialsBox(s){
+  const dlBox = $('#mDownloads');
+  const cached = s.cached || {n: 0, total: 0, names: []};
+  const downloaded = s.downloaded || {n: 0, names: []};
+  const pending = s.pending || [];
+  const dls = s.downloads || [];
+  const sig = JSON.stringify([dls.map(d => [d.name, d.unit]), cached.names, downloaded.names, pending]);
+  if (sig === mtlBoxSig && mtlRefs){
+    dls.forEach((d, i) => {
+      const ref = mtlRefs.live[i];
+      if (!ref) return;
+      if (d.unit !== 'indeterminate'){
+        const pct = d.total ? Math.min(100, Math.round(d.done * 100 / d.total)) : 0;
+        ref.bar.style.width = pct + '%';
+      }
+      ref.right.textContent = dlRightText(d);
+    });
+    if (mtlRefs.chipC) mtlRefs.chipC.textContent = mtlRefs.chipCLabel + ' ' + cached.n + '/' + cached.total;
+    if (mtlRefs.chipD) mtlRefs.chipD.textContent = mtlRefs.chipDLabel + ' ' + downloaded.n;
+    return;
+  }
+  mtlBoxSig = sig;
+  if (!(dls.length || cached.n || downloaded.n || pending.length)){
+    dlBox.style.display = 'none'; dlBox.innerHTML = ''; mtlRefs = null;
+    return;
+  }
+  dlBox.style.display = '';
+  const row = (icon, name, label, labelColor) =>
+    '<div style="display:flex;align-items:center;gap:8px;margin-bottom:5px;font-size:12px;color:#8a8a93">'+
+    '<span style="flex:0 0 240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+esc(name)+'">'+icon+' '+esc(name)+'</span>'+
+    '<span style="flex:1;font-size:11px;color:'+labelColor+'">'+label+'</span></div>';
+  let html = '<div class="hint" style="margin-bottom:6px">物料自动收集(缺失自动下载, 国内可达源自动切换)';
+  if (cached.total){
+    html += ' <span class="dlchip" id="mtlChipC" title="已缓存(跳过下载): ' + esc(cached.names.join('、')) + '"></span>';
+  }
+  if (downloaded.n){
+    html += ' <span class="dlchip dlchip-dl" id="mtlChipD" title="本次已下载: ' + esc(downloaded.names.join('、')) + '"></span>';
+  }
+  html += '</div>';
+  // 下载中(实时条, 单位分流; bytes 条带 0.5s 过渡, 数字跳动更顺滑)
+  html += dls.map(d => {
+    const pct = d.total ? Math.min(100, Math.round(d.done * 100 / d.total)) : 0;
+    const bar = d.unit === 'indeterminate'
+      ? '<span class="bar-ind"></span>'
+      : '<span class="dl-bar" style="display:block;height:100%;width:'+pct+'%;background:#3a7afe;border-radius:99px;transition:width .5s linear"></span>';
+    return '<div class="dl-live" style="display:flex;align-items:center;gap:8px;margin-bottom:5px;font-size:12px">'+
+      '<span style="flex:0 0 240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+esc(d.name)+'">'+esc(d.name)+'</span>'+
+      '<span style="flex:1;height:8px;border-radius:99px;background:#e8e8ed;overflow:hidden;display:block">'+bar+'</span>'+
+      '<span class="dl-right" style="flex:0 0 110px;text-align:right;color:#666">'+dlRightText(d)+'</span></div>';
+  }).join('');
+  pending.slice(0, 6).forEach(n => { html += row('·', n, trLabel('排队待下载|queued'), '#8a8a93'); });
+  if (pending.length > 6) html += '<div style="font-size:11px;color:#8a8a93;margin-bottom:5px">…' + trLabel('以及另外|and') + ' ' + (pending.length - 6) + ' ' + trLabel('项待下载|more to download') + '</div>';
+  downloaded.names.slice(0, 10).forEach(n => { html += row('↓', n, trLabel('已下载|downloaded'), '#3a7afe'); });
+  if (downloaded.names.length > 10) html += '<div style="font-size:11px;color:#8a8a93;margin-bottom:5px">…' + trLabel('以及另外|and') + ' ' + (downloaded.names.length - 10) + ' ' + trLabel('项已下载|more downloaded') + '</div>';
+  cached.names.slice(0, 10).forEach(n => { html += row('✓', n, trLabel('已缓存, 跳过下载|cached, skipped'), '#1a7f37'); });
+  if (cached.names.length > 10){
+    html += '<div style="font-size:11px;color:#8a8a93;margin-bottom:5px">…' + trLabel('以及另外|and') + ' ' + (cached.names.length - 10) + ' ' + trLabel('项已缓存|more cached') + '</div>';
+  }
+  dlBox.innerHTML = html;
+  mtlRefs = {
+    live: [...dlBox.querySelectorAll('.dl-live')].map(el => ({
+      bar: el.querySelector('.dl-bar'), right: el.querySelector('.dl-right')
+    })),
+    chipC: $('#mtlChipC'), chipD: $('#mtlChipD'),
+    chipCLabel: trLabel('已缓存|Cached'), chipDLabel: trLabel('本次下载|downloaded')
+  };
+  if (mtlRefs.chipC) mtlRefs.chipC.textContent = mtlRefs.chipCLabel + ' ' + cached.n + '/' + cached.total;
+  if (mtlRefs.chipD) mtlRefs.chipD.textContent = mtlRefs.chipDLabel + ' ' + downloaded.n;
+}
 function switchTab(t){
   curTab = t;
   $$('#previewCard .tabs button[data-t]').forEach(b => b.classList.toggle('on', b.dataset.t === t));
@@ -2333,6 +2410,7 @@ function openProgress(){
   $('#mCancel').classList.remove('hidden'); $('#mClose').classList.add('hidden');
   clearInterval(pollTimer);
   wasCollecting = false; mtlReadyShown = false;
+  mtlBoxSig = ''; mtlRefs = null;   // 新一轮打包: 物料盒强制重建
   pollTimer = setInterval(poll, 800);
   poll();
 }
@@ -2355,54 +2433,8 @@ async function poll(){
     toast(trLabel('物料准备完毕, 开始压缩打包|Materials ready; packing (compress) started'));
   }
   wasCollecting = collecting;
-  // 物料自动收集: 逐物料子进度条(单位分流) + 物料状态全程追溯(缓存✓/待下载/已下载↓/下载中条)
-  const dlBox = $('#mDownloads');
-  const cached = s.cached || {n: 0, total: 0, names: []};
-  const downloaded = s.downloaded || {n: 0, names: []};
-  const pending = s.pending || [];
-  const dls = s.downloads || [];
-  if (dls.length || cached.n || downloaded.n || pending.length){
-    dlBox.style.display = '';
-    const row = (icon, name, label, labelColor) =>
-      '<div style="display:flex;align-items:center;gap:8px;margin-bottom:5px;font-size:12px;color:#8a8a93">'+
-      '<span style="flex:0 0 240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+esc(name)+'">'+icon+' '+esc(name)+'</span>'+
-      '<span style="flex:1;font-size:11px;color:'+labelColor+'">'+label+'</span></div>';
-    let html = '<div class="hint" style="margin-bottom:6px">物料自动收集(缺失自动下载, 国内可达源自动切换)';
-    if (cached.total){
-      html += ' <span class="dlchip" title="已缓存(跳过下载): ' + esc(cached.names.join('、')) + '">已缓存 ' + cached.n + '/' + cached.total + '</span>';
-    }
-    if (downloaded.n){
-      html += ' <span class="dlchip dlchip-dl" title="本次已下载: ' + esc(downloaded.names.join('、')) + '">本次下载 ' + downloaded.n + '</span>';
-    }
-    html += '</div>';
-    // 下载中(实时条, 单位分流)
-    html += dls.map(d => {
-      const pct = d.total ? Math.min(100, Math.round(d.done * 100 / d.total)) : 0;
-      let right;
-      if (d.unit === 'count') right = d.done + ' / ' + d.total + ' 个';
-      else if (d.unit === 'indeterminate') right = '下载中…';
-      else right = fmtGB(Math.round(d.done/1048576*10)/10) + ' / ' + fmtGB(Math.round(d.total/1048576*10)/10);
-      const bar = d.unit === 'indeterminate'
-        ? '<span class="bar-ind"></span>'
-        : '<span style="display:block;height:100%;width:'+pct+'%;background:#3a7afe;border-radius:99px"></span>';
-      return '<div style="display:flex;align-items:center;gap:8px;margin-bottom:5px;font-size:12px">'+
-        '<span style="flex:0 0 240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+esc(d.name)+'">'+esc(d.name)+'</span>'+
-        '<span style="flex:1;height:8px;border-radius:99px;background:#e8e8ed;overflow:hidden;display:block">'+bar+'</span>'+
-        '<span style="flex:0 0 110px;text-align:right;color:#666">'+right+'</span></div>';
-    }).join('');
-    // 排队待下载(即将下载, 让人提前知道要下哪些)
-    pending.slice(0, 6).forEach(n => { html += row('·', n, '排队待下载', '#8a8a93'); });
-    if (pending.length > 6) html += '<div style="font-size:11px;color:#8a8a93;margin-bottom:5px">…以及另外 ' + (pending.length - 6) + ' 项待下载</div>';
-    // 本次已下载(常驻, 不再一闪而过)
-    downloaded.names.slice(0, 10).forEach(n => { html += row('↓', n, '已下载', '#3a7afe'); });
-    if (downloaded.names.length > 10) html += '<div style="font-size:11px;color:#8a8a93;margin-bottom:5px">…以及另外 ' + (downloaded.names.length - 10) + ' 项已下载</div>';
-    // 仓库缓存命中(跳过下载)
-    cached.names.slice(0, 10).forEach(n => { html += row('✓', n, '已缓存, 跳过下载', '#1a7f37'); });
-    if (cached.names.length > 10){
-      html += '<div style="font-size:11px;color:#8a8a93;margin-bottom:5px">…以及另外 ' + (cached.names.length - 10) + ' 项已缓存</div>';
-    }
-    dlBox.innerHTML = html;
-  } else { dlBox.style.display = 'none'; dlBox.innerHTML = ''; }
+  // 物料自动收集盒: 结构不变时只更新数字/条宽(DOM 复用), 流光动画不因 800ms 重建而卡顿
+  renderMaterialsBox(s);
   if (!s.running){
     if (!s.result && !s.error) return;   // 打包线程尚未 begin()(校验/物料收集前置阶段): 继续轮询, 不误判结束
     clearInterval(pollTimer); pollTimer = null;

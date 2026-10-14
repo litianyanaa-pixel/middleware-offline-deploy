@@ -457,6 +457,42 @@ def test_materials_preview():
     check("registry tar 路径为 None 时不产生行", "私有仓库镜像 tar" not in by)
     check("统计自洽", out["total"] == len(rows)
           and out["cached_n"] == sum(1 for r in rows if r["cached"]))
+    # ---- 镜像包缺失 -> 逐镜像明细 + 本地已有镜像批量探测(与打包跳过逻辑同口径) ----
+    fake.k8s_image_specs = lambda *a, **k: ["registry.k8s.io/kube-apiserver:v1.32.13",
+                                            "registry.k8s.io/kube-proxy:v1.32.13"]
+
+    class _InspectR:
+        returncode = 0
+        stdout = "[registry.k8s.io/kube-apiserver:v1.32.13]\n"   # apiserver 本地已有, proxy 没有
+        stderr = ""
+
+    orig_sub, orig_shutil2, orig_base, orig_pm = bld.subprocess, bld.shutil, bld.BASE_DIR, bld._prepare_module
+    bld.subprocess = types.SimpleNamespace(run=lambda *a, **k: _InspectR())
+    bld.shutil = types.SimpleNamespace(which=lambda n: "/usr/bin/docker")
+    bld.BASE_DIR = Path(tempfile.mkdtemp(prefix="kk-mat-bd-"))   # 镜像包必然缺失 -> 触发明细展开
+    bld._prepare_module = lambda: fake
+    try:
+        out2 = bld.materials_preview(_vcfg(), CATALOG, [])
+    finally:
+        bld.subprocess, bld.shutil, bld.BASE_DIR, bld._prepare_module = (
+            orig_sub, orig_shutil2, orig_base, orig_pm)
+    det = [r for r in out2["rows"] if r["group"] == "K8s 离线镜像包·明细"]
+    check("镜像包缺失展开逐镜像明细", len(det) == 2)
+    check("本地已有镜像判缓存/缺失镜像判待下载(与打包计数同口径)",
+          any(r["name"].endswith("kube-apiserver:v1.32.13") and r["cached"] for r in det)
+          and any(r["name"].endswith("kube-proxy:v1.32.13") and not r["cached"] for r in det))
+    orig_shutil3 = bld.shutil
+    bld.BASE_DIR = Path(tempfile.mkdtemp(prefix="kk-mat-bd-"))
+    bld.shutil = types.SimpleNamespace(which=lambda n: None)
+    try:
+        out3 = bld.materials_preview(_vcfg(), CATALOG, [])
+    finally:
+        bld.shutil, bld.BASE_DIR = orig_shutil3, orig_base
+    det3 = [r for r in out3["rows"] if r["group"] == "K8s 离线镜像包·明细"]
+    tar3 = next((r for r in out3["rows"] if r["group"] == "K8s 离线镜像包"), None)
+    check("Docker 不可用: 明细仍展开但全部按待拉取计(附未能检测说明)",
+          det3 and all(not r["cached"] for r in det3)
+          and tar3 is not None and "未能检测" in (tar3.get("note") or ""))
 
 
 def test_set_material_sources():
