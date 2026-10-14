@@ -411,6 +411,44 @@ def test_auto_download_cancel_passthrough():
     check("PackError(打包已取消)穿透不被吞成 warning", raised)
 
 
+def test_materials_preview():
+    """预览页物料清单: 分组/缓存判定/源展示; services 为空时无中间件行; 统计自洽"""
+    import types
+    import packerlib.builder as bld
+    tmpf = Path(tempfile.mkdtemp(prefix="kk-mat-prev-")) / "etcd.tgz"
+    tmpf.write_bytes(b"x")
+    fake = types.ModuleType("kk_prep_fake")
+    fake.component_jobs = lambda *a, **k: [(tmpf, ["https://mirrors.huaweicloud.com/a/etcd.tgz"],
+                                           lambda p: True, "etcd/etcd.tgz")]
+    fake.chart_jobs = lambda *a, **k: []
+    fake.cluster_images_tar_name = lambda v, cni, arch: "k8s-%s-%s-%s-images.tar" % (v, cni, arch)
+    fake.registry_image_tar_path = lambda ccat, kv="", arch="amd64": (None, "")
+    fake._pull_candidates = lambda ref: ["mirror.example.com/" + ref]
+    orig = bld._prepare_module
+    bld._prepare_module = lambda: fake
+    try:
+        out = bld.materials_preview(_vcfg(), CATALOG, [])
+    finally:
+        bld._prepare_module = orig
+    rows = out["rows"]
+    by = {}
+    for r in rows:
+        by.setdefault(r["group"], []).append(r)
+    check("集群控制端行(kk)存在", "集群控制端" in by
+          and any(r["name"].startswith("kk 二进制") for r in by.get("集群控制端", [])))
+    check("集群二进制缓存判定=文件存在+check(命中)",
+          any(r["name"] == "etcd/etcd.tgz" and r["cached"]
+              and r["sources"] == ["https://mirrors.huaweicloud.com/a/etcd.tgz"]
+              for r in by.get("集群二进制", [])))
+    check("K8s 镜像包行存在且默认待下载(带 docker 源提示)",
+          any(r["group"] == "K8s 离线镜像包" and not r["cached"]
+              and any("docker pull" in s for s in r["sources"]) for r in rows))
+    check("services 为空无中间件镜像行", "中间件镜像" not in by)
+    check("registry tar 路径为 None 时不产生行", "私有仓库镜像 tar" not in by)
+    check("统计自洽", out["total"] == len(rows)
+          and out["cached_n"] == sum(1 for r in rows if r["cached"]))
+
+
 def test_config_ha_vip_and_backup():
     """kube-vip 必须写 kube_vip.address(网卡自动发现依据); kubeadm 备份目录/证书续期显式落 config"""
     y = packer.gen_cluster_config(_base_cluster(ha_type="kube-vip", ha_vip="10.0.0.100"), CATALOG)
@@ -672,7 +710,7 @@ def main():
     for fn in (test_online_cn_static_fallback, test_config_custom_dirs, test_config_etcd_env_and_advance,
                test_config_ha_vip_and_backup, test_config_cri_cni_dns, test_config_validation_matrix,
                test_registry_tar_path_resolution, test_prepare_download_events, test_auto_download_wiring,
-               test_auto_download_cancel_passthrough,
+               test_auto_download_cancel_passthrough, test_materials_preview,
                test_registry_auth_and_data_dir,
                test_manifest_lifecycle_vars, test_uninstall_flag_matrix,
                test_upgrade_sh_content, test_deploy_sh_branches, test_scripts_bash_syntax):

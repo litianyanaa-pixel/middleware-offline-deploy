@@ -92,6 +92,99 @@ def _java_progress_cb(prog):
     return cb
 
 
+def materials_preview(cfg, catalog, nodes=None):
+    """预览页「物料下载」清单: 打包将涉及的物料 + 仓库缓存状态 + 下载源。
+    仅做静态存在性检查与 URL 展开, 不做网络探测(预览必须快)。
+    返回 {"rows": [{group, name, cached, sources, note}], "cached_n", "total"}"""
+    arch = cfg["arch"]
+    rows = []
+
+    def add(group, name, cached, sources=(), note=""):
+        rows.append({"group": group, "name": name, "cached": bool(cached),
+                     "sources": [str(s) for s in sources][:4], "note": note})
+
+    pm = None
+    try:
+        pm = _prepare_module()
+    except Exception:
+        pm = None
+    cl = cfg.get("cluster") or {}
+    if cl.get("enabled") and pm is not None:
+        ccat = catalog["cluster"]
+        kube_ver = cl["kube_version"]
+        kk_rel = ccat["kk"]["binaries"].get(arch)
+        if kk_rel:
+            add("集群控制端", "kk 二进制(%s)" % arch, (BASE_DIR / kk_rel).is_file(),
+                note="缺失时运行 python prepare_cluster.py --kk-build 生成构建脚本"
+                     "|missing: run python prepare_cluster.py --kk-build")
+        if cl.get("mode") == "artifact":
+            fname = ccat["artifact"]["filename_pattern"].format(kube_version=kube_ver, arch=arch)
+            art = BASE_DIR / ccat["artifact"]["warehouse_dir"] / fname
+            add("集群控制端", fname, art.is_file(),
+                note="缺失时打包自动构建(需打包机 Docker)|auto-built at pack time (needs Docker)")
+        elif cl.get("mode") == "cache":
+            extra_comps = []
+            if (cl.get("container_manager") or "containerd") == "docker":
+                extra_comps += ["docker", "cridockerd"]
+            if (cl.get("image_registry") or {}).get("type") == "docker-registry":
+                extra_comps.append("dockercompose")
+            up_to = (cl.get("upgrade_to") or "").strip()
+            up_dir = BASE_DIR / ("warehouse/cluster/kube/%s/%s" % (up_to, arch))
+            if up_to and all((up_dir / b).is_file() for b in ("kubeadm", "kubelet", "kubectl")):
+                up_to = ""
+            for out, urls, check, disp in pm.component_jobs(ccat, kube_ver, arch, up_to,
+                                                            extra_comps=tuple(extra_comps)):
+                add("集群二进制", disp, out.is_file() and check(out), urls)
+            versions = [kube_ver] + ([cl["upgrade_to"].strip()]
+                                     if (cl.get("upgrade_to") or "").strip() else [])
+            for v in versions:
+                img_tar = (BASE_DIR / "warehouse/cluster/images" /
+                           pm.cluster_images_tar_name(v, cl["cni_type"], arch))
+                add("K8s 离线镜像包", img_tar.name,
+                    img_tar.is_file() and img_tar.stat().st_size > 1_000_000,
+                    ["docker pull(国内源候选, 需打包机 Docker)"])
+            if (cl.get("image_registry") or {}).get("type") == "docker-registry":
+                reg_tar, _ver = pm.registry_image_tar_path(ccat, kube_ver, arch)
+                if reg_tar is not None:
+                    add("私有仓库镜像 tar", reg_tar.name,
+                        reg_tar.is_file() and reg_tar.stat().st_size > 1_000_000,
+                        ["docker pull(国内源候选, 需打包机 Docker)"])
+            for out, urls, check, disp in pm.chart_jobs(ccat, kube_ver, cl["cni_type"], arch,
+                                                        storage=cl.get("storage") or {}):
+                add("CNI/存储 chart", disp, out.is_file() and check(out), urls)
+    if (cfg.get("java") or {}).get("enabled"):
+        try:
+            import prepare_java
+            vers_json = prepare_java._load_versions()
+            for v in cfg["java"]["versions"]:
+                meta = prepare_java.resolved_of(vers_json, v, arch)
+                cached = bool(meta and (prepare_java.java_dir(arch) / meta["filename"]).is_file())
+                add("Java 运行时", "Java %s (Temurin JDK)" % v, cached,
+                    ["清华 TUNA 镜像", "GitHub releases(镜像加速)"])
+        except Exception:
+            pass
+    seen = set()
+    for _f, rel, ref in gen_images_txt(cfg, catalog):
+        if rel in seen:
+            continue
+        seen.add(rel)
+        srcs = []
+        if pm is not None:
+            try:
+                srcs = pm._pull_candidates(ref)[:3]
+            except Exception:
+                srcs = []
+        add("中间件镜像", ref, (BASE_DIR / rel).is_file(), srcs or ["docker pull(国内源候选)"])
+    for nd in (nodes or []):
+        for _f, rel, ref in nd["images"]:
+            if rel in seen:
+                continue
+            seen.add(rel)
+            add("中间件镜像", ref, (BASE_DIR / rel).is_file(), ["docker pull(国内源候选)"])
+    cached_n = sum(1 for r in rows if r["cached"])
+    return {"rows": rows, "cached_n": cached_n, "total": len(rows)}
+
+
 def pack(cfg, catalog, out_dir=None, progress=None):
     prog = progress if progress is not None else PackProgress()
     cfg, warns = validate_config(cfg, catalog)

@@ -18,7 +18,8 @@ from .compose import (backup_crons, gen_compose, gen_env, resolve_db,
 from .manifest import build_summary_lines, gen_images_txt, gen_manifest_sh
 from .multinode import gen_nodes, gen_proxysql_conf
 import prepare_java   # 顶层导入: 仓库状态需要 java 物料就绪判定(自身无重依赖)
-from .builder import (gen_pull_script, gen_retag_mirrors_sh, missing_materials, pack)
+from .builder import (gen_pull_script, gen_retag_mirrors_sh, materials_preview,
+                      missing_materials, pack)
 from .paths import BASE_DIR, DIST_DIR, HTML_FILE, LOGOS_JS, log
 from .progress import PackProgress
 from .util import PackError, bash_quote, proxysql_name, tr
@@ -310,6 +311,7 @@ def make_handler(catalog, token="", port=8765):
                                    "images": [i[0] for i in n["images"]]} for n in _nodes],
                         "proxysql_conf": proxysql_preview(cfg2),
                         "backup_crons": ["%s %s" % (cron, eng) for eng, cron in backup_crons(cfg2.get("backup") or {})],
+                        "materials": materials_preview(cfg2, catalog, _nodes),
                         "warnings": warns + _cl_warns + (validate_compose_with_docker(compose, env) if compose else []),
                     })
                 elif self.path == "/api/pack":

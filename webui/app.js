@@ -224,6 +224,9 @@ const EN_DICT = {
   "中间件默认部署在交付包所在服务器(运行 deploy.sh 的机器); 跨服务器部署请在中间件卡片配置多机拓扑": "Middleware deploys on the server hosting the bundle (the one running deploy.sh) by default; configure multi-host topology on the middleware cards to spread across servers",
   "已选 ": "Selected: ", "目标 ": "target ", "原始物料 ": "raw materials ", "打包后约为其": "packed ≈", "K8s 集群": "K8s cluster",
   "节点分发预览": "Node distribution", "集群 inventory": "Cluster inventory", "集群 config": "Cluster config",
+  "待下载物料": "Materials to download", "集群控制端": "Cluster control", "集群二进制": "Cluster binaries",
+  "K8s 离线镜像包": "K8s offline image bundle", "私有仓库镜像 tar": "Private registry image tar",
+  "CNI/存储 chart": "CNI/storage charts", "Java 运行时": "Java runtime", "中间件镜像": "Middleware images",
   "工作节点": "Worker", "镜像仓库": "Image registry", "未分配": "Unassigned", "K8s 版本": "K8s version", "时区": "Timezone",
   "离线物料": "Offline materials", "OS 依赖包": "OS packages", "部署服务器池": "Server pool",
   "artifact 产物 (含镜像, 推荐)": "artifact bundle (with images, recommended)",
@@ -2209,6 +2212,30 @@ async function doPreview(){
     previewData.clusterCfg = d.cluster_config || '';
     $('#tabClusterInv').style.display = d.cluster_inventory ? '' : 'none';
     $('#tabClusterCfg').style.display = d.cluster_config ? '' : 'none';
+    // 物料下载清单: ✓ 已缓存 / ↓ 待下载 + 各自的下载源(打包前就知道要下什么、从哪下)
+    const mts = d.materials || {rows: [], cached_n: 0, total: 0};
+    const mrows = mts.rows || [];
+    previewData.materials = '';
+    if (mrows.length){
+      const lines = [trLabel('物料清单 (✓ 仓库已缓存 / ↓ 待下载, 打包时自动收集)|Materials (✓ cached in warehouse / ↓ to download; auto-collected at pack time)')];
+      let lastGroup = '';
+      for (const r of mrows){
+        if (r.group !== lastGroup){
+          lines.push(''); lines.push('# ---- ' + trLabel(r.group) + ' ----'); lastGroup = r.group;
+        }
+        lines.push((r.cached ? '✓ ' : '↓ ') + r.name + (r.note ? '    # ' + trMsg(r.note) : ''));
+        if (!r.cached && r.sources && r.sources.length){
+          lines.push('      ' + trLabel('源|sources') + ': ' + r.sources.join('  |  '));
+        }
+      }
+      lines.push('');
+      const miss = mts.total - mts.cached_n;
+      lines.push(trLabel('已缓存|Cached') + ' ' + mts.cached_n + ' / ' + mts.total +
+        (miss > 0 ? '  ·  ' + trLabel('待下载|to download') + ' ' + miss + trLabel(' 项(打包时自动下载, 源失效可在 versions.json 换源)|(items; auto-download at pack, override sources in versions.json)')
+                  : '  ·  ' + trLabel('全部就绪, 无需下载|all ready, nothing to download')));
+      previewData.materials = lines.join('\n');
+    }
+    $('#tabMaterials').style.display = mrows.length ? '' : 'none';
     $('#previewCard').style.display = ''; switchTab(d.compose ? 'compose' : (d.cluster_inventory ? 'clusterInv' : 'compose'));
     let extra = '';
     if (d.backup_crons && d.backup_crons.length){
