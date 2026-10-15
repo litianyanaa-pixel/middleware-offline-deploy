@@ -1,0 +1,22 @@
+{{- $daemon := .cri.docker.daemon }}
+{{- if .cri.registry.mirrors }}
+{{- $_ := set $daemon "registry-mirrors" .cri.registry.mirrors }}
+{{- end }}
+{{- $insecure_registries := .cri.registry.insecure_registries | default list }}
+{{- if and .image_registry.auth.skip_tls_verify (.image_registry.auth.registry | empty | not) (ne (.image_registry.auth.registry | splitList "/" | first) "hub.kubesphere.com.cn") }}
+  {{- $insecure_registries = append $insecure_registries (.image_registry.auth.registry | splitList "/" | first) }}
+{{- end }}
+{{- range .cri.registry.auths | default list }}
+  {{- if and .skip_tls_verify (.registry | empty | not) }}
+    {{- $insecure_registries = append $insecure_registries .registry }}
+  {{- end }}
+{{- end }}
+{{- $_ := set $daemon "insecure-registries" $insecure_registries }}
+{{- if and (.cri.docker.daemon_policy | eq "merge") (.docker_daemon_existing | default dict) }}
+  {{- $existing := .docker_daemon_existing.stdout | default dict }}
+  {{- $err := .docker_daemon_existing.error | default "" }}
+  {{- if and ($err | empty) ($existing | empty | not) }}
+    {{- $daemon = mergeOverwrite $daemon $existing }}
+  {{- end }}
+{{- end }}
+{{ $daemon | toPrettyJson }}

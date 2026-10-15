@@ -2,6 +2,23 @@
 
 按时间倒序记录每次功能与修复。`docs/` 演示站随前端改动同步更新。
 
+## 2026-10-14（kk 源码随仓库分发 + 打包机环境一键准备脚本）
+
+- **KubeKey 源码收编入库 `third_party/kubekey/`**（上游 Apache-2.0，快照版本 v4.0.7-xc1，
+  排除 bin/构建产物/日志后约 17MB）：克隆仓库即可构建 kk，不再依赖 `E:\project\kubekey`
+  外部目录（历史目录仍可用 `KK_SRC` 环境变量指定）。
+  开源合规：目录内保留上游 LICENSE，新增 `MODIFICATIONS.md` 声明全部改动
+  （仅 4 个 YAML 角色文件的信创适配，无 Go 代码改动，符合 Apache-2.0 §4(b)）；
+  项目级声明见 `docs/THIRD-PARTY.md`；README 目录结构/文档索引同步
+- **kk 构建脚本指向库内源码**：`python prepare_cluster.py --kk-build` 生成的
+  `build-kk.bat` 默认从 `third_party/kubekey` 构建（KK_SRC 可覆盖），源码缺失时给出
+  库内路径提示
+- **新增 `tools/setup-packer-env.sh` 打包机环境一键准备**（Linux 多发行版：
+  Debian/Ubuntu/UOS/Deepin 与 RHEL/CentOS/Rocky/openEuler/kylin/anolis 等）——
+  按需安装 Python3 / Docker Engine(get.docker.com, 国内可走阿里云镜像) /
+  Go 1.25+ 官方 tarball(golang.google.cn + GOPROXY=goproxy.cn)，幂等可重跑，
+  `--check` 盘点、`--cn` 国内源、`--only` 单装；Windows 打包机无需脚本(官方安装包)
+
 ## 2026-10-14（物料缓存命中展示 + 逐物料子进度条 + 中间件镜像自动补齐）
 
 - **预览页新增「待下载物料」标签页**: 生成预览时即列出本次打包涉及的全部物料(集群控制端 kk/

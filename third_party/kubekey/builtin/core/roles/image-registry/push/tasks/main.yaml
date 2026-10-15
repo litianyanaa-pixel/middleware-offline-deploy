@@ -1,0 +1,76 @@
+---
+- name: ImageRegistry | Ensure Harbor project exists for each image
+  tags: ["push"]
+  ignore_errors: true
+  command: |
+    # Traverse first-level subdirectories in images_dir, skipping 'blobs'
+    registry_url="{{ .image_registry.auth.registry }}"
+    registry_host="{{ .image_registry.auth.registry | splitList "/" | first | splitList ":" | first }}"
+    base_project=$(echo "$registry_url" | cut -s -d'/' -f2-)
+    {{ if .image_registry.auth.plain_http | default false -}}
+    scheme="http"
+    harbor_port="{{ .image_registry.http_port | default 80 }}"
+    curl_opts=""
+    {{ else -}}
+    scheme="https"
+    harbor_port="{{ .image_registry.https_port | default 443 }}"
+    curl_opts="-k"
+    {{ end -}}
+    if [ -n "$base_project" ]; then
+      resp=$(curl -u "{{ .image_registry.auth.username }}:{{ .image_registry.auth.password }}" $curl_opts -X GET "${scheme}://${registry_host}:${harbor_port}/api/v2.0/projects/${base_project}")
+      if echo "$resp" | grep -q '"code":"NOT_FOUND"'; then
+        curl -u "{{ .image_registry.auth.username }}:{{ .image_registry.auth.password }}" $curl_opts -X POST \
+          -H "Content-Type: application/json" \
+          "${scheme}://${registry_host}:${harbor_port}/api/v2.0/projects" \
+          -d "{ \"project_name\": \"${base_project}\", \"public\": true}"
+      fi
+    else
+      for registry_dir in {{ .binary_dir }}/images/*; do
+        if [ ! -d "$registry_dir" ] || [ "$(basename "$registry_dir")" = "blobs" ]; then
+          continue
+        fi
+
+        # Traverse second-level subdirectories in each registry_dir
+        for project_dir in "$registry_dir"/*; do
+          if [ ! -d "$project_dir" ]; then
+            continue
+          fi
+
+          project=$(basename "$project_dir")
+
+          # Check if the Harbor project exists; create it if it does not
+          resp=$(curl -u "{{ .image_registry.auth.username }}:{{ .image_registry.auth.password }}" $curl_opts -X GET "${scheme}://${registry_host}:${harbor_port}/api/v2.0/projects/${project}")
+          if echo "$resp" | grep -q '"code":"NOT_FOUND"'; then
+            curl -u "{{ .image_registry.auth.username }}:{{ .image_registry.auth.password }}" $curl_opts -X POST \
+              -H "Content-Type: application/json" \
+              "${scheme}://${registry_host}:${harbor_port}/api/v2.0/projects" \
+              -d "{ \"project_name\": \"${project}\", \"public\": true}"
+          fi
+        done
+      done
+    fi
+
+- name: ImageRegistry | Push images package to image registry
+  tags: ["push"]
+  run_once: true
+  retries: 3
+  image:
+    platform: >
+      {{- $platform := list }}
+      {{- range .download.arch }}
+        {{- $platform = append $platform (printf "linux/%s" .) }}
+      {{- end }}
+      {{- $platform | toJson }}
+    policy: "{{ .download.images.policy }}"
+    auths: >
+      {{- $auths := list }}
+      {{- $auths = append $auths .image_registry.auth }}
+      {{- $auths | toJson }}
+    manifests: "{{ .download.images.manifests | toJson }}"
+    src: "local://{{ .binary_dir }}/images/"
+    dest: >-
+      {{- if and (eq .module.image.reference.registry "registry.k8s.io") (.module.image.reference.repository | contains "/" | not) -}}
+      oci://{{ .image_registry.auth.registry }}/kubernetes/{{ .module.image.reference.repository }}:{{ .module.image.src.reference.reference }}
+      {{- else -}}
+      oci://{{ .image_registry.auth.registry }}/{{ .module.image.reference.repository }}:{{ .module.image.reference.reference }}
+      {{- end -}}

@@ -1,0 +1,34 @@
+---
+- name: Check if docker is installed
+  ignore_errors: true
+  command: docker version --format '{{ .Client.Version }}' 2>/dev/null || true
+  register: docker_install_version
+
+- name: Install docker
+  when: or (.docker_install_version.error | empty | not) (.docker_install_version.stdout | ne .docker_version)
+  block:
+    - name: Sync docker binary to remote
+      copy:
+        src: >-
+          {{ .binary_dir }}/docker/{{ .docker_version }}/{{ .binary_type }}/docker-{{ .docker_version }}.tgz
+        dest: >-
+          {{ .tmp_dir }}/docker-{{ .docker_version }}.tgz
+    - name: Unpackage docker binary
+      command: |
+        tar -C /usr/local/bin/ --strip-components=1 -xvf {{ .tmp_dir }}/docker-{{ .docker_version }}.tgz --wildcards docker/*
+    - name: Generate docker config file
+      template:
+        src: docker.config
+        dest: /etc/docker/daemon.json
+    - name: Generate docker service file
+      copy:
+        src: docker.service
+        dest: /etc/systemd/system/docker.service
+    - name: Generate containerd service file
+      copy:
+        src: containerd.service
+        dest: /etc/systemd/system/containerd.service
+    - name: Start docker service
+      command: |
+        systemctl daemon-reload && systemctl start containerd.service && systemctl enable containerd.service
+        systemctl daemon-reload && systemctl start docker.service && systemctl enable docker.service

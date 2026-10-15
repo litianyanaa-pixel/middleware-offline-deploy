@@ -1,0 +1,117 @@
+- include_tasks: install_binaries.yaml
+
+- include_tasks: high-availability/main.yaml
+
+- name: PreKubernetes | Ensure the 'kube' system user exists
+  command: |
+    id kube &>/dev/null || useradd -M -c 'Kubernetes user' -s /sbin/nologin -r kube
+
+- name: PreKubernetes | Create and set ownership for required Kubernetes directories
+  command: |
+    if [ ! -d "{{ .item.path }}" ]; then
+      mkdir -p {{ .item.path }} && chown kube -R {{ .item.chown }}
+    fi
+  loop:
+    - {path: "/usr/local/bin", chown: "/usr/local/bin"}
+    - {path: "/etc/kubernetes", chown: "/etc/kubernetes"}
+    - {path: "/etc/kubernetes/pki", chown: "/etc/kubernetes/pki"}
+    - {path: "/etc/kubernetes/manifests", chown: "/etc/kubernetes/manifests"}
+    - {path: "/usr/local/bin/kube-scripts", chown: "/usr/local/bin/kube-scripts"}
+    - {path: "/usr/libexec/kubernetes/kubelet-plugins/volume/exec", chown: "/usr/libexec/kubernetes"}
+    - {path: "/etc/cni/net.d", chown: "/etc/cni"}
+    # - {path: "/opt/cni/bin", chown: "/opt/cni"}
+    # - {path: "/var/lib/calico", chown: "/var/lib/calico"}
+
+- name: PreKubernetes | Synchronize audit policy file to remote node
+  copy:
+    src: audit
+    dest: /etc/kubernetes/audit/
+  when: .audit
+
+- name: PreKubernetes | Synchronize cluster CA files to control plane nodes
+  when: 
+    - .kubernetes.certs.ca_cert | empty | not
+    - .kubernetes.certs.ca_key | empty | not
+    - .groups.kube_control_plane | has .inventory_hostname
+  block:
+    - name: PreKubernetes | Copy CA certificate to control plane node
+      copy: 
+        src: >-
+          {{ .kubernetes.certs.ca_cert }}
+        dest: /etc/kubernetes/pki/ca.crt
+    - name: PreKubernetes | Copy CA private key to control plane node
+      copy:
+        src: >-
+          {{ .kubernetes.certs.ca_key }}
+        dest: /etc/kubernetes/pki/ca.key
+
+- name: PreKubernetes | Ensure external etcd certificates are present on control plane nodes
+  when: 
+    - .etcd.deployment_type | eq "external"
+    - .groups.kube_control_plane | default list | has .inventory_hostname
+    # Copy etcd certs onto a control plane node ONLY when that node has NOT yet
+    # bootstrapped a kubelet, i.e. it is a fresh node -- either a cluster CREATE or a
+    # NEW control plane node joining via `kk add nodes`. The signal comes from the
+    # kubelet.service LoadState fact gathered in the defaults role:
+    #   * "not-found" (no kubelet) -> copy the etcd CA / client certs so this node
+    #     can run an apiserver that talks to etcd.
+    #   * "loaded" (kubelet already present) -> this is an existing node being
+    #     UPGRADED, so the running etcd and its apiserver client certs already exist
+    #     on disk and must NOT be clobbered. A multi-minor auto-step that runs with a
+    #     *fresh* workdir makes certs/init regenerate a brand-new root CA there;
+    #     copying that CA into /etc/kubernetes/pki/etcd would swap the
+    #     apiserver->etcd CA to one that does NOT match the running etcd, breaking
+    #     apiserver<->etcd TLS (x509: certificate signed by unknown authority
+    #     "root") and sending the apiserver into CrashLoopBackOff. Skipping on every
+    #     upgrade (kubernetes or etcd) keeps the existing correct pki/etcd certs
+    #     intact for the whole jump.
+    - .kubernetes_install_LoadState.stdout | default "not-found" | ne "loaded"
+  block:
+    - name: PreKubernetes | Copy etcd CA certificate to control plane node
+      copy:
+        src: >-
+          {{ .etcd.ca_file }}
+        dest: /etc/kubernetes/pki/etcd/ca.crt
+    - name: PreKubernetes | Copy etcd client certificate to control plane node
+      copy:
+        src: >-
+          {{ .etcd.client_cert_file }}
+        dest: /etc/kubernetes/pki/etcd/client.crt
+    - name: PreKubernetes | Copy etcd client key to control plane node
+      copy:
+        src: >-
+          {{ .etcd.client_key_file }}
+        dest: /etc/kubernetes/pki/etcd/client.key
+
+- name: PreKubernetes | Synchronize front-proxy CA files to control plane nodes
+  when:
+    - .kubernetes.certs.front_proxy_cert | empty | not
+    - .kubernetes.certs.front_proxy_key | empty | not
+    - .groups.kube_control_plane | has .inventory_hostname
+  block:
+    - name: PreKubernetes | Copy front-proxy CA certificate to control plane node
+      copy: 
+        src: >-
+          {{ .kubernetes.certs.front_proxy_cert }}
+        dest: /etc/kubernetes/pki/front-proxy-ca.crt
+    - name: PreKubernetes | Copy front-proxy CA private key to control plane node
+      copy:
+        src: >-
+          {{ .kubernetes.certs.front_proxy_key }}
+        dest: /etc/kubernetes/pki/front-proxy-ca.key
+
+- name: PreKubernetes | Add patches to kubeadm init and join
+  loop: "{{ .kubernetes.patches | toJson }}"
+  when: 
+    - .item | empty | not
+    - printf "/etc/kubernetes/patches/%s" (index (.item | default dict) "name") | fileExists | not
+  copy:
+    src: >-
+      {{- if .item.path | empty | not }}
+      {{ .item.path }}
+      {{- end }}
+    content: >-
+      {{- if .item.content | empty | not }}
+      {{ .item.content }}
+      {{- end }}
+    dest: /etc/kubernetes/patches/{{ .item.name }}

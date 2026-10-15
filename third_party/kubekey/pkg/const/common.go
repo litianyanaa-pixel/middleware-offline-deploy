@@ -1,0 +1,148 @@
+/*
+Copyright 2023 The KubeSphere Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package _const
+
+import "os"
+
+// variable specific key in system
+const ( // === From Global Parameter ===
+	// VariableLocalHost is the default local host name in inventory.
+	VariableLocalHost = "localhost"
+	// VariableIPv4 is the ipv4 in inventory.
+	VariableIPv4 = "internal_ipv4"
+	// VariableIPv6 is the ipv6 in inventory.
+	VariableIPv6 = "internal_ipv6"
+	// VariableGroups the value is a host_name slice
+	VariableGroups = "groups"
+	// VariableConnector is connector parameter in inventory.
+	VariableConnector = "connector"
+	// VariableConnectorType is connected type for VariableConnector.
+	VariableConnectorType = "type"
+	// VariableConnectorHost is connected address for VariableConnector.
+	VariableConnectorHost = "host"
+	// VariableConnectorURL is connected port for VariableConnectorURL.
+	VariableConnectorURL = "url"
+	// VariableConnectorPort is connected address for VariableConnector.
+	VariableConnectorPort = "port"
+	// VariableConnectorUser is connected user for VariableConnector.
+	VariableConnectorUser = "user"
+	// VariableConnectorUserName is connected username for VariableConnector.
+	VariableConnectorUserName = "username"
+	// VariableConnectorPassword is connected type for VariableConnector.
+	VariableConnectorPassword = "password"
+	// VariableConnectorPrivateKey is connected auth key for VariableConnector.
+	VariableConnectorPrivateKey = "private_key"
+	// VariableConnectorPrivateKeyContent is connected auth key content for VariableConnector.
+	VariableConnectorPrivateKeyContent = "private_key_content"
+	// VariableConnectorKubeconfig is connected auth key for VariableConnector.
+	VariableConnectorKubeconfig = "kubeconfig"
+	// VariableConnectorToken is connected auth key for VariableConnector.
+	VariableConnectorToken = "token"
+	// VariableGatherFactsCache type in runtimedir. support jsonfile, yamlfile, memory.
+	VariableGatherFactsCache = "fact_caching"
+)
+
+const ( // === From system generate ===
+	// VariableInventoryName the value which defined in inventory.spec.host.
+	VariableInventoryName = "inventory_hostname"
+	// VariableHostName the value is node hostname, default VariableInventoryName.
+	// If VariableInventoryName is "localhost". try to set the actual name.
+	VariableHostName = "hostname"
+	// VariableGlobalHosts the value is host_var which defined in inventory.
+	VariableGlobalHosts = "hostvars"
+	// VariableGroupsAll the value is a all host_name slice of VariableGroups.
+	VariableGroupsAll = "all"
+	// VariableUnGrouped the value is a all host_name slice of VariableGroups.
+	VariableUnGrouped = "ungrouped"
+)
+
+const ( // === From GatherFact ===
+	// VariableOS the value is os information.
+	VariableOS = "os"
+	// VariableOSType the value is os type of VariableOS.
+	VariableOSType = "type"
+	// VariableOSRelease the value is os-release of VariableOS.
+	VariableOSRelease = "release"
+	// VariableOSKernelVersion the value is kernel version of VariableOS.
+	VariableOSKernelVersion = "kernel_version"
+	// VariableOSHostName the value is hostname of VariableOS.
+	VariableOSHostName = "hostname"
+	// VariableOSArchitecture the value is architecture of VariableOS.
+	VariableOSArchitecture = "architecture"
+	// VariableProcess the value is process information.
+	VariableProcess = "process"
+	// VariableProcessCPU the value is cpu info of VariableProcess.
+	VariableProcessCPU = "cpuInfo"
+	// VariableProcessMemory the value is memory info of VariableProcess.
+	VariableProcessMemory = "memInfo"
+	// VariableBlockDevices the value is block device info gathered via lsblk.
+	VariableBlockDevices = "blockdevices"
+	// VariableGPU the value is GPU info gathered via lspci.
+	VariableGPU = "gpu"
+)
+
+const ( // === From runtime ===
+	// VariableItem for "loop" argument when run a task.
+	VariableItem = "item"
+)
+
+const ( // === From CAPKK base on GetCAPKKProject() ===
+	// CAPKKWorkdir is the work dir for capkk playbook.
+	CAPKKWorkdir = "/kubekey/"
+	// CAPKKProjectdir is the project dir for capkk playbook.
+	CAPKKProjectdir = "/capkk/project/"
+	// CAPKKBinarydir is the path of binary.
+	CAPKKBinarydir = "/capkk/kubekey/"
+	// CAPKKCloudConfigPath is the cloud-config path.
+	CAPKKCloudConfigPath = "/capkk/cloud/cloud-config"
+	// CAPKKCloudKubeConfigPath is the cloud-config path.
+	CAPKKCloudKubeConfigPath = "/capkk/cloud/kubeconfig"
+	// CAPKKPlaybookHostCheck is the playbook for host check.
+	CAPKKPlaybookHostCheck = "playbooks/host_check.yaml"
+	// CAPKKPlaybookAddNode is the playbook for add node.
+	CAPKKPlaybookAddNode = "playbooks/add_node.yaml"
+	// CAPKKPlaybookDeleteNode is the playbook for delete node.
+	CAPKKPlaybookDeleteNode = "playbooks/delete_node.yaml"
+)
+
+const (
+	// SSHVerifyStatusSuccess means ssh connect success
+	SSHVerifyStatusSuccess = "success"
+	// SSHVerifyStatusFailed means ssh connect failed
+	SSHVerifyStatusFailed = "ssh_failed"
+	// SSHVerifyStatusOffline means ssh target offline
+	SSHVerifyStatusOffline = "offline"
+	// SSHVerifyStatusSSHIncomplete means ssh connect information incomplete
+	SSHVerifyStatusSSHIncomplete = "ssh_incomplete"
+	// SSHVerifyStatusUnreachable means host server cannot connect to target ssh
+	SSHVerifyStatusUnreachable = "unreachable"
+)
+
+const (
+	// PermDirPublic means public permission of directory, something like os.ModePerm
+	PermDirPublic os.FileMode = 0755
+	// PermFilePublic means public permission of file, something like os.ModePerm
+	PermFilePublic os.FileMode = 0644
+)
+
+// contextKey is a custom type to avoid collisions in context values
+type contextKey string
+
+const (
+	// CTXSetupForceKey is the context key for force flag in setup module
+	CTXSetupForceKey contextKey = "force"
+)

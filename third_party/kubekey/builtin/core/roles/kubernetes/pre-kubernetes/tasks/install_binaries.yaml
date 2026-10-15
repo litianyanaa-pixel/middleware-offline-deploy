@@ -1,0 +1,96 @@
+---
+- name: Binary | Verify if Helm is already installed
+  ignore_errors: true
+  command: helm version --template "{{ "{{" }} .Version {{ "}}" }}"
+  register: helm_install_version
+
+- name: Binary | Install Helm if not present or version mismatch
+  when: or (.helm_install_version.error | empty | not) (.helm_install_version.stdout | ne .kubernetes.helm_version)
+  block:
+    - name: Binary | Copy Helm archive to remote host
+      copy:
+        src: >-
+          {{ .binary_dir }}/helm/{{ .kubernetes.helm_version }}/{{ .binary_type }}/helm-{{ .kubernetes.helm_version }}-linux-{{ .binary_type }}.tar.gz
+        dest: >-
+          {{ .tmp_dir }}/helm-{{ .kubernetes.helm_version }}-linux-{{ .binary_type }}.tar.gz
+    - name: Binary | Extract and install Helm binary
+      command: |
+        tar --strip-components=1 -zxvf {{ .tmp_dir }}/helm-{{ .kubernetes.helm_version }}-linux-{{ .binary_type }}.tar.gz -C /usr/local/bin linux-{{ .binary_type }}/helm
+
+- name: Binary | Check if kubeadm is installed
+  ignore_errors: true
+  command: kubeadm version -o short
+  register: kubeadm_install_version
+
+- name: Binary | Install kubeadm if not present or version mismatch
+  when: or (.kubeadm_install_version.error | empty | not) (.kubeadm_install_version.stdout | ne .kubernetes.kube_version)
+  copy:
+    src: >-
+      {{ .binary_dir }}/kube/{{ .kubernetes.kube_version }}/{{ .binary_type }}/kubeadm
+    dest: /usr/local/bin/kubeadm
+    mode: 0755
+
+- name: Binary | Check if kubectl is installed
+  ignore_errors: true
+  command: kubectl version --client -o yaml
+  register: kubectl_install_version
+  register_type: yaml
+
+- name: Binary | Install kubectl if not present or version mismatch
+  when: or (.kubectl_install_version.error | empty | not) ((index .kubectl_install_version.stdout "clientVersion" "gitVersion") | ne .kubernetes.kube_version)
+  copy:
+    src: >-
+      {{ .binary_dir }}/kube/{{ .kubernetes.kube_version }}/{{ .binary_type }}/kubectl
+    dest: /usr/local/bin/kubectl
+    mode: 0755
+
+- name: Binary | Check if kubelet is installed
+  ignore_errors: true
+  command: kubelet --version
+  register: kubelet_install_version
+
+- name: Binary | Install kubelet binary if not present or version mismatch
+  when: or (.kubelet_install_version.error | empty | not) (.kubelet_install_version.stdout | ne (printf "Kubernetes %s" .kubernetes.kube_version))
+  copy:
+    src: >-
+      {{ .binary_dir }}/kube/{{ .kubernetes.kube_version }}/{{ .binary_type }}/kubelet
+    dest: /usr/local/bin/kubelet
+    mode: 0755
+
+# kubelet systemd units must always be present (idempotent).
+# Even when the download role pre-stages the kubelet binary (so the version check
+# above matches and the binary is not re-copied), kubeadm init/join still needs the
+# kubelet.service unit in order to systemctl start kubelet. If the unit is missing,
+# the kubelet-check fails and create cluster aborts at init.
+- name: Binary | Check kubelet service unit presence
+  command: systemctl show kubelet.service -p LoadState | cut -d= -f2
+  register: kubelet_unit_state
+  ignore_errors: true
+
+- name: Binary | Ensure kubelet systemd units are present
+  when: .kubelet_unit_state.stdout | ne "loaded"
+  block:
+    - name: Binary | Deploy kubelet environment configuration
+      template:
+        src: kubelet/kubelet.env
+        dest: /etc/systemd/system/kubelet.service.d/10-kubeadm.conf
+    - name: Binary | Copy kubelet systemd service file
+      copy:
+        src: kubelet.service
+        dest: /etc/systemd/system/kubelet.service
+    - name: Binary | Reload systemd and enable kubelet service
+      command: systemctl daemon-reload && systemctl enable kubelet.service
+
+- name: Binary | Install CNI plugins if version specified
+  when: .cni.cni_plugins_version | empty | not
+  block:
+    - name: Binary | Copy CNI plugins archive to remote host
+      copy:
+        src: >-
+          {{ .binary_dir }}/cni/plugins/{{ .cni.cni_plugins_version }}/{{ .binary_type }}/cni-plugins-linux-{{ .binary_type }}-{{ .cni.cni_plugins_version }}.tgz
+        dest: >-
+          {{ .tmp_dir }}/cni-plugins-linux-{{ .binary_type }}-{{ .cni.cni_plugins_version }}.tgz
+    - name: Binary | Extract and install CNI plugins
+      command: |
+        mkdir -p /opt/cni/bin/
+        tar -zxvf {{ .tmp_dir }}/cni-plugins-linux-{{ .binary_type }}-{{ .cni.cni_plugins_version }}.tgz -C /opt/cni/bin/

@@ -1,0 +1,357 @@
+package tmpl
+
+import (
+	"fmt"
+	"math"
+	"net"
+	"os"
+	"reflect"
+	"regexp"
+	"strconv"
+	"strings"
+	"text/template"
+
+	"github.com/BurntSushi/toml"
+	"github.com/Masterminds/sprig/v3"
+	"github.com/cockroachdb/errors"
+	"gopkg.in/yaml.v3"
+
+	"github.com/kubesphere/kubekey/v4/pkg/utils"
+)
+
+const recursionMaxNums = 1000
+
+// default function docs: http://masterminds.github.io/sprig
+
+func funcMap() template.FuncMap {
+	var f = sprig.TxtFuncMap()
+	delete(f, "env")
+	delete(f, "expandenv")
+	// add custom function
+	f["toYaml"] = toYAML
+	f["fromYaml"] = fromYAML
+	f["fromTOML"] = fromTOML
+	f["ipInCIDR"] = ipInCIDR
+	f["ipFamily"] = ipFamily
+	f["isIP"] = isIP
+	f["isCIDR"] = isCIDR
+	f["pow"] = pow
+	f["subtractList"] = subtractList
+	f["fileExists"] = fileExists
+	f["unquote"] = unquote
+	f["getStringSlice"] = getStringSlice
+	f["toLowerByteUnit"] = toLowerByteUnit
+	f["mapToNamedStringArgs"] = mapToNamedStringArgs
+	f["toToml"] = toTOML
+	f["toBool"] = toBool
+
+	return f
+}
+
+// 'include' needs to be defined in the scope of a 'tpl' template as
+// well as regular file-loaded templates.
+func includeFun(t *template.Template, includedNames map[string]int) func(string, any) (string, error) {
+	return func(name string, data any) (string, error) {
+		var buf strings.Builder
+		if v, ok := includedNames[name]; ok {
+			if v > recursionMaxNums {
+				return "", fmt.Errorf(
+					"rendering template has a nested reference name: %s: %w",
+					name, errors.New("unable to execute template"))
+			}
+			includedNames[name]++
+		} else {
+			includedNames[name] = 1
+		}
+		err := t.ExecuteTemplate(&buf, name, data)
+		includedNames[name]--
+		return buf.String(), err
+	}
+}
+
+// As does 'tpl', so that nested calls to 'tpl' see the templates
+// defined by their enclosing contexts.
+func tplFun(parent *template.Template, includedNames map[string]int, strict bool) func(string, any) (string, error) {
+	return func(tpl string, vals any) (string, error) {
+		t, err := parent.Clone()
+		if err != nil {
+			return "", fmt.Errorf("cannot clone template: %w", err)
+		}
+
+		// Re-inject the missingkey option, see text/template issue https://github.com/golang/go/issues/43022
+		// We have to go by strict from our engine configuration, as the option fields are private in Template.
+		// TODO: Remove workaround (and the strict parameter) once we build only with golang versions with a fix.
+		if strict {
+			t.Option("missingkey=error")
+		} else {
+			t.Option("missingkey=zero")
+		}
+
+		// Re-inject 'include' so that it can close over our clone of t;
+		// this lets any 'define's inside tpl be 'include'd.
+		t.Funcs(template.FuncMap{
+			"include": includeFun(t, includedNames),
+			"tpl":     tplFun(t, includedNames, strict),
+		})
+
+		// We need a .New template, as template text which is just blanks
+		// or comments after parsing out defines just adds new named
+		// template definitions without changing the main template.
+		// https://pkg.go.dev/text/template#Template.Parse
+		// Use the parent's name for lack of a better way to identify the tpl
+		// text string. (Maybe we could use a hash appended to the name?)
+		t, err = t.New(parent.Name()).Parse(tpl)
+		if err != nil {
+			return "", fmt.Errorf("cannot parse template %q: %w", tpl, err)
+		}
+
+		var buf strings.Builder
+		if err := t.Execute(&buf, vals); err != nil {
+			return "", fmt.Errorf("error during tpl function execution for %q: %w", tpl, err)
+		}
+
+		// See comment in renderWithReferences explaining the <no value> hack.
+		return strings.ReplaceAll(buf.String(), "<no value>", ""), nil
+	}
+}
+
+// toYAML takes an interface, marshals it to yaml, and returns a string. It will
+// always return a string, even on marshal error (empty string).
+//
+// This is designed to be called from a template.
+func toYAML(v any) string {
+	data, err := yaml.Marshal(v)
+	if err != nil {
+		// Swallow errors inside of a template.
+		return ""
+	}
+
+	return strings.TrimSpace(string(data))
+}
+
+// fromYAML takes a YAML string, unmarshals it into an interface{}, and returns the result.
+// If there is an error during unmarshaling, it will be returned along with nil for the value.
+func fromYAML(v string) (any, error) {
+	var output any
+	err := yaml.Unmarshal([]byte(v), &output)
+
+	return output, err
+}
+
+// fromTOML takes a TOML string, unmarshals it into an interface{}, and returns the result.
+// If there is an error during unmarshaling, it will be returned along with nil for the value.
+func fromTOML(v string) (any, error) {
+	var output any
+	err := toml.Unmarshal([]byte(v), &output)
+
+	return output, err
+}
+
+// toTOML takes an interface, marshals it to toml, and returns a string. It will
+// always return a string, even on marshal error (empty string).
+//
+// This is designed to be called from a template.
+func toTOML(v any) string {
+	var buf strings.Builder
+	if err := toml.NewEncoder(&buf).Encode(v); err != nil {
+		// Swallow errors inside of a template.
+		return ""
+	}
+
+	return buf.String()
+}
+
+// toBool converts a value to a boolean. bool values pass through, strings are
+// parsed with strconv.ParseBool semantics, and numeric types are true when non-zero.
+// nil and unsupported types return an error.
+func toBool(v any) (bool, error) {
+	switch value := v.(type) {
+	case bool:
+		return value, nil
+	case string:
+		b, err := strconv.ParseBool(value)
+		if err != nil {
+			return false, errors.Wrapf(err, "failed to convert %q to bool", value)
+		}
+		return b, nil
+	case nil:
+		return false, errors.New("cannot convert nil to bool")
+	default:
+		rv := reflect.ValueOf(v)
+		switch rv.Kind() {
+		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+			return rv.Int() != 0, nil
+		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+			return rv.Uint() != 0, nil
+		case reflect.Float32, reflect.Float64:
+			return rv.Float() != 0, nil
+		default:
+			return false, errors.Errorf("cannot convert %T to bool", v)
+		}
+	}
+}
+
+// ipInCIDR takes a comma-separated list of CIDR strings, parses each one to extract IPs using parseIP,
+// and returns a combined slice of all IPs found. Returns an error only if parseIP fails (not shown here).
+func ipInCIDR(cidr string) ([]string, error) {
+	var ips = make([]string, 0)
+	for _, s := range strings.Split(cidr, ",") {
+		ips = append(ips, utils.ParseIP(s)...)
+	}
+
+	return ips, nil
+}
+
+// ipFamily returns the IP family (IPv4 or IPv6) of the given IP address or IP cidr.
+func ipFamily(addrOrCIDR string) (string, error) {
+	// from IP address
+	var ip = net.ParseIP(addrOrCIDR)
+	if ip == nil {
+		// from IP cidr
+		ipFromCIDR, _, err := net.ParseCIDR(addrOrCIDR)
+		if err != nil {
+			return "Invalid", errors.Errorf("%s is not ip or cidr", addrOrCIDR)
+		}
+		ip = ipFromCIDR
+	}
+
+	if ip.To4() != nil {
+		return "IPv4", nil
+	}
+
+	return "IPv6", nil
+}
+
+// isIP reports whether the given address is an IP address.
+// It accepts bare IPs ("192.168.1.1", "2001:db8::1"), host:port forms
+// ("192.168.1.1:5000", "[2001:db8::1]:5000"), and bracketed IPv6 ("[2001:db8::1]").
+func isIP(addr string) bool {
+	if addr == "" {
+		return false
+	}
+
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		host = addr
+	}
+	if strings.HasPrefix(host, "[") && strings.HasSuffix(host, "]") {
+		host = host[1 : len(host)-1]
+	}
+
+	return net.ParseIP(host) != nil
+}
+
+// isCIDR reports whether the given string is a single IPv4 or IPv6 CIDR block,
+// such as "10.233.64.0/18" or "fd00::/64". Unlike ipFamily it never fails, so a
+// template can validate user input and report the problem itself.
+func isCIDR(cidr string) bool {
+	_, _, err := net.ParseCIDR(cidr)
+
+	return err == nil
+}
+
+// pow Get the "pow" power of "base". (base ** pow)
+func pow(base, pow float64) (float64, error) {
+	return math.Pow(base, pow), nil
+}
+
+// subtractList returns a new list containing elements from list a that are not in list b.
+// It first creates a set from list b for O(1) lookups, then builds a result list by
+// including only elements from a that don't exist in the set.
+func subtractList(a, b any) ([]any, error) {
+	aSlice, err := toAnySlice(a)
+	if err != nil {
+		return nil, err
+	}
+	bSlice, err := toAnySlice(b)
+	if err != nil {
+		return nil, err
+	}
+
+	set := make(map[any]struct{}, len(bSlice))
+	for _, v := range bSlice {
+		set[v] = struct{}{}
+	}
+
+	result := make([]any, 0, len(aSlice))
+	for _, v := range aSlice {
+		if _, exists := set[v]; !exists {
+			result = append(result, v)
+		}
+	}
+
+	return result, nil
+}
+
+func toAnySlice(v any) ([]any, error) {
+	if v == nil {
+		return nil, nil
+	}
+	rv := reflect.ValueOf(v)
+	if rv.Kind() != reflect.Slice && rv.Kind() != reflect.Array {
+		return nil, fmt.Errorf("expected slice or array, got %T", v)
+	}
+	result := make([]any, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		result[i] = rv.Index(i).Interface()
+	}
+	return result, nil
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+func unquote(input any) string {
+	if input == nil {
+		return ""
+	}
+	inputStr, ok := input.(string)
+	if !ok {
+		return ""
+	}
+	output, err := strconv.Unquote(inputStr)
+	if err != nil {
+		return inputStr
+	}
+	return output
+}
+
+func getStringSlice(d map[string][]string, key string) []string {
+	if val, ok := d[key]; ok {
+		return val
+	}
+	return nil
+}
+
+// mapToNamedStringArgs make kubeadm extra args of v1/beta4
+// for string/string extra argument maps, convert to structured extra arguments
+func mapToNamedStringArgs(input any) []map[string]string {
+	v := reflect.ValueOf(input)
+	if v.Kind() != reflect.Map {
+		return []map[string]string{}
+	}
+
+	result := make([]map[string]string, 0, v.Len())
+	iter := v.MapRange()
+	for iter.Next() {
+		key := iter.Key().String()
+		value := iter.Value()
+		valueStr := fmt.Sprintf("%v", value.Interface())
+		result = append(result, map[string]string{"name": key, "value": valueStr})
+	}
+	return result
+}
+
+// toLowerByteUnit converts storage size units from uppercase binary suffixes to lowercase.
+// For example: 5Mi -> 5m, 1Gi -> 1g, 512Ki -> 512k.
+// Inputs that are already lowercase, pure numbers, or unrecognizable formats are returned as-is.
+func toLowerByteUnit(input string) string {
+	re := regexp.MustCompile(`^(\d+)([KMGTPE]i)$`)
+	matches := re.FindStringSubmatch(input)
+	if len(matches) != 3 {
+		return input
+	}
+	return matches[1] + strings.ToLower(strings.TrimSuffix(matches[2], "i"))
+}

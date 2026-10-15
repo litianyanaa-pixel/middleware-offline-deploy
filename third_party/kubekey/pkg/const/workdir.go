@@ -1,0 +1,164 @@
+/*
+Copyright 2023 The KubeSphere Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package _const
+
+/**
+The structure of a typical KubeKey working directory:
+work_dir/
+|-- projects_dir/
+|   |-- project1/
+|   |   |-- playbooks/
+|   |   |-- roles/
+|   |   |   |-- roleName/
+|   |   |   |   |-- meta/
+|   |   |   |   |   |-- main.yml
+|   |   |   |   |-- tasks/
+|   |   |   |   |   |-- main.yml
+|   |   |   |   |-- defaults/
+|   |   |   |   |   |-- main.yml
+|   |   |   |   |-- templates/
+|   |   |   |   |-- files/
+|   |
+|   |-- project2/
+|   |-- ...
+|
+|-- binary_dir/
+|   |-- artifact-path...
+|   |-- images
+
+|
+|-- scripts_dir/
+|
+|-- gather_facts/
+|   |-- gpu_vendors.yaml
+|
+|-- pki/                        # cluster-specific certificates (per work_dir, NOT shared with binary_dir)
+|   |-- root.key / root.crt
+|   |-- kubernetes.key / kubernetes.crt
+|   |-- front-proxy.key / front-proxy.crt
+|   |-- etcd-<node>.key / etcd-<node>.crt
+|   |-- etcd-client.key / etcd-client.crt
+|   |-- image_registry.key / image_registry.crt
+|   |-- image-registry-client.key / image-registry-client.crt
+|
+|-- kubeconfig                  # cluster-specific admin kubeconfig (per work_dir)
+|
+|-- runtime/
+|-- | -- gather_facts_caches
+|-- | -- | -- inventory
+|   |-- group/version/
+|   |   |   |-- playbooks/
+|   |   |   |   |-- namespace/
+|   |   |   |   |   |-- playbook.yaml
+|   |   |   |   |   |-- /playbookName/variable/
+|   |   |   |   |   |   |-- location.yaml
+|   |   |   |   |   |   |-- inventory_hostname1.yaml
+|   |   |   |   |   |   |-- inventory_hostname2.yaml
+|
+|   |   |   |-- inventories/
+|   |   |   |   |-- namespace/
+|   |   |   |   |   |-- inventory.yaml
+|   |-- group/version/
+|   |   |   |-- tasks/
+|   |   |   |   |-- namespace/
+|   |   |   |   |   |-- task.yaml
+|
+|-- kubernetes/
+
+*/
+
+// Workdir is the user-specified working directory. By default, it is the same as the directory where the KubeKey command is executed.
+const Workdir = "work_dir"
+
+// ProjectsDir stores runnable projects. By default, its path is set to {{ .work_dir/projects }}.
+const ProjectsDir = "projects_dir"
+
+// project represents the name of individual projects.
+
+// ProjectPlaybooksDir is a fixed directory name under a project, used to store executable playbook files.
+const ProjectPlaybooksDir = "playbooks"
+
+// ProjectRolesDir is a fixed directory name under a project, used to store roles required by playbooks.
+const ProjectRolesDir = "roles"
+
+// roleName represents the name of individual roles.
+
+// ProjectRolesMetaDir is a fixed directory name under a role, used to store meta information such as dependencies.
+const ProjectRolesMetaDir = "meta"
+
+// ProjectRolesTasksDir is a fixed directory name under a role, used to store tasks required by the role.
+const ProjectRolesTasksDir = "tasks"
+
+// ProjectRolesTasksMainFile is a mandatory file under the tasks directory that must be executed when the role is run. It supports files with .yaml or .yml extensions.
+
+// ProjectRolesDefaultsDir is a fixed directory name under a role, used to set default variables for the role.
+const ProjectRolesDefaultsDir = "defaults"
+
+// ProjectRolesDefaultsMainFile is a mandatory file under the defaults directory. It supports files with .yaml or .yml extensions.
+
+// ProjectRolesTemplateDir is a fixed directory name under a role, used to store templates required by tasks.
+const ProjectRolesTemplateDir = "templates"
+
+// ProjectRolesFilesDir is a fixed directory name under a role, used to store files required by tasks.
+const ProjectRolesFilesDir = "files"
+
+// ScriptsDir stores custom scripts. By default, its path is set to {{ .work_dir/scripts }}.
+const ScriptsDir = "scripts_dir"
+
+// GatherFactsDir stores configuration files used during fact gathering, such as GPU vendor classification rules.
+const GatherFactsDir = "gather_facts"
+
+// GPUVendorConfig is the relative path to GPU vendor config under workdir.
+const GPUVendorConfig = "gpu_vendors.yaml"
+
+// BinaryDir refers to a portable software package that can typically be bundled into an offline package. By default, its path is set to {{ .work_dir/kubekey }}.
+const BinaryDir = "binary_dir"
+
+// BinaryImagesDir stores image files, including blobs and manifests.
+const BinaryImagesDir = "images"
+
+// RuntimeDir used to store runtime data for the current task execution. By default, its path is set to {{ .work_dir/runtime }}.
+const RuntimeDir = "runtime"
+
+// RuntimeGatherFactsCacheDir is a fixed directory name under runtime, used to store cached host facts gathered during execution.
+const RuntimeGatherFactsCacheDir = "gather_facts_caches"
+
+// RuntimePlaybookDir stores playbook resources created during playbook execution.
+const RuntimePlaybookDir = "playbooks"
+
+// playbook.yaml contains the data for a playbook resource.
+
+// RuntimePlaybookVariableDir is a fixed directory name under runtime, used to store task execution parameters.
+const RuntimePlaybookVariableDir = "variable"
+
+// RuntimePlaybookTaskDir is a fixed directory name under runtime, used to store the task execution status.
+
+// task.yaml contains the data for a task resource.
+
+// RuntimeConfigDir stores configuration resources.
+
+// config.yaml contains the data for a configuration resource.
+
+// RuntimeInventoryDir stores inventory resources.
+
+// inventory.yaml contains the data for an inventory resource.
+
+// KubernetesDir represents the remote host directory for each Kubernetes connection created during playbook execution.
+const KubernetesDir = "kubernetes"
+
+// VarsDir is a directory name for vars
+const VarsDir = "vars"

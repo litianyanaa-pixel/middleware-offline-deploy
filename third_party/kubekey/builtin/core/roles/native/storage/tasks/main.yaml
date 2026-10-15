@@ -1,0 +1,11 @@
+---
+- name: Storage | Generate disk format/mount script
+  when: .kubernetes.storage_disks | empty | not
+  template:
+    src: format-mount-storage.sh
+    dest: /etc/kubekey/scripts/format-mount-storage.sh
+    mode: 0755
+
+- name: Storage | Execute disk format/mount script
+  when: .kubernetes.storage_disks | empty | not
+  command: /etc/kubekey/scripts/format-mount-storage.sh

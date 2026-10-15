@@ -1,0 +1,14 @@
+# HighAvailability: Install kube-vip as a static pod. See: https://kube-vip.io/docs/installation/static/
+- name: HighAvailability | Include kube-vip static pod tasks
+  include_tasks: high-availability/kube_vip.yaml
+  when:
+    - .kubernetes.control_plane_endpoint.type | eq "kube-vip"
+    - .groups.kube_control_plane | default list | has .inventory_hostname
+
+# HighAvailability: Deploy HAProxy only on worker nodes. Control plane nodes use the local static pod for kube-apiserver.
+- name: HighAvailability | Include HAProxy deployment tasks for worker nodes
+  include_tasks: high-availability/haproxy.yaml
+  when:
+    - .kubernetes.control_plane_endpoint.type | eq "haproxy"
+    - .groups.kube_worker | default list | has .inventory_hostname
+    - .groups.kube_control_plane | default list | has .inventory_hostname | not

@@ -1,0 +1,13 @@
+---
+dependencies:
+  - role: certs/renew/etcd
+    tags: ["certs"]
+    when: .groups.etcd | default list | has .inventory_hostname
+
+  - role: certs/renew/kubernetes
+    tags: ["certs"]
+    when: .groups.kube_control_plane | default list | has .inventory_hostname
+
+  - role: certs/renew/image-registry
+    tags: ["certs", "image-registry"]
+    when: .groups.image_registry | default list | has .inventory_hostname

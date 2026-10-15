@@ -71,7 +71,8 @@ kk 消费 artifact 的机制(源码验证): `download/tasks/main.yaml` 对 `down
 ### 2.1 打补丁的 kk 二进制(信创关键)
 
 官方 kk 二进制的发行版白名单不含 uos/openEuler/anolis/alinux, 必须自己构建。补丁点
-(源码仓库 `E:\project\kubekey`, 均为 YAML 角色修改, 无 Go 代码改动):
+(源码已收编入库 `third_party/kubekey/`, 均为 YAML 角色修改, 无 Go 代码改动,
+修改声明见其 [MODIFICATIONS.md](../third_party/kubekey/MODIFICATIONS.md)):
 
 | 文件 | 改动 |
 |---|---|
@@ -80,10 +81,10 @@ kk 消费 artifact 的机制(源码验证): `download/tasks/main.yaml` 对 `down
 | `builtin/core/roles/native/nfs/tasks/main.yaml` | NFS 服务分支兼容上述 rpm 系发行版 |
 | `builtin/core/roles/native/ntp/tasks/main.yaml` | `timedatectl set-ntp` 失败容错(chrony 新装时 timedated 缓存问题的根治) |
 
-构建(任意有 Go 1.22+ 的机器, Linux/WSL):
+构建(任意有 Go 1.25+ 的机器, Linux/WSL/macOS; 源码在库内 third_party/kubekey/):
 
 ```bash
-cd kubekey && make kk                                   # 产出 _output/bin/kk (amd64, 含 builtin)
+cd third_party/kubekey && make kk                       # 产出 _output/bin/kk (amd64, 含 builtin)
 GOARCH=arm64 GOOS=linux go build -tags builtin -o kk-arm64 ./cmd/kk   # 鲲鹏/飞腾
 # 放置: warehouse/cluster/kk/v4.0.7-xc1/{amd64,arm64}/kk
 ```

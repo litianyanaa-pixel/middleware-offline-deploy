@@ -1,0 +1,60 @@
+---
+- name: Kubernetes | Determine installed kubeadm version
+  run_once: true
+  command: kubeadm version -o short
+  register: kubeadm_install_version
+
+- name: Kubernetes | Renew certificates using kubeadm
+  run_once: true
+  command: |
+    {{- if .kubeadm_install_version.stdout | semverCompare "<v1.20.0" }}
+    # Using legacy kubeadm alpha certs renew commands for versions older than v1.20.0
+    /usr/local/bin/kubeadm alpha certs renew apiserver
+    /usr/local/bin/kubeadm alpha certs renew apiserver-kubelet-client
+    /usr/local/bin/kubeadm alpha certs renew front-proxy-client
+    /usr/local/bin/kubeadm alpha certs renew admin.conf
+    /usr/local/bin/kubeadm alpha certs renew controller-manager.conf
+    /usr/local/bin/kubeadm alpha certs renew scheduler.conf
+      {{- if .etcd.deployment_type | eq "internal" }}
+    /usr/local/bin/kubeadm alpha certs renew etcd-healthcheck-client
+    /usr/local/bin/kubeadm alpha certs renew etcd-peer
+    /usr/local/bin/kubeadm alpha certs renew etcd-server
+      {{- end }}
+    {{- else }}
+    # Using stable kubeadm certs renew commands for v1.20.0 and newer
+    /usr/local/bin/kubeadm certs renew apiserver
+    /usr/local/bin/kubeadm certs renew apiserver-kubelet-client
+    /usr/local/bin/kubeadm certs renew front-proxy-client
+    /usr/local/bin/kubeadm certs renew admin.conf
+    /usr/local/bin/kubeadm certs renew controller-manager.conf
+    /usr/local/bin/kubeadm certs renew scheduler.conf
+      {{- if .etcd.deployment_type | eq "internal" }}
+    /usr/local/bin/kubeadm certs renew etcd-healthcheck-client
+    /usr/local/bin/kubeadm certs renew etcd-peer
+    /usr/local/bin/kubeadm certs renew etcd-server
+      {{- end }}
+    {{- end }}
+
+- name: Kubernetes | Retrieve kubeconfig from remote host
+  run_once: true
+  fetch:
+    src: /etc/kubernetes/admin.conf
+    dest: >-
+      {{ .work_dir }}/kubeconfig
+
+- name: Kubernetes | Distribute kubeconfig to remote host of root user
+  copy:
+    src: >-
+      {{ .work_dir }}/kubeconfig
+    dest: /root/.kube/config
+
+- name: Kubernetes | Set kubeconfig permissions
+  command: |
+    chown root:root /root/.kube/config
+    if [ "$SUDO_USER" != "root" ]; then
+      if [ ! -d /home/$SUDO_USER/.kube ]; then
+        mkdir -p /home/$SUDO_USER/.kube
+      fi
+      cp /root/.kube/config /home/$SUDO_USER/.kube/config
+      chown "$SUDO_USER":root /home/$SUDO_USER/.kube/config
+    fi

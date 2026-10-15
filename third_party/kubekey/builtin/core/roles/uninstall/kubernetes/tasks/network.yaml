@@ -1,0 +1,66 @@
+---
+- name: Network | Thoroughly clean up iptables and network interfaces
+  ignore_errors: true
+  command: |
+    iptables -F
+    iptables -X
+    iptables -F -t nat
+    iptables -X -t nat
+    ipvsadm -C
+    ip link del kube-ipvs0
+    ip link del nodelocaldns
+    ip link del cni0
+    {{- if .cni.type | eq "flannel" }}
+    ip link del flannel.1
+    ip link del flannel-v6.1
+    ip link del flannel-wg
+    ip link del flannel-wg-v6
+    {{- end }}
+    {{- if .cni.type | eq "cilium" }}
+    ip link del cilium_host
+    ip link del cilium_net
+    ip link del cilium_vxlan
+    {{- end }}
+    {{- if .cni.type | eq "calico" }}
+    ip link del tunl0
+    ip link del vxlan.calico
+    ip -br link show | grep cali[a-f0-9]* | awk -F @ '{print $1}' | xargs -r -t -n 1 ip link del
+    {{- end }}
+    ip netns show 2>/dev/null | grep cni- | awk '{print $1}' | xargs -r -t -n 1 ip netns del
+
+- name: Network | Remove all CNI network configuration and state
+  command: |
+    rm -rf /etc/cni/net.d/
+    rm -rf /opt/cni/bin/
+    rm -rf /var/lib/cni/
+    {{- if .cni.type | eq "calico" }}
+    # `kubeadm reset` does not remove Calico node-local runtime state (nodename, mtu
+    # and the BIRD sockets). On a reused node it would carry into the next cluster and
+    # point BGP at stale, no-longer-existing pod IPs, so clean it up here.
+    rm -rf /var/lib/calico/
+    rm -rf /var/run/calico/
+    if path=$(command -v calicoctl 2>/dev/null); then 
+      rm -f "$path"
+    fi
+    {{- end }}
+    {{- if .cni.type | eq "cilium" }}
+    rm -rf /var/lib/cilium/
+    rm -rf /var/run/cilium/
+    {{- end }}
+
+- name: Network | Remove ARP and IP address entries for kube-vip
+  when: eq .kubernetes.control_plane_endpoint.type "kube-vip"
+  command: |
+    ip neigh show | grep {{ .kubernetes.control_plane_endpoint.kube_vip.address }} | awk '{print $1 " dev " $3}' | xargs -r -L1 ip neigh delete
+    ip -o addr show | grep {{ .kubernetes.control_plane_endpoint.kube_vip.address }} | awk '{system("ip addr del "$4" dev "$2)}'
+
+- name: Network | Restart container runtime to rebuild iptables rules
+  ignore_errors: true
+  when: or (.delete.cri | not) (.groups.image_registry | default list | has .inventory_hostname)
+  command: |
+    {{- if .cri.container_manager | eq "docker" }}
+    systemctl restart containerd
+    systemctl restart docker
+    {{- else if .cri.container_manager | eq "containerd" }}
+    systemctl restart containerd
+    {{- end }}

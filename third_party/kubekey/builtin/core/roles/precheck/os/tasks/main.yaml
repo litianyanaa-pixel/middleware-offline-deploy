@@ -1,0 +1,68 @@
+---
+- name: OS | Assert valid system hostname format
+  block:
+    - name: OS | Validate inventory hostname is RFC-compliant
+      when: .native.set_hostname
+      assert:
+        that: .inventory_hostname | regexMatch "^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$"
+        fail_msg: >-
+          The hostname "{{ .inventory_hostname }}" is invalid. Hostnames must use only lowercase alphanumeric characters, '.', or '-', and must start and end with an alphanumeric character.
+    - name: OS | Validate current host system hostname is RFC-compliant
+      when: .native.set_hostname | not
+      assert:
+        that: .hostname | regexMatch "^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$"
+        fail_msg: >-
+          The hostname "{{ .hostname }}" is invalid. Hostnames must use only lowercase alphanumeric characters, '.', or '-', and must start and end with an alphanumeric character.
+
+- name: OS | Fail if operating system is not supported
+  assert:
+    that: or (.cluster_require.allow_unsupported_distribution_setup) (.cluster_require.supported_os_distributions | has .os.release.ID)
+    fail_msg: >-
+      The operating system "{{ .os.release.ID }}" is not recognized or supported.
+
+- name: OS | Fail if architecture is not supported
+  assert:
+    that: .cluster_require.supported_architectures | has .os.architecture
+    fail_msg: >-
+      The system architecture "{{ .os.architecture }}" is not supported.
+
+- name: OS | Fail if master node memory is insufficient
+  assert:
+    that: .process.memInfo.MemTotal | trimSuffix " kB" | atoi | le .cluster_require.minimal_master_memory_mb
+  when: .groups.kube_control_plane | default list | has .inventory_hostname
+
+- name: OS | Fail if worker node memory is insufficient
+  assert:
+    that: .process.memInfo.MemTotal | trimSuffix " kB" | atoi | le .cluster_require.minimal_node_memory_mb
+  when:
+    - .groups.kube_worker | default list | has .inventory_hostname
+
+- name: OS | Fail if kernel version is too old
+  assert:
+    # Some kernels carry a 4-segment release (e.g. WSL "5.15.167.4-microsoft-standard"),
+    # which is not valid semver: normalize to the first three segments before comparing.
+    that: slice (splitList "." (.os.kernel_version | splitList "-" | first)) 0 3 | join "." | semverCompare (printf ">=%s" .cluster_require.min_kernel_version)
+    fail_msg: >-
+      The kernel version "{{ .os.kernel_version }}" is too old. Minimum required version: {{ .cluster_require.min_kernel_version }}.
+
+# Kubernetes v1.35 removed cgroup v1 support (KEP-5573). On nodes running the
+# legacy cgroup v1 hierarchy the kubelet refuses to start, so fail the precheck
+# early instead of leaving the cluster with a broken node.
+- name: OS | Fail if cgroup v2 is unavailable for Kubernetes v1.35 or later
+  when:
+    - .groups.k8s_cluster | default list | has .inventory_hostname
+    - .kubernetes.kube_version | semverCompare ">=1.35.0"
+  block:
+    - name: OS | Detect the active cgroup hierarchy
+      command: stat -fc %T /sys/fs/cgroup
+      register: cgroup_hierarchy_type
+
+    - name: OS | Assert cgroup v2 is enabled
+      assert:
+        that: .cgroup_hierarchy_type.stdout | trim | eq "cgroup2fs"
+        fail_msg: >-
+          Kubernetes {{ .kubernetes.kube_version }} requires cgroup v2, but this node reports
+          "{{ .cgroup_hierarchy_type.stdout | trim }}" for /sys/fs/cgroup, which is the legacy
+          cgroup v1 hierarchy. Kubernetes v1.35 removed cgroup v1 support, so the kubelet will
+          fail to start. Migrate the node to a distribution with the cgroup v2 unified hierarchy
+          enabled before installing or upgrading to Kubernetes v1.35 or later.

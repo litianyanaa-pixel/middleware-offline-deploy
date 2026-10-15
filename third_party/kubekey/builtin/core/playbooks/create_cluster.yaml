@@ -1,0 +1,95 @@
+---
+- hosts:
+    - all
+  gather_facts: true
+  roles:
+    - native/root
+
+- import_playbook: hook/pre_install.yaml
+
+# Load default variables and perform prechecks on all hosts
+- hosts:
+    - all
+  gather_facts: true
+  roles:
+    - defaults
+    - precheck
+
+# Download all required software and generate certificates on the localhost
+- hosts:
+    - localhost
+  roles:
+    - certs/init
+    - download
+
+# Initialize all nodes and install necessary software packages
+- hosts:
+    - etcd
+    - k8s_cluster
+    - image_registry
+    - nfs
+  roles:
+    - native
+
+# Install the etcd cluster
+- hosts:
+    - etcd
+  roles:
+    - role: etcd/prepare
+      when: .etcd.deployment_type | eq "external"
+    - role: etcd/install
+      when: .etcd.deployment_type | eq "external"
+
+
+# Install the private image registry
+- hosts:
+    - image_registry
+  roles:
+    - cri/docker
+    - image-registry
+- hosts:
+    - localhost
+  roles:
+    - role: image-registry/push
+      when: 
+        - .groups.image_registry | empty | not
+        - .image_registry.type | empty | not
+
+# Install the Kubernetes cluster
+- hosts:
+    - k8s_cluster
+  gather_facts: true
+  roles:
+    - cri
+    - kubernetes/pre-kubernetes
+    - kubernetes/init-kubernetes
+    - role: kubernetes/join-kubernetes
+      when: 
+        - .init_kubernetes_node | ne .inventory_hostname 
+        - .kubernetes_install_LoadState.stdout | eq "not-found"    
+    - role: kubernetes/certs
+      when: 
+        - .kubernetes.certs.renew
+        - .groups.kube_control_plane | default list | has .inventory_hostname
+  post_tasks:
+    - name: Add custom labels to the cluster nodes
+      delegate_to: "{{ .init_kubernetes_node }}"
+      command: >-
+        /usr/local/bin/kubectl label --overwrite node {{ $.hostname }}
+        {{- range $k, $v := .kubernetes.custom_labels }} {{ $k }}={{ $v }}{{- end }}
+      when: .kubernetes.custom_labels | empty | not
+    - name: Add custom taint to the cluster nodes
+      delegate_to: "{{ .init_kubernetes_node }}"
+      when: .kubernetes.custom_taints | default list | empty | not
+      command: >-
+        /usr/local/bin/kubectl taint --overwrite nodes {{ $.hostname }}
+        {{- range .kubernetes.custom_taints }} {{ . }}{{- end }}
+
+# Install Kubernetes cluster software components (CNI and storage class) on the first control plane node
+- hosts:
+    - kube_control_plane[0]
+  roles:
+    - cni
+    - storageclass
+
+- import_playbook: hook/post_install.yaml

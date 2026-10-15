@@ -1,0 +1,30 @@
+---
+- hosts:
+    - all
+  gather_facts: true
+  roles:
+    - native/root
+# Load default variables and perform prechecks on all hosts
+- hosts:
+    - all
+  gather_facts: true
+  roles:
+    - defaults
+
+# Download all required software and generate certificates on the localhost
+- hosts:
+    - localhost
+  gather_facts: true
+  roles:
+    - certs/init
+    - download
+
+# Initialize all nodes and install necessary software packages
+- hosts:
+    - etcd
+    - k8s_cluster
+    - image_registry
+    - nfs
+  roles:
+    - native
+

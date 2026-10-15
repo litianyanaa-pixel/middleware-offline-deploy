@@ -1,0 +1,167 @@
+/*
+Copyright 2023 The KubeSphere Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package connector
+
+import (
+	"context"
+	"fmt"
+	"io"
+	"io/fs"
+	"net"
+	"os"
+	"path"
+	"path/filepath"
+	"strings"
+
+	"github.com/cockroachdb/errors"
+	"k8s.io/apimachinery/pkg/util/rand"
+	"k8s.io/klog/v2"
+
+	_const "github.com/kubesphere/kubekey/v4/pkg/const"
+	"github.com/kubesphere/kubekey/v4/pkg/variable"
+)
+
+// connectedType for connector
+const (
+	connectedSSH        = "ssh"
+	connectedLocal      = "local"
+	connectedKubernetes = "kubernetes"
+	connectedPrometheus = "prometheus"
+)
+
+// Connector is the interface for connecting to a remote host.
+// It abstracts the operations required to interact with different types of hosts (e.g., SSH, local, Kubernetes, Prometheus).
+// Implementations of this interface should provide mechanisms for initialization, cleanup, file transfer, and command execution.
+type Connector interface {
+	// Init initializes the connection.
+	Init(ctx context.Context) error
+	// Close closes the connection and releases any resources.
+	Close(ctx context.Context) error
+	// PutFile copies a file from src (as bytes) to dst (remote path) with the specified file mode.
+	PutFile(ctx context.Context, src []byte, dst string, mode fs.FileMode) error
+	// FetchFile copies a file from src (remote path) to dst (local writer).
+	FetchFile(ctx context.Context, src string, dst io.Writer) error
+	// ExecuteCommand executes a command on the remote host.
+	// Returns stdout, stderr, and error (if any).
+	ExecuteCommand(ctx context.Context, cmd string) ([]byte, []byte, error)
+}
+
+// NewConnector creates a new connector
+// if set connector to "local", use local connector
+// if set connector to "ssh", use ssh connector
+// if set connector to "kubernetes", use kubernetes connector
+// if set connector to "prometheus", use prometheus connector
+// if connector is not set. when host is localhost, use local connector, else use ssh connector
+// vars contains all inventory for host. It's best to define the connector info in inventory file.
+func NewConnector(host string, v variable.Variable) (Connector, error) {
+	ha, err := v.Get(variable.GetAllVariable(host))
+	if err != nil {
+		return nil, err
+	}
+	vd, ok := ha.(map[string]any)
+	if !ok {
+		return nil, errors.Errorf("host: %s variable is not a map", host)
+	}
+
+	workdir, err := v.Get(variable.GetWorkDir())
+	if err != nil {
+		return nil, err
+	}
+	wd, ok := workdir.(string)
+	if !ok {
+		return nil, errors.New("workdir in variable should be string")
+	}
+
+	connectedType, _ := variable.StringVar(nil, vd, _const.VariableConnector, _const.VariableConnectorType)
+	switch connectedType {
+	case connectedLocal:
+		return newLocalConnector(wd, vd), nil
+	case connectedSSH:
+		return newSSHConnector(wd, host, vd), nil
+	case connectedKubernetes:
+		return newKubernetesConnector(host, wd, vd)
+	case connectedPrometheus:
+		return newPrometheusConnector(vd), nil
+	default:
+		localHost, _ := os.Hostname()
+		// get host in connector variable. if empty, set default host: host_name.
+		hostParam, err := variable.StringVar(nil, vd, _const.VariableConnector, _const.VariableConnectorHost)
+		if err != nil {
+			klog.V(4).InfoS("connector host is empty, using provided host", "host", host)
+			hostParam = host
+		}
+		if host == _const.VariableLocalHost || host == localHost || isLocalIP(hostParam) {
+			return newLocalConnector(wd, vd), nil
+		}
+
+		return newSSHConnector(wd, host, vd), nil
+	}
+}
+
+// isLocalIP check if given ipAddr is local network ip
+func isLocalIP(ipAddr string) bool {
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		klog.ErrorS(err, "get network address error")
+		return false
+	}
+
+	for _, addr := range addrs {
+		var ip net.IP
+		switch v := addr.(type) {
+		case *net.IPNet:
+			ip = v.IP
+		case *net.IPAddr:
+			ip = v.IP
+		default:
+			klog.V(4).InfoS("unknown address type", "address", addr.String())
+			continue
+		}
+
+		if ip.String() == ipAddr {
+			return true
+		}
+	}
+
+	return false
+}
+
+func PutData(ctx context.Context, data []byte, dest string, mode fs.FileMode, conn Connector) error {
+	dest = filepath.ToSlash(dest)
+	// Use a relative temp name so that PutFile (which may prepend the
+	// connector's homedir to the destination) and the subsequent `mv` command
+	// (run with the connector's working directory as cwd) agree on where the
+	// temp file lives. An absolute "/tmp/..." prefix here is relocated by the
+	// kubernetes connector's PutFile but not by the mv command, causing the mv
+	// to fail with a missing source on kubekey v4.x.
+	tmpDest := ".kk." + rand.String(10)
+
+	if err := conn.PutFile(ctx, data, tmpDest, mode); err != nil {
+		return err
+	}
+
+	// Escape single quotes to prevent shell injection
+	esc := func(s string) string {
+		return strings.ReplaceAll(s, "'", "'\\''")
+	}
+
+	cmd := fmt.Sprintf("mkdir -p '%s' && mv '%s' '%s' || { rm -f '%s'; exit 1; }",
+		esc(path.Dir(dest)), esc(tmpDest), esc(dest), esc(tmpDest))
+	_, _, err := conn.ExecuteCommand(ctx, cmd)
+
+	return err
+}

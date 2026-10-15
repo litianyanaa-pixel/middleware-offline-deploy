@@ -1,0 +1,72 @@
+---
+- name: Keepalived | Discover network interface for HA VIP
+  block:
+    - name: Keepalived | Gather all network interfaces with CIDR addresses
+      command: |
+        ip -o addr show | awk '
+          BEGIN {
+            printf "[\n"; 
+            first = 1;
+          }
+          /inet / && !/ lo|docker|br-|veth/ {
+            if (!first) {
+              printf ",\n";
+            }
+            first = 0;
+            printf "  {\n";
+            printf "    \"interface\": \"%s\",\n", $2;
+            printf "    \"cidr\": \"%s\"\n", $4;
+            printf "  }";
+          }
+          END {
+            printf "\n]\n";
+          }
+        '
+      register: keepalived_interfaces
+      register_type: json
+    - name: Keepalived | Select interface matching HA VIP
+      set_fact:
+        ha_vip_interface: >-
+          {{- $interface := "" }}
+          {{- range .keepalived_interfaces.stdout | default list -}}
+            {{- if .cidr | ipInCIDR | has $.image_registry.ha_vip -}}
+              {{- $interface = .interface -}}
+            {{- end -}}
+          {{- end -}}
+          {{ $interface }}
+    - name: Keepalived | Ensure matching network interface exists
+      assert:
+        that: .ha_vip_interface | empty | not
+        fail_msg: "Cannot find a network interface that matches the HA VIP."
+
+- name: Keepalived | Synchronize keepalived image to remote host
+  copy:
+    src: >-
+      {{ .binary_dir }}/image-registry/keepalived/{{ .image_registry.keepalived_version }}/{{ .binary_type }}/keepalived-{{ .image_registry.keepalived_version }}-linux-{{ .binary_type }}.tgz
+    dest: >-
+      /opt/keepalived/{{ .image_registry.keepalived_version }}/keepalived-{{ .image_registry.keepalived_version }}-linux-{{ .binary_type }}.tgz
+
+- name: Keepalived | Load keepalived image into Docker
+  command: |
+    docker load -i /opt/keepalived/{{ .image_registry.keepalived_version }}/keepalived-{{ .image_registry.keepalived_version }}-linux-{{ .binary_type }}.tgz
+
+- name: Keepalived | Synchronize keepalived configuration file to remote host
+  template:
+    src: keepalived.conf
+    dest: >-
+      /opt/keepalived/{{ .image_registry.keepalived_version }}/keepalived.conf
+    mode: 0664
+
+- name: Keepalived | Synchronize healthcheck script to remote host
+  template:
+    src: healthcheck.sh
+    dest: >-
+      /opt/keepalived/{{ .image_registry.keepalived_version }}/healthcheck.sh
+    mode: 0700
+
+- name: Keepalived | Generate docker-compose file
+  copy:
+    src: >-
+      docker-compose/{{ .image_registry.keepalived_version }}.yaml
+    dest: >-
+      /opt/keepalived/{{ .image_registry.keepalived_version }}/docker-compose.yaml

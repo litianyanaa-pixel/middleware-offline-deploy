@@ -1,0 +1,15 @@
+---
+- name: Haproxy | Generate HAProxy configuration file
+  template:
+    src: haproxy/haproxy.cfg
+    dest: /etc/kubekey/haproxy/haproxy.cfg
+
+- name: Haproxy | Calculate MD5 checksum of HAProxy configuration
+  command: |
+    md5sum /etc/kubekey/haproxy/haproxy.cfg | cut -d" " -f1
+  register: haproxy_cfg_md5
+
+- name: Haproxy | Generate HAProxy manifest for Kubernetes
+  template:
+    src: haproxy/haproxy.yaml
+    dest: /etc/kubernetes/manifests/haproxy.yaml

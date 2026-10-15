@@ -1,0 +1,24 @@
+- name: DockerRegistry | Gracefully stop and disable the Docker Registry service
+  ignore_errors: true
+  command: |
+    systemctl stop docker-registry.service
+    systemctl disable docker-registry.service
+    rm -rf /etc/systemd/system/docker-registry.service*
+    systemctl daemon-reload
+    systemctl reset-failed docker-registry.service
+
+- name: DockerRegistry | Unmount NFS storage for Docker Registry if configured
+  when:
+    - .image_registry.docker_registry.storage.filesystem.nfs_mount | empty | not
+    - .groups.nfs | default list | len | eq 1
+  command: |
+    unmount {{ .image_registry.docker_registry.storage.filesystem.rootdir }}
+
+- name: DockerRegistry | Remove all residual Docker Registry files and directories
+  command: |
+    rm -rf /opt/docker-registry/
+
+- name: DockerRegistry | Remove Docker Registry data directory
+  when: .delete.data | default false
+  command: |
+    rm -rf {{ .image_registry.docker_registry.storage.filesystem.rootdir }}

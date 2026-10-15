@@ -1,0 +1,15 @@
+---
+- hosts:
+    - all
+  gather_facts: true
+  roles:
+    - role: native/root
+      tags: ["always"]
+# Load default variables and perform prechecks on all hosts
+- hosts:
+    - all
+  gather_facts: true
+  roles:
+    - role: defaults
+      tags: ["always"]
+    - precheck

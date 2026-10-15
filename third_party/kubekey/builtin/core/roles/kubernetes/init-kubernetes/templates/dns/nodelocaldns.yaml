@@ -1,0 +1,226 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: nodelocaldns
+  namespace: kube-system
+  labels:
+    addonmanager.kubernetes.io/mode: Reconcile
+
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: nodelocaldns
+  namespace: kube-system
+  labels:
+    k8s-app: kube-dns
+    addonmanager.kubernetes.io/mode: Reconcile
+spec:
+  selector:
+    matchLabels:
+      k8s-app: nodelocaldns
+  template:
+    metadata:
+      labels:
+        k8s-app: nodelocaldns
+    spec:
+      nodeSelector:
+        kubernetes.io/os: linux
+      priorityClassName: system-cluster-critical
+      serviceAccountName: nodelocaldns
+      hostNetwork: true
+      dnsPolicy: Default  # Don't use cluster DNS.
+      tolerations:
+        - effect: NoSchedule
+          operator: "Exists"
+        - effect: NoExecute
+          operator: "Exists"
+        - key: "CriticalAddonsOnly"
+          operator: "Exists"
+      containers:
+      - name: node-cache
+        image: {{ .dns.nodelocaldns.image.registry }}/{{ .dns.nodelocaldns.image.repository }}:{{ .dns.nodelocaldns.image.tag }}
+        resources:
+          limits:
+            memory: 400Mi
+          requests:
+            cpu: 100m
+            memory: 70Mi
+        args: 
+          - -localip
+          - {{ .dns.nodelocaldns.ip }}
+          - -conf
+          - /etc/coredns/Corefile
+          - -upstreamsvc
+          - coredns
+          - -metrics-listen-address
+          - 127.0.0.1:9353
+        securityContext:
+          privileged: true
+        ports:
+          - containerPort: 53
+            name: dns
+            protocol: UDP
+          - containerPort: 53
+            name: dns-tcp
+            protocol: TCP
+        livenessProbe:
+          httpGet:
+            host: {{ .dns.nodelocaldns.ip }}
+            path: /health
+            port: 9254
+            scheme: HTTP
+          timeoutSeconds: 5
+          successThreshold: 1
+          failureThreshold: 10
+        readinessProbe:
+          httpGet:
+            host: {{ .dns.nodelocaldns.ip }}
+            path: /health
+            port: 9254
+            scheme: HTTP
+          timeoutSeconds: 5
+          successThreshold: 1
+          failureThreshold: 10
+        volumeMounts:
+          - name: config-volume
+            mountPath: /etc/coredns
+          - name: xtables-lock
+            mountPath: /run/xtables.lock
+      volumes:
+        - name: config-volume
+          configMap:
+            name: nodelocaldns
+        - name: xtables-lock
+          hostPath:
+            path: /run/xtables.lock
+            type: FileOrCreate
+      # Minimize downtime during a rolling upgrade or deletion; tell Kubernetes to do a "force
+      # deletion": https://kubernetes.io/docs/concepts/workloads/pods/pod/#termination-of-pods.
+      terminationGracePeriodSeconds: 0
+  updateStrategy:
+    rollingUpdate:
+      maxUnavailable: 20%
+    type: RollingUpdate
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nodelocaldns
+  namespace: kube-system
+  labels:
+    addonmanager.kubernetes.io/mode: EnsureExists
+data:
+  Corefile: |
+  {{- range .dns.coredns.external_zones }}
+    {{ .zones | join " " }}{
+      log
+      errors
+      loadbalance
+      cache {{ .cache }}
+      reload
+      loop
+      bind {{ .kubernetes.networking.dns_cache_ip }}
+
+    {{- range .rewrite }}
+      rewrite {{ .rule }} {
+        {{ .field }} {{ .type }} {{ .value }}
+        {{ .options }}
+      }
+    {{- end }}
+
+    {{- range .forward }}
+      forward {{ .from }} {{ .to | join " " }} {
+      {{- if .except | empty | not }}
+        except {{ .except | join " " }}
+      {{- end }}
+      {{- if .force_tcp }}
+        force_tcp
+      {{- end }}
+      {{ if .prefer_udp }}
+        prefer_udp
+      {{- end }}
+        max_fails {{ .max_fails | default 2 }}
+        expire {{ .expire | default "10s" }}
+      {{- if .tls }}
+        tls {{ .tls.cert_file }} {{ .tls.key_file }} {{ .tls.ca_file }}
+      {{- end }}
+      {{- if .tls_servername }}
+        tls_servername {{ .tls_servername }}
+      {{- end }}
+      {{- if .policy }}
+        policy {{ .policy }}
+      {{- end }}
+      {{- if .health_check }}
+        health_check {{ .health_check }}
+      {{- end }}
+      {{- if .max_concurrent }}
+        max_concurrent {{ .max_concurrent }}
+      {{- end }}
+      }
+    {{- end }}
+
+    {{- if $.kubernetes.coredns.dns_etc_hosts | empty | not }}
+      hosts /etc/coredns/hosts {
+        fallthrough
+      }
+    {{- end }}
+    }
+  {{- end }}
+
+    {{ .dns.domain }}:53 {
+      errors
+      cache {
+         success 9984 30
+          denial 9984 5
+      }
+      reload
+      loop
+      bind {{ .dns.nodelocaldns.ip }}
+      forward . {{ .dns.coredns.ip }} {
+        force_tcp
+      }
+      health {{ .dns.nodelocaldns.ip }}:9254
+    }
+    in-addr.arpa:53 {
+      errors
+      cache 30
+      reload
+      loop
+      bind {{ .dns.nodelocaldns.ip }}
+      forward . {{ .dns.coredns.ip }} {
+        force_tcp
+      }
+    }
+    ip6.arpa:53 {
+      errors
+      cache 30
+      reload
+      loop
+      bind {{ .dns.nodelocaldns.ip }}
+      forward . {{ .dns.coredns.ip }} {
+          force_tcp
+      }
+    }
+    .:53 {
+      errors
+      cache 30
+      reload
+      loop
+      bind {{ .dns.nodelocaldns.ip }}
+      forward . /etc/resolv.conf
+    {{- if .dns.dns_etc_hosts | empty | not }}
+      hosts /etc/coredns/hosts {
+        fallthrough
+      }
+    {{- end }}
+    }
+
+{{- if .dns.coredns.dns_etc_hosts | empty | not }}
+  hosts: |
+  {{- range .dns.coredns.dns_etc_hosts }}
+    {{ . }}
+  {{- end }}
+{{- end }}

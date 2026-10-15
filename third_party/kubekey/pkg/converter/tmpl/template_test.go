@@ -1,0 +1,1133 @@
+/*
+Copyright 2023 The KubeSphere Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package tmpl
+
+import (
+	"os"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"sigs.k8s.io/yaml"
+)
+
+// kubeVipVariable returns a variable map shaped like the real defaults for
+// kubernetes.control_plane_endpoint.kube_vip, plus the extra host/group
+// context the kubevip.ARP/BGP templates read directly (kube_vip_interface,
+// groups, hostvars).
+func kubeVipVariable() map[string]any {
+	return map[string]any{
+		"kube_vip_interface": "eth0",
+		"groups": map[string]any{
+			"kube_control_plane": []any{"node1"},
+		},
+		"hostvars": map[string]any{
+			"node1": map[string]any{
+				"internal_ipv4": "10.0.0.1",
+			},
+		},
+		"kubernetes": map[string]any{
+			"control_plane_endpoint": map[string]any{
+				"kube_vip": map[string]any{
+					"address": "192.168.0.1",
+					"mode":    "ARP",
+					"env": map[string]any{
+						"port":         "6443",
+						"vip_cidr":     "32",
+						"cp_enable":    "true",
+						"cp_namespace": "kube-system",
+						"vip_ddns":     "false",
+						"svc_enable":   "true",
+						"lb_enable":    "true",
+						"lb_port":      "6443",
+					},
+					"image": map[string]any{
+						"registry":   "docker.io",
+						"repository": "plndr/kube-vip",
+						"tag":        "v0.7.2",
+					},
+				},
+			},
+		},
+	}
+}
+
+func envValue(t *testing.T, pod map[string]any, name string) any {
+	t.Helper()
+	spec, ok := pod["spec"].(map[string]any)
+	assert.True(t, ok)
+	containers, ok := spec["containers"].([]any)
+	assert.True(t, ok)
+	container, ok := containers[0].(map[string]any)
+	assert.True(t, ok)
+	envs, ok := container["env"].([]any)
+	assert.True(t, ok)
+
+	for _, e := range envs {
+		entry, ok := e.(map[string]any)
+		assert.True(t, ok)
+		if entry["name"] == name {
+			return entry["value"]
+		}
+	}
+	t.Fatalf("env %q not found", name)
+
+	return nil
+}
+
+func renderKubeVipTemplate(t *testing.T, path string, variable map[string]any) map[string]any {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	assert.NoError(t, err)
+
+	rendered, err := Parse(variable, string(raw))
+	assert.NoError(t, err)
+
+	var pod map[string]any
+	assert.NoError(t, yaml.Unmarshal(rendered, &pod))
+
+	return pod
+}
+
+func TestKubeVipTemplatesRenderDefaults(t *testing.T) {
+	testcases := []struct {
+		name string
+		path string
+	}{
+		{name: "ARP", path: "../../../builtin/core/roles/kubernetes/pre-kubernetes/templates/kubevip/kubevip.ARP"},
+		{name: "BGP", path: "../../../builtin/core/roles/kubernetes/pre-kubernetes/templates/kubevip/kubevip.BGP"},
+	}
+
+	for _, tc := range testcases {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, svcEnable := range []string{"true", "false"} {
+				variable := kubeVipVariable()
+				variable["kubernetes"].(map[string]any)["control_plane_endpoint"].(map[string]any)["kube_vip"].(map[string]any)["env"].(map[string]any)["svc_enable"] = svcEnable
+
+				pod := renderKubeVipTemplate(t, tc.path, variable)
+
+				// common env, sourced from the configurable env map
+				assert.Equal(t, svcEnable, envValue(t, pod, "svc_enable"))
+				assert.Equal(t, "6443", envValue(t, pod, "port"))
+				assert.Equal(t, "32", envValue(t, pod, "vip_cidr"))
+				assert.Equal(t, "kube-system", envValue(t, pod, "cp_namespace"))
+				assert.Equal(t, "192.168.0.1", envValue(t, pod, "address"))
+			}
+		})
+	}
+
+	t.Run("ARP mode-specific env is fixed in the template", func(t *testing.T) {
+		pod := renderKubeVipTemplate(t, "../../../builtin/core/roles/kubernetes/pre-kubernetes/templates/kubevip/kubevip.ARP", kubeVipVariable())
+
+		assert.Equal(t, "true", envValue(t, pod, "vip_leaderelection"))
+		assert.Equal(t, "5", envValue(t, pod, "vip_leaseduration"))
+	})
+
+	t.Run("BGP mode-specific env is fixed in the template", func(t *testing.T) {
+		pod := renderKubeVipTemplate(t, "../../../builtin/core/roles/kubernetes/pre-kubernetes/templates/kubevip/kubevip.BGP", kubeVipVariable())
+
+		assert.Equal(t, "true", envValue(t, pod, "bgp_enable"))
+		assert.Equal(t, "65000", envValue(t, pod, "bgp_as"))
+		assert.Equal(t, "local", envValue(t, pod, "lb_fwdmethod"))
+		assert.Equal(t, ":2112", envValue(t, pod, "prometheus_server"))
+	})
+}
+
+// downloadArtifactURLTemplate reads the real 10-download.yaml defaults file
+// and returns the raw artifact_url template string for the given key
+// (e.g. "docker_registry", "containerd"), along with the sibling
+// download.cn_host value templates commonly need.
+func downloadArtifactURLTemplate(t *testing.T, key string) (tmplStr string, cnHost any) {
+	t.Helper()
+
+	raw, err := os.ReadFile("../../../builtin/core/roles/defaults/defaults/main/10-download.yaml")
+	assert.NoError(t, err)
+
+	var defaults map[string]any
+	assert.NoError(t, yaml.Unmarshal(raw, &defaults))
+
+	download, ok := defaults["download"].(map[string]any)
+	assert.True(t, ok)
+	artifactURL, ok := download["artifact_url"].(map[string]any)
+	assert.True(t, ok)
+	tmplStr, ok = artifactURL[key].(string)
+	assert.True(t, ok)
+
+	return tmplStr, download["cn_host"]
+}
+
+// TestDockerRegistryArtifactURLUsesMirrorHost renders the real docker_registry
+// artifact_url template the same way pkg/modules/http_get_file does: first as
+// the defaults file's own self-referential template, then through tpl with the
+// download item. docker-registry-*.tgz is a KubeKey-repackaged asset that only
+// exists on the cn_host mirror, so the resulting URL must route through
+// cn_host regardless of zone; falling back to a bare "https://docker.io/..."
+// host for non-cn zones 404s (docker.io redirects to www.docker.com).
+func TestDockerRegistryArtifactURLUsesMirrorHost(t *testing.T) {
+	tmplStr, cnHost := downloadArtifactURLTemplate(t, "docker_registry")
+
+	for _, zone := range []string{"", "cn"} {
+		variable := map[string]any{
+			"zone": zone,
+			"download": map[string]any{
+				"cn_host": cnHost,
+			},
+		}
+
+		rendered, err := Parse(variable, tmplStr)
+		assert.NoError(t, err)
+
+		final, err := Parse(map[string]any{"version": "2.8.3", "arch": "amd64"}, string(rendered))
+		assert.NoError(t, err)
+
+		assert.Equal(t, "https://kubekey.pek3b.qingstor.com/docker.io/registry/2.8.3/docker-registry-2.8.3-linux-amd64.tgz", string(final))
+	}
+}
+
+// TestContainerdArtifactURLStaticBinary renders the real containerd artifact_url
+// template the same way pkg/modules/http_get_file does: first as the defaults
+// file's own self-referential template (resolving cri.containerd.static_binary
+// and zone), then through tpl with the download item (version/arch). When
+// cri.containerd.static_binary is true the URL must point at the
+// "containerd-static-*" release asset instead of the default dynamically
+// linked "containerd-*" asset, since the dynamic build requires a newer glibc
+// than some supported distros (e.g. Rocky Linux 8) ship.
+func TestContainerdArtifactURLStaticBinary(t *testing.T) {
+	tmplStr, cnHost := downloadArtifactURLTemplate(t, "containerd")
+
+	testcases := []struct {
+		name         string
+		staticBinary bool
+		expected     string
+	}{
+		{
+			name:         "dynamic binary by default",
+			staticBinary: false,
+			expected:     "https://github.com/containerd/containerd/releases/download/v2.3.4/containerd-2.3.4-linux-amd64.tar.gz",
+		},
+		{
+			name:         "static binary when opted in",
+			staticBinary: true,
+			expected:     "https://github.com/containerd/containerd/releases/download/v2.3.4/containerd-static-2.3.4-linux-amd64.tar.gz",
+		},
+	}
+
+	for _, tc := range testcases {
+		t.Run(tc.name, func(t *testing.T) {
+			variable := map[string]any{
+				"zone": "",
+				"download": map[string]any{
+					"cn_host": cnHost,
+				},
+				"cri": map[string]any{
+					"containerd": map[string]any{
+						"static_binary": tc.staticBinary,
+					},
+				},
+			}
+
+			rendered, err := Parse(variable, tmplStr)
+			assert.NoError(t, err)
+
+			final, err := Parse(map[string]any{"version": "v2.3.4", "arch": "amd64"}, string(rendered))
+			assert.NoError(t, err)
+
+			assert.Equal(t, tc.expected, string(final))
+		})
+	}
+}
+
+func TestParseBool(t *testing.T) {
+	testcases := []struct {
+		name      string
+		condition []string
+		variable  map[string]any
+		excepted  bool
+	}{
+		// ======= semverCompare =======
+		{
+			name:      "semverCompare true-1",
+			condition: []string{"{{ .foo | semverCompare \">=v1.21\" }}"},
+			variable: map[string]any{
+				"foo": "v1.23",
+			},
+			excepted: true,
+		},
+		{
+			name:      "semverCompare true-2",
+			condition: []string{"{{  .foo | semverCompare \"v1.21\" }}"},
+			variable: map[string]any{
+				"foo": "v1.21",
+			},
+			excepted: true,
+		},
+		{
+			name:      "semverCompare true-3",
+			condition: []string{"{{ semverCompare \">=v1.21\" .foo }}"},
+			variable: map[string]any{
+				"foo": "v1.23",
+			},
+			excepted: true,
+		},
+		{
+			name:      "semverCompare true-3",
+			condition: []string{"{{ semverCompare \"<v1.21\" .foo }}"},
+			variable: map[string]any{
+				"foo": "v1.20",
+			},
+			excepted: true,
+		},
+		// ======= eq =======
+		{
+			name:      "atoi true-1",
+			condition: []string{`{{ .foo | trimSuffix " kB" | atoi | le .bar }}`},
+			variable: map[string]any{
+				"foo": "8148172 kB",
+				"bar": 10,
+			},
+			excepted: true,
+		},
+		// ======= eq =======
+		{
+			name:      "eq true-1",
+			condition: []string{"{{ eq .foo \"bar\" }}"},
+			variable: map[string]any{
+				"foo": "bar",
+			},
+			excepted: true,
+		},
+		// ======= ne =======
+		{
+			name:      "eq true-1",
+			condition: []string{"{{ ne .foo \"\" }}"},
+			variable:  make(map[string]any),
+			excepted:  true,
+		},
+		{
+			name:      "eq true-1",
+			condition: []string{"{{ and .foo (ne .foo \"\") }}"},
+			variable:  make(map[string]any),
+			excepted:  false,
+		},
+		// ======= value exist =======
+		{
+			name:      "value exist true-1",
+			condition: []string{"{{ .foo }}"},
+			variable: map[string]any{
+				"foo": "true",
+			},
+			excepted: true,
+		},
+		{
+			name:      "value exist false-1",
+			condition: []string{"{{ .foo }}"},
+			variable: map[string]any{
+				"foo": "bar",
+			},
+			excepted: false,
+		},
+		{
+			name:      "value exist false-2",
+			condition: []string{"{{ .foo }}"},
+			variable: map[string]any{
+				"foo": "bar",
+			},
+			excepted: false,
+		},
+		// ======= default =======
+		{
+			name:      "default true-1",
+			condition: []string{"{{ .foo | default true }}"},
+			variable:  make(map[string]any),
+			excepted:  true,
+		},
+		// ======= has =======
+		{
+			name:      "has true-1",
+			condition: []string{"{{ .foo | has \"a\" }}"},
+			variable: map[string]any{
+				"foo": []string{"a", "b"},
+			},
+			excepted: true,
+		},
+		// ======= regexMatch =======
+		{
+			name:      "regexMatch true-1",
+			condition: []string{`{{ regexMatch "^((25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\\.(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\\.(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\\.(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])|(([0-9a-fA-F]{1,4}:){7}([0-9a-fA-F]{1,4}|:)|(([0-9a-fA-F]{1,4}:){1,6}|:):([0-9a-fA-F]{1,4}|:){1,6}([0-9a-fA-F]{1,4}|:)))$" .foo }}`},
+			variable: map[string]any{
+				"foo": "2001:0db8:85a3:0000:0000:8a2e:0370:7334",
+			},
+			excepted: true,
+		},
+		{
+			name:      "regexMatch true-2",
+			condition: []string{`{{ regexMatch "^((25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\\.(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\\.(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\\.(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])|(([0-9a-fA-F]{1,4}:){7}([0-9a-fA-F]{1,4}|:)|(([0-9a-fA-F]{1,4}:){1,6}|:):([0-9a-fA-F]{1,4}|:){1,6}([0-9a-fA-F]{1,4}|:)))$" .foo }}`},
+			variable: map[string]any{
+				"foo": "1.1.1.1",
+			},
+			excepted: true,
+		},
+		{
+			name:      "regexMatch true-3",
+			condition: []string{`{{ regexMatch "^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$" .foo }}`},
+			variable: map[string]any{
+				"foo": "a.b",
+			},
+			excepted: true,
+		},
+		{
+			name:      "regexMatch false-1",
+			condition: []string{`{{ regexMatch "^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$" .foo }}`},
+			variable: map[string]any{
+				"foo": "a.=b",
+			},
+			excepted: false,
+		},
+		// ======= isIP =======
+		{
+			name:      "isIP true-1",
+			condition: []string{`{{ .foo | isIP }}`},
+			variable: map[string]any{
+				"foo": "192.168.1.1",
+			},
+			excepted: true,
+		},
+		{
+			name:      "isIP true-2",
+			condition: []string{`{{ .foo | isIP }}`},
+			variable: map[string]any{
+				"foo": "192.168.1.1:5000",
+			},
+			excepted: true,
+		},
+		{
+			name:      "isIP true-3",
+			condition: []string{`{{ .foo | isIP }}`},
+			variable: map[string]any{
+				"foo": "2001:db8::1",
+			},
+			excepted: true,
+		},
+		{
+			name:      "isIP true-4",
+			condition: []string{`{{ .foo | isIP }}`},
+			variable: map[string]any{
+				"foo": "[2001:db8::1]:5000",
+			},
+			excepted: true,
+		},
+		{
+			name:      "isIP true-5",
+			condition: []string{`{{ .foo | isIP }}`},
+			variable: map[string]any{
+				"foo": "[2001:db8::1]",
+			},
+			excepted: true,
+		},
+		{
+			name:      "isIP false-1",
+			condition: []string{`{{ .foo | isIP }}`},
+			variable: map[string]any{
+				"foo": "registry.example.com",
+			},
+			excepted: false,
+		},
+		{
+			name:      "isIP false-2",
+			condition: []string{`{{ .foo | isIP }}`},
+			variable: map[string]any{
+				"foo": "registry.example.com:5000",
+			},
+			excepted: false,
+		},
+		{
+			name:      "isIP false-3",
+			condition: []string{`{{ .foo | isIP }}`},
+			variable: map[string]any{
+				"foo": "",
+			},
+			excepted: false,
+		},
+		// ======= contains =======
+		{
+			name:      "contains true-1",
+			condition: []string{`{{ .foo | contains (printf "Version:\"%s\"" .bar) }}`},
+			variable: map[string]any{
+				"foo": `version.BuildInfo{Version:"v3.14.3", GitCommit:"f03cc04caaa8f6d7c3e67cf918929150cf6f3f12", GitTreeState:"clean", GoVersion:"go1.22.1"}`,
+				"bar": "v3.14.3",
+			},
+			excepted: true,
+		},
+		// ======= hasPrefix =======
+		{
+			name:      "hasPrefix true-1",
+			condition: []string{`{{ .foo | hasPrefix "version.BuildInfo" }}`},
+			variable: map[string]any{
+				"foo": `version.BuildInfo{Version:"v3.14.3", GitCommit:"f03cc04caaa8f6d7c3e67cf918929150cf6f3f12", GitTreeState:"clean", GoVersion:"go1.22.1"}`,
+				"bar": "v3.14.3",
+			},
+			excepted: true,
+		},
+		// ======= empty =======
+		{
+			name:      "empty true-1",
+			condition: []string{`{{ empty .foo }}`},
+			variable: map[string]any{
+				"foo": map[string]any{},
+			},
+			excepted: true,
+		},
+		{
+			name:      "empty true-2",
+			condition: []string{`{{ empty .foo }}`},
+			variable: map[string]any{
+				"foo": []any{},
+			},
+			excepted: true,
+		},
+	}
+	for _, tc := range testcases {
+		t.Run(tc.name, func(t *testing.T) {
+			b, err := ParseBool(tc.variable, tc.condition...)
+			if err != nil {
+				t.Fatal(err)
+			}
+			assert.Equal(t, tc.excepted, b)
+		})
+	}
+}
+
+func TestParseValue(t *testing.T) {
+	testcases := []struct {
+		name     string
+		input    string
+		variable map[string]any
+		excepted []byte
+	}{
+		{
+			name:  "single level",
+			input: "{{ .foo }}",
+			variable: map[string]any{
+				"foo": "bar",
+			},
+			excepted: []byte("bar"),
+		},
+		{
+			name:  "multi level 1",
+			input: "{{ get .foo \"foo\" }}",
+			variable: map[string]any{
+				"foo": map[string]any{
+					"foo": "bar",
+				},
+			},
+			excepted: []byte("bar"),
+		},
+		{
+			name:  "multi level 2",
+			input: "{{ get .foo \"foo\" }}",
+			variable: map[string]any{
+				"foo": map[string]any{
+					"foo": "bar",
+				},
+			},
+			excepted: []byte("bar"),
+		},
+		{
+			name:  "get string slice from dictionary",
+			input: "{{ getStringSlice .foo \"foo\" }}",
+			variable: map[string]any{
+				"foo": map[string][]string{
+					"foo": {"bar1", "bar2"},
+				},
+			},
+			excepted: []byte("[bar1 bar2]"),
+		},
+		{
+			name:  "make kubeadm extra args from map",
+			input: "{{ mapToNamedStringArgs .foo | toYaml }}",
+			variable: map[string]any{
+				"foo": map[string]any{
+					"foo": "bar1",
+				},
+			},
+			excepted: []byte("- name: foo\n  value: bar1"),
+		},
+		{
+			name:  "multi level 2",
+			input: "{{ index .foo \"foo\" }}",
+			variable: map[string]any{
+				"foo": map[string]any{
+					"foo": "bar",
+				},
+			},
+			excepted: []byte("bar"),
+		},
+		{
+			name:  "multi level 3",
+			input: "{{ index .foo \"foo\" \"foo\" \"foo\" }}",
+			variable: map[string]any{
+				"foo": map[string]any{
+					"foo": map[string]any{
+						"foo": map[string]any{
+							"foo": "bar",
+						},
+					},
+				},
+			},
+			excepted: []byte("bar"),
+		},
+		{
+			name:  "exist value",
+			input: "{{ if .foo }}{{ .foo }}{{ end }}",
+			variable: map[string]any{
+				"foo": "bar",
+			},
+			excepted: []byte("bar"),
+		},
+		{
+			name:  "{{ & }} character translation",
+			input: "helm version --template \"{{ \"{{\" }} .Version {{ \"}}\" }}\"",
+			variable: map[string]any{
+				"foo": "bar",
+			},
+			excepted: []byte("helm version --template \"{{ .Version }}\""),
+		},
+	}
+
+	for _, tc := range testcases {
+		t.Run(tc.name, func(t *testing.T) {
+			output, _ := Parse(tc.variable, tc.input)
+			assert.Equal(t, tc.excepted, output)
+		})
+	}
+}
+
+func TestParseFunction(t *testing.T) {
+	testcases := []struct {
+		name     string
+		input    string
+		variable map[string]any
+		excepted []byte
+	}{
+		// ======= if =======
+		{
+			name:  "if map 1",
+			input: "{{ if .foo.foo.foo1 | eq \"bar1\" }}{{ $.foo.foo.foo2 }}{{ end }}",
+			variable: map[string]any{
+				"foo": map[string]any{
+					"foo": map[string]any{
+						"foo1": "bar1",
+						"foo2": "bar2",
+					},
+				},
+			},
+			excepted: []byte("bar2"),
+		},
+		{
+			name:  "if map 1",
+			input: "{{ if .foo.foo.foo1 | eq \"bar1\" }}{{ .foo.foo.foo2 }}{{ end }}",
+			variable: map[string]any{
+				"foo": map[string]any{
+					"foo": map[string]any{
+						"foo1": "bar1",
+						"foo2": "bar2",
+					},
+				},
+			},
+			excepted: []byte("bar2"),
+		},
+		// ======= range =======
+		{
+			name:  "range map 1",
+			input: "{{ range $k,$v := .foo.foo }}{{ $v }}{{ end }}",
+			variable: map[string]any{
+				"foo": map[string]any{
+					"foo": map[string]any{
+						"foo1": "bar1",
+						"foo2": "bar2",
+					},
+				},
+			},
+			excepted: []byte("bar1bar2"),
+		},
+		{
+			name:  "range map value 1",
+			input: "{{ range .foo }}{{ .foo1 }}{{ end }}",
+			variable: map[string]any{
+				"foo": map[string]any{
+					"foo": map[string]any{
+						"foo1": "bar1",
+						"foo2": "bar2",
+					},
+				},
+			},
+			excepted: []byte("bar1"),
+		},
+		{
+			name:  "range map top-value 1",
+			input: "{{ range $_ := .foo }}{{ $.foo1 }}{{ end }}",
+			variable: map[string]any{
+				"foo": map[string]any{
+					"foo": map[string]any{
+						"foo1": "bar1",
+						"foo2": "bar2",
+					},
+				},
+				"foo1": "bar11",
+			},
+			excepted: []byte("bar11"),
+		},
+		{
+			name:  "range slice value 1",
+			input: "{{ range .foo }}{{ .foo1 }}{{ end }}",
+			variable: map[string]any{
+				"foo": []map[string]any{
+					{
+						"foo1": "bar1",
+						"foo2": "bar2",
+					},
+				},
+			},
+			excepted: []byte("bar1"),
+		},
+		{
+			name:  "range slice value 1",
+			input: "{{ range .foo }}{{ . }}{{ end }}",
+			variable: map[string]any{
+				"foo": []string{
+					"foo1", "bar1",
+				},
+			},
+			excepted: []byte("foo1bar1"),
+		},
+		// ======= default =======
+		{
+			name:     "default string 1",
+			input:    "{{ .foo | default \"bar\" }}",
+			variable: make(map[string]any),
+			excepted: []byte("bar"),
+		},
+		{
+			name:     "default string 2",
+			input:    "{{ default .foo \"bar\" }}",
+			variable: make(map[string]any),
+			excepted: []byte("bar"),
+		},
+
+		{
+			name:     "default number 1",
+			input:    "{{ .foo | default 1 }}",
+			variable: make(map[string]any),
+			excepted: []byte("1"),
+		},
+		// ======= split =======
+		{
+			name:  "split 1",
+			input: "{{ split \",\" .foo }}",
+			variable: map[string]any{
+				"foo": "a,b",
+			},
+			excepted: []byte("map[_0:a _1:b]"),
+		},
+		{
+			name:  "split 2",
+			input: "{{ .foo | split \",\" }}",
+			variable: map[string]any{
+				"foo": "a,b",
+			},
+			excepted: []byte("map[_0:a _1:b]"),
+		},
+		// ======= len =======
+		{
+			name:  "len 1",
+			input: "{{ len .foo  }}",
+			variable: map[string]any{
+				"foo": []string{"a", "b"},
+			},
+			excepted: []byte("2"),
+		},
+		{
+			name:  "len 2",
+			input: "{{ .foo | len }}",
+			variable: map[string]any{
+				"foo": []string{"a", "b"},
+			},
+			excepted: []byte("2"),
+		},
+		// ======= index =======
+		{
+			name:  "index 1",
+			input: "{{ index .foo \"foo\" }}",
+			variable: map[string]any{
+				"foo": map[string]any{
+					"foo": "a",
+				},
+			},
+			excepted: []byte("a"),
+		},
+		{
+			name:  "index 2",
+			input: "{{ if index .foo \"a\" }}true{{else}}false{{end}}",
+			variable: map[string]any{
+				"foo": map[string]any{
+					"foo": "a",
+				},
+			},
+			excepted: []byte("false"),
+		},
+		{
+			name:  "index 3",
+			input: "{{ index .foo \"foo\" \"a\"}}",
+			variable: map[string]any{
+				"foo": map[string]any{
+					"foo": map[string]any{
+						"a": "b",
+					},
+				},
+			},
+			excepted: []byte("b"),
+		},
+		// ======= first =======
+		{
+			name:  "first 1",
+			input: "{{ .foo | first }}",
+			variable: map[string]any{
+				"foo": []string{"a", "b"},
+			},
+			excepted: []byte("a"),
+		},
+		{
+			name:  "first 2",
+			input: "{{ first .foo }}",
+			variable: map[string]any{
+				"foo": []string{"a", "b"},
+			},
+			excepted: []byte("a"),
+		},
+		// ======= last =======
+		{
+			name:  "last 1",
+			input: "{{ .foo | last }}",
+			variable: map[string]any{
+				"foo": []string{"a", "b"},
+			},
+			excepted: []byte("b"),
+		},
+		{
+			name:  "last 2",
+			input: "{{ last .foo }}",
+			variable: map[string]any{
+				"foo": []string{"a", "b"},
+			},
+			excepted: []byte("b"),
+		},
+		// ======= slice =======
+		{
+			name:  "slice 1",
+			input: "{{ slice .foo 0 2 }}",
+			variable: map[string]any{
+				"foo": []string{"a", "b"},
+			},
+			excepted: []byte("[a b]"),
+		},
+		// ======= join =======
+		{
+			name:  "join 1",
+			input: "{{ slice .foo 0 2 | join \".\" }}",
+			variable: map[string]any{
+				"foo": []string{"a", "b"},
+			},
+			excepted: []byte("a.b"),
+		},
+		// ======= toJson =======
+		{
+			name:  "toJson 1",
+			input: "{{ .foo | toJson }}",
+			variable: map[string]any{
+				"foo": []string{"a", "b"},
+			},
+			excepted: []byte("[\"a\",\"b\"]"),
+		},
+		// ======= indent =======
+		{
+			name:  "indent 1",
+			input: "{{ .foo | indent 2 }}",
+			variable: map[string]any{
+				"foo": "a1: b1\na2: b2",
+			},
+			excepted: []byte("  a1: b1\n  a2: b2"),
+		},
+		// ======= printf =======
+		{
+			name:  "printf 1",
+			input: "{{ printf \"http://%s\" .foo }}",
+			variable: map[string]any{
+				"foo": "a",
+			},
+			excepted: []byte("http://a"),
+		},
+		{
+			name:  "printf 2",
+			input: "{{ .foo | printf \"http://%s\" }}",
+			variable: map[string]any{
+				"foo": "a",
+			},
+			excepted: []byte("http://a"),
+		},
+
+		// ======= div =======
+		{
+			name:  "div 1",
+			input: "{{ mod .foo 2 }}",
+			variable: map[string]any{
+				"foo": 5,
+			},
+			excepted: []byte("1"),
+		},
+		{
+			name:  "div 1",
+			input: "{{ mod .foo 2 }}",
+			variable: map[string]any{
+				"foo": 4,
+			},
+			excepted: []byte("0"),
+		},
+		// ======= sub =======
+		{
+			name:  "sub 1",
+			input: "{{ sub .foo 2 }}",
+			variable: map[string]any{
+				"foo": 5,
+			},
+			excepted: []byte("3"),
+		},
+		// ======= trimPrefix =======
+		{
+			name:  "trimPrefix 1",
+			input: `{{ .foo | trimPrefix "v" }}`,
+			variable: map[string]any{
+				"foo": "v1.1",
+			},
+			excepted: []byte("1.1"),
+		},
+		{
+			name:     "trimPrefix 2",
+			input:    `{{ .foo | default "" |trimPrefix "v" }}`,
+			variable: make(map[string]any),
+			excepted: nil,
+		},
+		// ======= fromJson =======
+		{
+			name:  "fromJson 1",
+			input: `{{ .foo | fromJson | first }}`,
+			variable: map[string]any{
+				"foo": "[\"a\",\"b\"]",
+			},
+			excepted: []byte("a"),
+		},
+	}
+
+	for _, tc := range testcases {
+		t.Run(tc.name, func(t *testing.T) {
+			output, err := Parse(tc.variable, tc.input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			assert.Equal(t, tc.excepted, output)
+		})
+	}
+}
+
+func TestParseCustomFunction(t *testing.T) {
+	testcases := []struct {
+		name     string
+		input    string
+		variable map[string]any
+		excepted string
+	}{
+		// ======= toYaml =======
+		{
+			name:  "toYaml 1",
+			input: "{{ .foo | toYaml }}",
+			variable: map[string]any{
+				"foo": map[string]any{
+					"a1": "b1",
+					"a2": "b2",
+				},
+			},
+			excepted: "a1: b1\na2: b2",
+		},
+		// ======= fromYaml =======
+		{
+			name:  "fromYaml 1",
+			input: "{{ .foo | fromYaml | toJson }}",
+			variable: map[string]any{
+				"foo": `
+a1: b1
+a2:
+  b2: 1`,
+			},
+			excepted: "{\"a1\":\"b1\",\"a2\":{\"b2\":1}}",
+		},
+		// ======= fromTOML =======
+		{
+			name:  "fromTOML 1",
+			input: "{{ .foo | fromTOML | toJson }}",
+			variable: map[string]any{
+				"foo": `root = "/var/lib/containerd"`,
+			},
+			excepted: "{\"root\":\"/var/lib/containerd\"}",
+		},
+		{
+			name:  "fromTOML 2",
+			input: "{{ .foo | fromTOML | toJson }}",
+			variable: map[string]any{
+				"foo": `[grpc]
+  address = "/run/containerd/containerd.sock"`,
+			},
+			excepted: "{\"grpc\":{\"address\":\"/run/containerd/containerd.sock\"}}",
+		},
+		// ======= ipInCIDR =======
+		{
+			name:  "ipInCIDR true-1",
+			input: "{{ index (.foo | ipInCIDR) 0  }}",
+			variable: map[string]any{
+				"foo": "10.233.0.0/18",
+			},
+			excepted: "10.233.0.1",
+		},
+		// ======= ipFamily =======
+		{
+			name:     "ipFamily for ip address",
+			input:    `{{ .ip_addr | default "10.233.64.0" | splitList "," | first | ipFamily }}`,
+			variable: make(map[string]any),
+			excepted: "IPv4",
+		},
+		{
+			name:     "ipFamily for ip cidr",
+			input:    `{{ .ip_cidr | default "10.233.64.0/18" | splitList "," | first | ipFamily }}`,
+			variable: make(map[string]any),
+			excepted: "IPv4",
+		},
+		// ======= isCIDR =======
+		{
+			name:     "isCIDR for ipv4 cidr",
+			input:    `{{ .foo | default "10.233.64.0/18" | isCIDR }}`,
+			variable: make(map[string]any),
+			excepted: "true",
+		},
+		{
+			name:     "isCIDR for ipv6 cidr",
+			input:    `{{ .foo | default "fd00::/64" | isCIDR }}`,
+			variable: make(map[string]any),
+			excepted: "true",
+		},
+		{
+			name:     "isCIDR for the last entry of a dual-stack cidr",
+			input:    `{{ .foo | default "10.233.64.0/18,fd00::/64" | splitList "," | last | isCIDR }}`,
+			variable: make(map[string]any),
+			excepted: "true",
+		},
+		{
+			name:     "isCIDR for empty entry of a trailing comma",
+			input:    `{{ .foo | default "10.233.64.0/18," | splitList "," | last | isCIDR }}`,
+			variable: make(map[string]any),
+			excepted: "false",
+		},
+		{
+			name:     "isCIDR for ip address without prefix",
+			input:    `{{ .foo | default "10.233.64.1" | isCIDR }}`,
+			variable: make(map[string]any),
+			excepted: "false",
+		},
+		{
+			name:     "isCIDR for garbage",
+			input:    `{{ .foo | default "not-a-cidr" | isCIDR }}`,
+			variable: make(map[string]any),
+			excepted: "false",
+		},
+		// ======= pow =======
+		{
+			name:     "pow true-1",
+			input:    "{{ pow 2 3 }}",
+			variable: make(map[string]any),
+			excepted: "8",
+		},
+		// ======= splitList port extraction =======
+		{
+			name:  "extract port from host:port",
+			input: `{{ $hostPart := .foo | splitList "/" | first }}{{ $hostPart | splitList ":" | last }}`,
+			variable: map[string]any{
+				"foo": "dockerhub.kubekey.local:5000/project",
+			},
+			excepted: "5000",
+		},
+		{
+			name:  "extract port from host without port",
+			input: `{{ $hostPart := .foo | splitList "/" | first }}{{ $port := $hostPart | splitList ":" | last }}{{ if ne $port $hostPart }}{{ $port }}{{ else }}443{{ end }}`,
+			variable: map[string]any{
+				"foo": "dockerhub.kubekey.local/project",
+			},
+			excepted: "443",
+		},
+		{
+			name:  "strip port from host:port",
+			input: `{{ $hostPart := .foo | splitList "/" | first }}{{ $hostPart | splitList ":" | first }}`,
+			variable: map[string]any{
+				"foo": "dockerhub.kubekey.local:5000/project",
+			},
+			excepted: "dockerhub.kubekey.local",
+		},
+		// ======= subtractList =======
+		{
+			name:     "subtractList true-1",
+			input:    `{{ subtractList (list 1 2 3 4)  (list 2 4) }}`,
+			variable: make(map[string]any),
+			excepted: "[1 3]",
+		},
+		{
+			name:  "subtractList true-2",
+			input: `{{ subtractList .list1 .list2 }}`,
+			variable: map[string]any{
+				"list1": []any{1, 2, 3, 4},
+				"list2": []any{2, 4},
+			},
+			excepted: "[1 3]",
+		},
+		{
+			name:     "subtractList empty result",
+			input:    `{{ subtractList (list 1 2)  (list 1 2) }}`,
+			variable: make(map[string]any),
+			excepted: "[]",
+		},
+		{
+			name:     "subtractList with empty second list",
+			input:    `{{ subtractList (list 1 2 3)  (list) }}`,
+			variable: make(map[string]any),
+			excepted: "[1 2 3]",
+		},
+	}
+
+	for _, tc := range testcases {
+		t.Run(tc.name, func(t *testing.T) {
+			output, err := ParseFunc(tc.variable, tc.input, StringFunc)
+			if err != nil {
+				t.Fatal(err)
+			}
+			assert.Equal(t, tc.excepted, output)
+		})
+	}
+}

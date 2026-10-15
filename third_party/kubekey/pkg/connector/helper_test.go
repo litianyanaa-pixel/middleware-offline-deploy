@@ -1,0 +1,188 @@
+/*
+Copyright 2023 The KubeSphere Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package connector
+
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+)
+
+func TestConvertBytesToMap(t *testing.T) {
+	testcases := []struct {
+		name     string
+		data     []byte
+		excepted map[string]string
+	}{
+		{
+			name: "succeed",
+			data: []byte(`PRETTY_NAME="Ubuntu 22.04.1 LTS"
+NAME="Ubuntu"
+VERSION_ID="22.04"
+VERSION="22.04.1 LTS (Jammy Jellyfish)"
+VERSION_CODENAME=jammy
+ID=ubuntu
+ID_LIKE=debian
+HOME_URL="https://www.ubuntu.com/"
+SUPPORT_URL="https://help.ubuntu.com/"
+BUG_REPORT_URL="https://bugs.launchpad.net/ubuntu/"
+PRIVACY_POLICY_URL="https://www.ubuntu.com/legal/terms-and-policies/privacy-policy"
+UBUNTU_CODENAME=jammy
+`),
+			excepted: map[string]string{
+				"PRETTY_NAME":        "\"Ubuntu 22.04.1 LTS\"",
+				"NAME":               "\"Ubuntu\"",
+				"VERSION_ID":         "\"22.04\"",
+				"VERSION":            "\"22.04.1 LTS (Jammy Jellyfish)\"",
+				"VERSION_CODENAME":   "jammy",
+				"ID":                 "ubuntu",
+				"ID_LIKE":            "debian",
+				"HOME_URL":           "\"https://www.ubuntu.com/\"",
+				"SUPPORT_URL":        "\"https://help.ubuntu.com/\"",
+				"BUG_REPORT_URL":     "\"https://bugs.launchpad.net/ubuntu/\"",
+				"PRIVACY_POLICY_URL": "\"https://www.ubuntu.com/legal/terms-and-policies/privacy-policy\"",
+				"UBUNTU_CODENAME":    "jammy",
+			},
+		},
+	}
+
+	for _, tc := range testcases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.excepted, convertBytesToMap(tc.data, "="))
+		})
+	}
+}
+
+func TestConvertBytesToSlice(t *testing.T) {
+	testcases := []struct {
+		name     string
+		data     []byte
+		excepted []map[string]string
+	}{
+		{
+			name: "succeed",
+			data: []byte(`processor	: 0
+vendor_id	: GenuineIntel
+cpu family	: 6
+model		: 60
+model name	: Intel Core Processor (Haswell, no TSX, IBRS)
+
+processor	: 1
+vendor_id	: GenuineIntel
+cpu family	: 6
+`),
+			excepted: []map[string]string{
+				{
+					"processor":  "0",
+					"vendor_id":  "GenuineIntel",
+					"cpu family": "6",
+					"model":      "60",
+					"model name": "Intel Core Processor (Haswell, no TSX, IBRS)",
+				},
+				{
+					"processor":  "1",
+					"vendor_id":  "GenuineIntel",
+					"cpu family": "6",
+				},
+			},
+		},
+	}
+
+	for _, tc := range testcases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.excepted, convertBytesToSlice(tc.data, ":"))
+		})
+	}
+}
+
+func TestParseLsblkJSON(t *testing.T) {
+	devices, err := parseLsblkJSON([]byte(`{
+		"blockdevices": [
+			{
+				"name": "sda",
+				"size": 21474836480,
+				"type": "disk",
+				"mountpoint": null,
+				"fstype": null,
+				"model": "Virtual disk",
+				"children": [
+					{
+						"name": "sda1",
+						"size": 21474832384,
+						"type": "part",
+						"mountpoint": "/",
+						"fstype": "ext4",
+						"model": null
+					}
+				]
+			}
+		]
+	}`))
+	assert.NoError(t, err)
+
+	parsed, ok := devices.([]any)
+	assert.True(t, ok)
+	assert.Len(t, parsed, 1)
+}
+
+func TestEnrichBlockDevicesWithLVM(t *testing.T) {
+	devices, err := parseLsblkJSON([]byte(`{
+		"blockdevices": [
+			{
+				"name": "sdb",
+				"size": 21474836480,
+				"type": "disk",
+				"mountpoint": null,
+				"fstype": null,
+				"model": "Virtual disk",
+				"children": [
+					{
+						"name": "vg_data-lv_data",
+						"size": 21474832384,
+						"type": "lvm",
+						"mountpoint": null,
+						"fstype": null,
+						"model": null
+					}
+				]
+			}
+		]
+	}`))
+	assert.NoError(t, err)
+
+	err = enrichBlockDevicesWithLVM(devices, []byte(`{
+		"report": [
+			{
+				"lv": [
+					{
+						"lv_name": "lv_data",
+						"vg_name": "vg_data",
+						"lv_path": "/dev/vg_data/lv_data",
+						"lv_dm_path": "/dev/mapper/vg_data-lv_data"
+					}
+				]
+			}
+		]
+	}`))
+	assert.NoError(t, err)
+
+	deviceList := devices.([]any)
+	children := deviceList[0].(map[string]any)["children"].([]any)
+	lvmDevice := children[0].(map[string]any)
+	assert.Equal(t, "vg_data", lvmDevice["vg_name"])
+	assert.Equal(t, "lv_data", lvmDevice["lv_name"])
+}

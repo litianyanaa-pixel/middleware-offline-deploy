@@ -1,0 +1,35 @@
+common:
+  - bash-completion
+  - chrony
+  - conntrack
+  - curl
+  - ebtables
+  - git
+  - haproxy
+  - ipset
+  - ipvsadm
+  - keepalived
+  - lvm2
+  - net-tools
+  - openssl
+  - psmisc
+  - socat
+  - sudo
+  - tcpdump
+  - telnet
+rpms:
+  - bind-utils
+  - conntrack-tools
+  - lz4
+  - nfs-utils
+  - nss
+  - nss-sysinit
+  - nss-tools
+debs:
+  - apt-transport-https
+  - ca-certificates
+  - dnsutils
+  - gnupg-agent
+  - nfs-common
+  - openssh-server
+  - software-properties-common

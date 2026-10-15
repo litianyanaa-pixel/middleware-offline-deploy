@@ -1,0 +1,27 @@
+---
+# For more information, see: https://github.com/flannel-io/flannel/blob/master/Documentation/kubernetes.md
+
+- name: Flannel | Sync flannel package to remote node
+  copy:
+    src: >-
+      {{ .binary_dir }}/cni/flannel/flannel-{{ .cni.flannel_version }}.tgz
+    dest: /etc/kubernetes/cni/flannel-{{ .cni.flannel_version }}.tgz
+
+- name: Flannel | Generate flannel custom values file
+  when: .cni.flannel.values | empty | not
+  copy:
+    content: |
+      {{ .cni.flannel.values }}
+    dest: /etc/kubernetes/cni/flannel-custom-values.yaml
+
+- name: Flannel | Generate default values file for Flannel
+  template:
+    src: values.yaml
+    dest: /etc/kubernetes/cni/flannel-default-values.yaml
+
+- name: Flannel | Install flannel using Helm
+  command: |
+    # Needs manual creation of namespace to avoid Helm error
+    kubectl create ns kube-flannel
+    kubectl label --overwrite ns kube-flannel pod-security.kubernetes.io/enforce=privileged
+    helm upgrade --install --reuse-values --create-namespace --namespace kube-flannel flannel /etc/kubernetes/cni/flannel-{{ .cni.flannel_version }}.tgz -f /etc/kubernetes/cni/flannel-default-values.yaml {{ if .cni.flannel.values | empty | not }}-f /etc/kubernetes/cni/flannel-custom-values.yaml{{ end }}

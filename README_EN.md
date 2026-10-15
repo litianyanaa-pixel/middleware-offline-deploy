@@ -453,6 +453,21 @@ Material preparation (patched kk, offline artifact, OS packages) and the Xinchua
 compatibility matrix: [docs/k8s-信创离线部署.md](docs/k8s-信创离线部署.md) ·
 [docs/k8s-README.md](docs/k8s-README.md) (Chinese).
 
+**The patched KubeKey source ships with this repository** — `third_party/kubekey/`
+(upstream Apache-2.0, snapshot v4.0.7-xc1; only 4 YAML role files changed for
+Xinchuang distro support, no Go code changes; modification notice in its
+`MODIFICATIONS.md`, compliance notes in [docs/THIRD-PARTY.md](docs/THIRD-PARTY.md)).
+After cloning: `python prepare_cluster.py --kk-build` generates `build-kk.bat` for a
+one-click cross-compile (amd64/arm64, local Go 1.25+; override the source dir with
+`KK_SRC`); or grab a prebuilt kk binary from
+[Releases](https://github.com/litianyanaa-pixel/middleware-offline-deploy/releases)
+and drop it into `warehouse/cluster/kk/v4.0.7-xc1/<arch>/kk`.
+
+**One-shot Linux packer-machine bootstrap**: `sudo bash tools/setup-packer-env.sh`
+installs Python3 / Docker Engine / Go 1.25+ as needed (idempotent; `--cn` for China
+mirrors, `--only python|docker|go`, `--check` to audit only). Windows packer machines
+just install Python, Docker Desktop and Go from official installers.
+
 ## 📚 10. Documentation Index
 
 | Doc | Content |

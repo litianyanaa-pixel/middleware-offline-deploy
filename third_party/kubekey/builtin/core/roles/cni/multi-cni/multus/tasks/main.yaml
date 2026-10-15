@@ -1,0 +1,9 @@
+---
+- name: Multus | Generate Multus configuration YAML file
+  template:
+    src: multus/multus.yaml
+    dest: /etc/kubernetes/cni/multus.yaml
+
+- name: Multus | Apply Multus configuration to the cluster
+  command: |
+    kubectl apply -f /etc/kubernetes/cni/multus.yaml

@@ -1,0 +1,5 @@
+- name: Crictl | Remove crictl binary and clean up any residual files
+  command: |
+    if path=$(command -v crictl 2>/dev/null); then
+      rm -f "$path"
+    fi

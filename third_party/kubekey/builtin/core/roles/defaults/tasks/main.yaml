@@ -1,0 +1,87 @@
+- name: Defaults | Reset temporary directory
+  tags: ["always"]
+  command: |
+    if [ -d {{ .tmp_dir }} ]; then
+      rm -rf {{ .tmp_dir }}
+    fi
+    mkdir -m 777 -p {{ .tmp_dir }}
+
+- name: Defaults | Load defaults based on Kubernetes version
+  block:
+    - name: Defaults | Load version-specific settings for Kubernetes
+      tags: ["always"]
+      when: .kubernetes.kube_version | empty | not
+      include_vars: >-
+        {{ slice (.kubernetes.kube_version | splitList ".") 0 2 | join "." }}.yaml
+    - name: Defaults | Load default templates download
+      tags: ["package", "pull", "never"]
+      template:
+        src: manifests.yaml
+        dest: >-
+          {{ .binary_dir }}/manifests.yaml
+
+- name: Defaults | Determine operating system architecture for each node
+  tags: ["always"]
+  set_fact:
+    binary_type: >-
+      {{- if .transform_architectures.amd64 | has .os.architecture -}}
+      amd64
+      {{- else if .transform_architectures.arm64 | has .os.architecture -}}
+      arm64
+      {{- end -}}
+
+- name: Defaults | Gather Kubernetes service status
+  when: .groups.k8s_cluster | has .inventory_hostname
+  block:
+    - name: Defaults | Get kubelet.service LoadState
+      command: systemctl show kubelet.service -p LoadState | cut -d= -f2
+      register: kubernetes_install_LoadState
+    - name: Defaults | Get kubelet.service ActiveState
+      command: systemctl show kubelet.service -p ActiveState | cut -d= -f2
+      register: kubernetes_install_ActiveState
+    - name: Defaults | Get installed Kubernetes version
+      ignore_errors: true
+      command: kubelet --version
+      register: kubernetes_install_version
+    - name: Defaults | Get installed containerd version
+      ignore_errors: true
+      command: |
+        containerd --version 2>/dev/null | awk '{print $3}' || true
+      register: containerd_current_version
+
+- name: Defaults | Gather ETCD service status
+  when: .groups.etcd | has .inventory_hostname
+  block:
+    - name: Defaults | Get etcd.service LoadState and save to variable
+      command: systemctl show etcd.service -p LoadState | cut -d= -f2
+      register: etcd_install_LoadState
+    # TODO: etcd_install_ActiveState has no consumers anywhere in the codebase; it can be removed once confirmed unnecessary.
+    - name: Defaults | Get etcd.service ActiveState and save to variable
+      command: systemctl show etcd.service -p ActiveState | cut -d= -f2
+      register: etcd_install_ActiveState
+    - name: Defaults | Get installed etcd version
+      ignore_errors: true
+      command: etcd --version
+      register: etcd_install_version
+      register_type: yaml
+
+- name: Defaults | Select the initialization node for the cluster
+  run_once: true
+  add_hostvars:
+    hosts: k8s_cluster
+    vars:
+      init_kubernetes_node: >-
+        {{- $initNodes := list -}}
+        {{- $notInitNodes := list -}}
+        {{- range .groups.kube_control_plane -}}
+          {{- if index $.hostvars . "kubernetes_install_LoadState" "stdout" | eq "loaded" -}}
+            {{- $initNodes = append $initNodes . -}}
+          {{- else if index $.hostvars . "kubernetes_install_LoadState" "stdout" | eq "not-found" -}}
+            {{- $notInitNodes = append $notInitNodes . -}}
+          {{- end -}}
+        {{- end -}}
+        {{- if $initNodes -}}
+        {{ $initNodes | first }}
+        {{- else if $notInitNodes -}}
+        {{ $notInitNodes | first }}
+        {{- end -}}

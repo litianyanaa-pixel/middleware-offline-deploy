@@ -1,0 +1,45 @@
+---
+- name: Artifact | Extract artifact archive to working directory
+  tags: ["always"]
+  when: .download.artifact_file | fileExists
+  command: |
+    mkdir -p {{ .binary_dir }}
+    tar -zxvf {{ .download.artifact_file }} -C {{ .binary_dir }}
+
+- name: Artifact | Load architecture-specific download URLs for each artifact version
+  tags: ["always"]
+  when: printf "%s/manifests.yaml" .binary_dir | fileExists
+  include_vars: "{{ .binary_dir }}/manifests.yaml"
+
+- name: Artifact | Include actual host architectures in the download list
+  tags: ["always"]
+  set_fact:
+    download:
+      arch: >-
+        {{- $archs := .download.arch -}}
+        {{- range $.hostvars }}
+          {{- if .binary_type }}
+            {{- $archs = append $archs .binary_type }}
+          {{- end }}
+        {{- end }}
+        {{- $archs | uniq | toJson }}
+
+- name: Artifact | Download required binaries and images
+  when: .download.fetch
+  block:
+    # Download core binaries
+    - include_tasks: binary.yaml
+    # Download Helm and CNI binaries
+    - include_tasks: helm.yaml
+    # Download remote images to the local images directory
+    - include_tasks: images.yaml
+    # Download iso
+    - include_tasks: iso.yaml
+    # Download tools file
+    - include_tasks: tools.yaml
+
+- name: Artifact | Set ownership of working directory to sudo user
+  tags: ["always"]
+  ignore_errors: true
+  command: |
+    chown -R ${SUDO_UID}:${SUDO_GID} {{ .work_dir }}

@@ -1,0 +1,67 @@
+---
+- name: Repository | Synchronize local repository ISO image
+  block:
+    - name: Repository | Prepare tmp files
+      command: |
+        mkdir -p {{ .tmp_dir }}/iso
+
+    - name: Repository | Check system version when use Kylin
+      set_fact:
+        sp_version: >-
+          {{- if .os.release.VERSION | contains "Tercel" }}
+          SP1
+          {{- else if .os.release.VERSION | contains "Sword" }}
+          SP2
+          {{- else if .os.release.VERSION | contains "Lance" }}
+          SP3
+          {{- else if .os.release.VERSION | contains "Halberd" }}
+          SP3-2403
+          {{- end -}}
+      when: .os.release.ID | unquote | eq "kylin"
+
+    - name: Repository | Define the system string based on distribution
+      set_fact:
+        system_string: >-
+          {{- if .os.release.ID | unquote | eq "kylin" }}
+          kylin-{{ .os.release.VERSION_ID | replace "\"" "" | unquote | trim | lower }}{{ .sp_version | trim }}
+          {{- else if .os.release.ID_LIKE | unquote | eq "rhel fedora" }}
+          {{ .os.release.ID | replace "\"" "" | unquote | trim | lower  }}{{ .os.release.VERSION_ID | replace "\"" "" | unquote | trim }}
+          {{- else }}
+          {{ .os.release.ID | replace "\"" "" | unquote | trim | lower  }}-{{ .os.release.VERSION_ID | replace "\"" "" | unquote | trim }}
+          {{- end -}}
+
+    - name: Repository | Define the package file type by system info
+      set_fact:
+        iso_type: >-
+          {{- if .os.release.ID_LIKE | eq "debian" }}
+          debs
+          {{- else  }}
+          rpms
+          {{- end -}}
+
+    - name: Repository | Set iso file name
+      when:
+        - .iso_name | empty
+      set_fact:
+        iso_name: "{{ .system_string | trim  }}-{{ .iso_type | trim }}-{{ .binary_type }}.iso"
+
+    - name: Repository | Copy local repository ISO file
+      ignore_errors: true
+      copy:
+        src: >-
+          {{ .binary_dir }}/repository/{{ .iso_name }}
+        dest: >-
+          {{ .tmp_dir }}/repository.iso
+    - name: Repository | Mount repository ISO to temporary directory
+      command: |
+        if [ -f "{{ .tmp_dir }}/repository.iso" ]; then
+          mount -t iso9660 -o loop {{ .tmp_dir }}/repository.iso {{ .tmp_dir }}/iso
+        fi
+    - name: Repository | Initialize package repositories and install system dependencies
+      include_tasks: install_package.yaml
+  always:
+    - name: Repository | Unmount repository ISO from temporary directory
+      command: |
+        if [ -f "{{ .tmp_dir }}/repository.iso" ]; then
+          umount {{ .tmp_dir }}/iso
+        fi

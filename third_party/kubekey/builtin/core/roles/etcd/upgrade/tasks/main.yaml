@@ -1,0 +1,22 @@
+- name: Upgrade | Restart etcd service after upgrade
+  command: |
+    systemctl restart etcd.service
+
+- name: Upgrade | Ensure etcd service becomes healthy within 1 minute
+  command: |
+    unset ETCDCTL_ENDPOINTS ETCDCTL_KEY ETCDCTL_CERT ETCDCTL_CACERT
+
+    for ((i=1; i<=12; i++)); do
+      if ETCDCTL_API=3 etcdctl \
+        --endpoints=https://localhost:{{ .etcd.port }} \
+        --cacert=/etc/ssl/etcd/ssl/ca.crt \
+        --cert=/etc/ssl/etcd/ssl/server.crt \
+        --key=/etc/ssl/etcd/ssl/server.key \
+        endpoint health >/dev/null 2>&1; then
+        echo "✅ etcd is healthy"
+        exit 0
+      fi
+      sleep 5
+    done
+    echo "❌ etcd is not healthy within 1 minute"
+    exit 1

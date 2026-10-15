@@ -1,0 +1,134 @@
+- name: Kubernetes | Validate kube-vip address
+  run_once: true
+  when: .kubernetes.control_plane_endpoint.type | eq "kube-vip"
+  assert:
+    that:
+      - .kubernetes.control_plane_endpoint.kube_vip.address | empty | not
+      - .kubernetes.control_plane_endpoint.kube_vip.address | regexMatch "^((25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\\.(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\\.(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\\.(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])|(([0-9a-fA-F]{1,4}:){7}([0-9a-fA-F]{1,4}|:)|(([0-9a-fA-F]{1,4}:){1,6}|:):([0-9a-fA-F]{1,4}|:){1,6}([0-9a-fA-F]{1,4}|:)))$"
+      - |
+        {{- $existIP := false }}
+        {{- range .groups.all | default list }}
+          {{- if or ($.kubernetes.control_plane_endpoint.kube_vip.address | eq (index $.hostvars . "internal_ipv4" | default "")) ($.kubernetes.control_plane_endpoint.kube_vip.address | eq (index $.hostvars . "internal_ipv6" | default "")) }}
+          {{- $existIP = true }}
+          {{- end }}
+        {{- end }}
+        {{ not $existIP }}
+    fail_msg: >-
+      The value of "kubernetes.control_plane_endpoint.kube_vip.address" must be an IP address that is not currently assigned to any node.
+
+- name: Kubernetes | Fail if unsupported Kubernetes version
+  run_once: true
+  assert:
+    that: 
+      - .kubernetes.kube_version | empty | not
+      - .kubernetes.kube_version | semverCompare (printf ">=%s" .cluster_require.kube_version_min_required)
+    fail_msg: >-
+      This version of KubeKey only supports Kubernetes versions greater than or equal to {{ .cluster_require.kube_version_min_required }}. You are attempting to use version {{ .kubernetes.kube_version }}.
+
+- name: Kubernetes | Check if Kubernetes is installed
+  block:
+    - name: Kubernetes | Validate Kubernetes service status and version
+      when: .kubernetes_install_LoadState.stdout | eq "loaded"
+      block:
+        - name: Kubernetes | Ensure kubelet service is active
+          assert:
+            that: .kubernetes_install_ActiveState.stdout | eq "active"
+            fail_msg: >-
+              The kubelet service must be running and active when it is loaded.
+        - name: Kubernetes | Ensure installed Kubernetes version matches expected version
+          when: not (.upgrade.kubernetes | default false)
+          assert:
+            that: .kubernetes_install_version.stdout | default "" | trimPrefix "Kubernetes " | eq .kubernetes.kube_version
+            fail_msg: >-
+              The installed Kubernetes version ({{ .kubernetes_install_version.stdout | default "" | trimPrefix "Kubernetes " }}) does not match the expected version ({{ .kubernetes.kube_version }}).
+        - name: Kubernetes | Validate Kubernetes upgrade path
+          when: .upgrade.kubernetes | default false
+          assert:
+            that:
+              - .kubernetes_install_version.stdout | default "" | trimPrefix "Kubernetes " | empty | not
+              # Allow the running kubelet version to already equal the target hop (a node left at
+              # this minor by an interrupted multi-hop upgrade). Only running > target is a real
+              # downgrade and stays rejected. The control-plane apply guard (upgrade-kubernetes
+              # role) skips kubeadm apply when already at target and reconciles lagging workers via
+              # "kubeadm upgrade node", so equality here is a legitimate resume, not an error.
+              - .kubernetes_install_version.stdout | default "" | trimPrefix "Kubernetes " | semverCompare (printf "<=%s" .kubernetes.kube_version)
+            fail_msg: >-
+              {{- if .kubernetes_install_version.stdout | default "" | trimPrefix "Kubernetes " | empty }}
+              Cannot determine the running Kubernetes version. The kubelet version must be
+              readable (and the kubelet service running) before upgrading.
+              {{- else }}
+              Cannot upgrade: the running Kubernetes version ({{ .kubernetes_install_version.stdout | default "" | trimPrefix "Kubernetes " }}) is newer than the target version ({{ .kubernetes.kube_version }}).
+              {{- end }}
+        - name: Kubernetes | Allow only a single-minor upgrade per invocation
+          when: .upgrade.kubernetes | default false
+          assert:
+            that:
+              - .kubernetes_install_version.stdout | default "" | trimPrefix "Kubernetes " | empty | not
+              # The upgrade_cluster playbook is a single-minor playbook: a single
+              # invocation must never leap more than one Kubernetes minor ahead of the
+              # running (installed kubelet) version. Cross-many-minor upgrades are
+              # handled by the auto-step flow in the CLI, which spawns one playbook per
+              # minor (kube 1.23 -> 1.34 runs 1.24, 1.25, ..., 1.34 as separate
+              # invocations). Same-minor patch upgrades (e.g. 1.33.1 -> 1.33.5) are
+              # still allowed.
+              #
+              # Compare flattened (major*1000+minor) so that both a two-minor leap
+              # within the same major and a major bump are rejected, while a patch-only
+              # (0 minor) step within the same major passes.
+              #
+              # Guard: target minor must be at most running minor + 1 (tf <= rf+1), so a single
+              # invocation never leaps more than one Kubernetes minor. It ALREADY permits the
+              # half-upgrade resume case where a node sits on the same minor as the target
+              # (tf == rf) — the actual blocker for "resume at an already-reached hop" is the
+              # sibling "Validate Kubernetes upgrade path" task, relaxed to "<=" above.
+              # A true downgrade is rejected by that sibling task, not here.
+              - |-
+                {{- $run := .kubernetes_install_version.stdout | default "" | trimPrefix "Kubernetes " -}}
+                {{- $rmaj := index (splitList "." ($run | trimPrefix "v")) 0 | atoi -}}
+                {{- $rmin := index (splitList "." ($run | trimPrefix "v")) 1 | atoi -}}
+                {{- $tmaj := index (splitList "." (.kubernetes.kube_version | trimPrefix "v")) 0 | atoi -}}
+                {{- $tmin := index (splitList "." (.kubernetes.kube_version | trimPrefix "v")) 1 | atoi -}}
+                {{- $rf := ($rmaj | mul 1000) | add $rmin -}}
+                {{- $tf := ($tmaj | mul 1000) | add $tmin -}}
+                {{- ($rf | add 1) | le $tf -}}
+            fail_msg: >-
+              Only a single-minor Kubernetes upgrade is allowed per invocation. The running
+              version ({{ .kubernetes_install_version.stdout | default "" | trimPrefix "Kubernetes " }}) cannot jump straight to
+              {{ .kubernetes.kube_version }} (more than one minor ahead). Use the automatic
+              multi-minor flow (kk upgrade cluster --with-kubernetes <target> --all), which
+              steps through each minor one at a time.
+
+# The nftables proxy mode is the default for Kubernetes v1.34 and later, but it
+# only runs on kernel 5.13+ (see
+# https://kubernetes.io/docs/reference/node/kernel-version-requirements/).
+# KubeKey's baseline min_kernel_version is far lower than that, so nodes on
+# older distributions would otherwise reach kube-proxy and crash-loop there.
+# The "nft" command-line tool itself is installed by KubeKey's package step
+# (roles/native/repository) when the mode is "nftables", so it is not checked here.
+- name: Kubernetes | Fail if the nftables proxy mode is unsupported on this node
+  when:
+    - .groups.k8s_cluster | default list | has .inventory_hostname
+    - .kubernetes.kube_proxy.mode | default "iptables" | eq "nftables"
+  block:
+    - name: Kubernetes | Ensure the kernel supports the nftables proxy mode
+      assert:
+        that: .os.kernel_version | splitList "-" | first | semverCompare ">=5.13.0"
+        fail_msg: >-
+          kube-proxy is configured with mode "nftables", but this node runs kernel
+          {{ .os.kernel_version }}. The nftables backend requires kernel 5.13 or later.
+          Upgrade the kernel, or set "kubernetes.kube_proxy.mode" to "iptables" to keep the
+          legacy backend.
+
+# - name: ImageRegistry | Verify successful authentication to image registry
+#   when:
+#     - .image_registry.auth.registry | empty | not
+#     - .image_registry.type | empty
+#   command: |
+#     HTTP_CODE=$(curl -skLI -w "%{http_code}" -u "{{ .image_registry.auth.username }}:{{ .image_registry.auth.password }}" \
+#       "https://{{ .image_registry.ha_vip | empty | ternary (.image_registry.auth.registry | splitList "/" | first) (printf "%s%s" .image_registry.ha_vip (.image_registry.auth.registry | trimPrefix (.image_registry.auth.registry | splitList "/" | first))) }}/v2/" -o /dev/null)
+#     if [[ "$HTTP_CODE" == "200" ]]; then
+#       echo "Successfully authenticated to the image registry."
+#     else
+#       echo "Failed to authenticate to the image registry at {{ .image_registry.auth.registry | splitList "/" | first }}." >&2
+#       exit 1
+#     fi

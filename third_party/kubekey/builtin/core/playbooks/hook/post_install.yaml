@@ -1,0 +1,82 @@
+---
+# Back up kubeadm-config.yaml on every control-plane node with a timestamp.
+- hosts:
+    - kube_control_plane
+  tasks:
+    - name: Post | Back up kubeadm-config.yaml with timestamp
+      when: .kubernetes.backup.kubeadm_config_dir | empty | not
+      command: |
+        set -e
+        BACKUP_DIR="{{ .kubernetes.backup.kubeadm_config_dir }}"
+        SRC_FILE="/etc/kubernetes/kubeadm-config.yaml"
+        BACKUP_FILE="${BACKUP_DIR}/kubeadm-config-$(date +%Y%m%d-%H%M%S).yaml"
+
+        mkdir -p "${BACKUP_DIR}"
+        chmod 0700 "${BACKUP_DIR}"
+
+        if [ ! -f "${SRC_FILE}" ]; then
+          echo "ERROR: ${SRC_FILE} not found, backup aborted" >&2
+          exit 1
+        fi
+
+        cp -f "${SRC_FILE}" "${BACKUP_FILE}"
+        chmod 0600 "${BACKUP_FILE}"
+
+- name: Post | Apply Security Enhancements
+  hosts:
+    - all
+  roles:
+    - role: security
+      when: .security_enhancement
+
+- name: Post | Run Post-Installation Scripts
+  hosts:
+    - all
+  tasks:
+    - name: Post | Copy global post-installation script to remote hosts
+      when: (print "%s/post_install.sh" .scripts_dir) | fileExists
+      copy:
+        src: >-
+          {{ .scripts_dir }}/post_install.sh
+        dest: >-
+          /etc/kubekey/scripts/post_install.sh
+        mode: 0755
+
+    - name: Post | Copy group post-installation scripts to remote hosts
+      copy:
+        src: >-
+          {{ .scripts_dir }}/{{ .item }}/post_install.sh
+        dest: >-
+          /etc/kubekey/scripts/post_install_group_{{ .item }}.sh
+        mode: 0755
+      loop: "{{ .post_install_groups | default list | toJson }}"
+      when:
+        - (getStringSlice .groups .item) | default list | has .inventory_hostname
+        - (print "%s/%s/post_install.sh" .scripts_dir .item) | fileExists
+
+    - name: Post | Copy node-specific post-installation script to remote hosts
+      when: (print "%s/post_install_%s.sh" .scripts_dir .inventory_hostname) | fileExists
+      copy:
+        src: >-
+          {{ .scripts_dir }}/post_install_{{ .inventory_hostname }}.sh
+        dest: >-
+          /etc/kubekey/scripts/post_install_{{ .inventory_hostname }}.sh
+        mode: 0755
+
+    - name: Post | Execute global post-installation script on remote hosts
+      when: (print "%s/post_install.sh" .scripts_dir) | fileExists
+      command: /etc/kubekey/scripts/post_install.sh
+
+    - name: Post | Execute group post-installation scripts in defined order
+      command: |
+        for group in {{ .post_install_groups | default list | join " " }}; do
+          file="/etc/kubekey/scripts/post_install_group_${group}.sh"
+          if [ -f "$file" ]; then
+            chmod +x "$file"
+            "$file"
+          fi
+        done
+
+    - name: Post | Execute node-specific post-installation script on remote hosts
+      when: (print "%s/post_install_%s.sh" .scripts_dir .inventory_hostname) | fileExists
+      command: /etc/kubekey/scripts/post_install_{{ .inventory_hostname }}.sh

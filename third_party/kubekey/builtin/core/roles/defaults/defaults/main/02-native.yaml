@@ -1,0 +1,47 @@
+# Essential operating system configuration settings
+native:
+  ntp:
+    # List of NTP servers used for system time synchronization
+    servers:
+      - "cn.pool.ntp.org"
+    # Toggle to enable or disable the NTP service
+    enabled: true
+  # System timezone configuration
+  timezone: Asia/Shanghai
+
+  # NFS service configuration for nodes assigned the 'nfs' role in the inventory
+  nfs:
+    # Directories to be shared via NFS
+    share_dir:
+      - /share/
+  # Whether to set the node's hostname to the value defined in inventory.hosts.
+  set_hostname: true
+  # List of DNS configuration files to update on each node.
+  # This ensures that, during cluster installation, critical hostnames can be resolved locally even if no DNS service is available.
+  # For example:
+  #   [control_plane_endpoint of master node] -> master node IP
+  #   [hostname of the node being installed] -> corresponding node IP
+  localDNS:
+    - /etc/hosts
+  # OS packages installed on every node during initialization, declared per package
+  # manager with their real distribution package names.
+  # Additional packages are appended automatically when required:
+  #   - nftables when kubernetes.kube_proxy.mode is "nftables"
+  #   - when the inventory defines a non-empty "nfs" group: nfs-kernel-server (deb)
+  #     or nfs-utils (rpm) on the nodes of that group, and nfs-common (deb) or
+  #     nfs-utils (rpm) on all other nodes
+  packages:
+    debs:
+      - socat
+      - conntrack
+      - ipset
+      - ebtables
+      - chrony
+      - ipvsadm
+    rpms:
+      - socat
+      - conntrack-tools
+      - ipset
+      - ebtables
+      - chrony
+      - ipvsadm

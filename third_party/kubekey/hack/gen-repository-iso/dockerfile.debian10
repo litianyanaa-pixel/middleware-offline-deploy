@@ -1,0 +1,33 @@
+FROM debian:10 as debian10
+ARG TARGETARCH
+ARG DIR=debian-10-${TARGETARCH}-debs
+ARG PKGS=.common[],.debs[],.debian[],.debian10[]
+ARG BUILD_TOOLS="apt-transport-https ca-certificates curl wget gnupg dpkg-dev genisoimage dirmngr"
+ENV DEBIAN_FRONTEND=noninteractive
+ENV LANG=en_US.UTF-8
+ENV LC_ALL=en_US.UTF-8
+
+RUN sed -i 's|deb.debian.org|archive.debian.org|g' /etc/apt/sources.list \
+    && sed -i '/security.debian.org/d' /etc/apt/sources.list \
+    && echo 'Acquire::Check-Valid-Until "false";' > /etc/apt/apt.conf.d/99no-check-valid-until \
+    && apt update -qq \
+    && apt install -y --no-install-recommends $BUILD_TOOLS \
+    && curl -fsSL "https://download.docker.com/linux/debian/gpg" | apt-key add -qq - \
+    && echo "deb [arch=$TARGETARCH] https://download.docker.com/linux/debian buster stable" > /etc/apt/sources.list.d/docker.list \
+    && apt update -qq
+
+WORKDIR /package
+COPY packages.yaml .
+COPY --from=mikefarah/yq:4.11.1 /usr/bin/yq /usr/bin/yq
+
+RUN yq eval "${PKGS}" packages.yaml >> packages.list \
+    && sort -u packages.list | xargs -n1 apt-get install --yes --reinstall --print-uris | awk -F "'" '{print $2}' | grep -v '^$' | sort -u > packages.urls \
+    && mkdir -p ${DIR} \
+    && wget -q -x -P ${DIR} -i packages.urls \
+    && cd ${DIR} \
+    && dpkg-scanpackages ./ /dev/null | gzip -9c > ./Packages.gz
+
+RUN genisoimage -r -o ${DIR}.iso ${DIR}
+
+FROM scratch
+COPY --from=debian10 /package/*.iso /

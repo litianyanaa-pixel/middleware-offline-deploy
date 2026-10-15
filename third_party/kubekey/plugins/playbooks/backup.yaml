@@ -1,0 +1,5 @@
+---
+- hosts:
+    - etcd
+  roles:
+    - etcd/backup

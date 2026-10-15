@@ -1,0 +1,37 @@
+version: 2
+
+env:
+  - GO111MODULE=on
+  - CGO_ENABLED=0
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - main: ./cmd/kk/kubekey.go
+    goos:
+      - linux
+      - windows
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    binary: kk
+    ldflags: "{{ .Env.LDFLAGS }}"
+    flags:
+      - -trimpath
+    tags:
+      - builtin
+
+archives:
+  - format: tar.gz
+    name_template: "kubekey-v{{ .Version }}-{{ .Os }}-{{ .Arch }}"
+    files:
+      - none*
+
+checksum:
+  name_template: "{{ .ProjectName }}_v{{ .Version }}_checksums.txt"
+
+release:
+  prerelease: auto

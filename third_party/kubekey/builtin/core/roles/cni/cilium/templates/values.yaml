@@ -1,0 +1,142 @@
+# -- Agent container image.
+image:
+  repository: "{{ .image_registry.quayio_registry }}/cilium/cilium"
+
+{{- if .cni.cilium_version | semverCompare ">=1.19.2" }}
+encryption:
+  # -- ztunnel encryption configuration.
+  # ztunnel is Istio's purpose-built, per-node proxy for handling L4 traffic in ambient mesh mode.
+  # These settings only apply when encryption.type is set to "ztunnel".
+  ztunnel:
+    # -- ztunnel container image.
+    image:
+      repository: "{{ .image_registry.dockerio_registry }}/istio/ztunnel"
+{{- end }}
+
+# -- Configure certificate generation for Hubble integration.
+# If hubble.tls.auto.method=cronJob, these values are used
+# for the Kubernetes CronJob which will be scheduled regularly to
+# (re)generate any certificates not provided manually.
+certgen:
+  image:
+    repository: "{{ .image_registry.quayio_registry }}/cilium/certgen"
+
+hubble:
+  relay:
+    # -- Hubble-relay container image.
+    image:
+      repository: "{{ .image_registry.quayio_registry }}/cilium/hubble-relay"
+  ui:
+    backend:
+      # -- Hubble-ui backend image.
+      image:
+        repository: "{{ .image_registry.quayio_registry }}/cilium/hubble-ui-backend"
+    frontend:
+      # -- Hubble-ui frontend image.
+      image:
+        repository: "{{ .image_registry.quayio_registry }}/cilium/hubble-ui"
+
+# Configure Cilium Envoy options.
+envoy:
+  # -- Envoy container image.
+  image:
+    repository: "{{ .image_registry.quayio_registry }}/cilium/cilium-envoy"
+
+{{- if and (.cni.cilium_version | semverCompare ">=1.14.0") (.cni.cilium_version | semverCompare "<1.16.0" ) }}
+etcd:
+  # -- cilium-etcd-operator image.
+  image:
+    repository: "{{ .image_registry.quayio_registry }}/cilium/cilium-etcd-operator"
+{{- end }}
+    
+operator:
+  # -- cilium-operator image.
+  image:
+    repository: "{{ .image_registry.quayio_registry }}/cilium/operator"
+
+nodeinit:
+  # -- node-init image.
+  image:
+    repository: "{{ .image_registry.quayio_registry }}/cilium/startup-script"
+
+preflight:
+  # -- Cilium pre-flight image.
+  image:
+    repository: "{{ .image_registry.quayio_registry }}/cilium/cilium"
+  {{- if .cni.cilium_version | semverCompare ">=1.18.0" }}
+  envoy:
+    # -- Envoy pre-flight image.
+    image:
+      repository: "{{ .image_registry.quayio_registry }}/cilium/cilium-envoy"
+  {{- end }}
+
+    
+clustermesh:
+  apiserver:
+    # -- Clustermesh API server image.
+    image:
+      repository: "{{ .image_registry.quayio_registry }}/cilium/clustermesh-apiserver"
+    {{- if and (.cni.cilium_version | semverCompare ">=1.14.0") (.cni.cilium_version | semverCompare "<1.15.0" ) }}
+    etcd:
+      # -- Clustermesh API server etcd image.
+      image:
+        repository: "{{ .image_registry.quayio_registry }}/coreos/etcd"
+    kvstoremesh:
+      # -- KVStoreMesh image.
+      image:
+        repository: "{{ .image_registry.quayio_registry }}/cilium/kvstoremesh"
+    {{- end }}
+
+# Configuration for types of authentication for Cilium (beta)
+authentication:
+  # Configuration for Cilium's service-to-service mutual authentication using TLS handshakes.
+  # Note that this is not full mTLS support without also enabling encryption of some form.
+  # Current encryption options are WireGuard or IPsec, configured in encryption block above.
+  mutual:
+    # Settings for SPIRE
+    spire:
+      # Settings to control the SPIRE installation and configuration
+      install:
+        {{- if .cni.cilium_version | semverCompare ">=1.15.0" }}
+        # -- init container image of SPIRE agent and server
+        initImage:
+          repository: "{{ .image_registry.dockerio_registry }}/library/busybox"
+        {{- end }}
+        # SPIRE agent configuration
+        agent:
+          # -- SPIRE agent image
+          image:
+            repository: "{{ .image_registry.ghcrio_registry }}/spiffe/spire-agent{{ if and (.cni.cilium_version | semverCompare ">=1.14.0") (.cni.cilium_version | semverCompare "<1.15.0" )}}:1.6.3@sha256:8eef9857bf223181ecef10d9bbcd2f7838f3689e9bd2445bede35066a732e823{{ end }}"
+        server:
+          # -- SPIRE server image
+          image:
+            repository: "{{ .image_registry.ghcrio_registry }}/spiffe/spire-server{{if and (.cni.cilium_version | semverCompare ">=1.14.0") (.cni.cilium_version | semverCompare "<1.15.0" )}}:1.6.3@sha256:f4bc49fb0bd1d817a6c46204cc7ce943c73fb0a5496a78e0e4dc20c9a816ad7f{{ end }}"
+{{/* The address families are derived from "cni.pod_cidr": its first entry is the
+     IPv4 side, its last entry the IPv6 side. */}}
+{{- $podCIDRs := .cni.pod_cidr | splitList "," }}
+{{- $ipv4PodCIDR := $podCIDRs | first }}
+{{- $ipv6PodCIDR := $podCIDRs | last }}
+{{- $hasIPv4 := eq ($ipv4PodCIDR | ipFamily) "IPv4" }}
+{{- $hasIPv6 := eq ($ipv6PodCIDR | ipFamily) "IPv6" }}
+ipv4:
+  enabled: {{ $hasIPv4 }}
+ipv6:
+  enabled: {{ $hasIPv6 }}
+ipam:
+  operator:
+{{- if $hasIPv4 }}
+    clusterPoolIPv4PodCIDRList:
+      - {{ $ipv4PodCIDR }}
+    clusterPoolIPv4MaskSize: {{ .cni.ipv4_mask_size }}
+{{- end }}
+{{- if $hasIPv6 }}
+    clusterPoolIPv6PodCIDRList:
+      - {{ $ipv6PodCIDR }}
+    clusterPoolIPv6MaskSize: {{ .cni.ipv6_mask_size }}
+{{- end }}
+{{- if or (.cni.multi_cni | eq "multus") (.cni.multi_cni | eq "spiderpool") }}
+bpf:
+  vlanBypass: [0]
+cni:
+  exclusive: false
+{{- end }}

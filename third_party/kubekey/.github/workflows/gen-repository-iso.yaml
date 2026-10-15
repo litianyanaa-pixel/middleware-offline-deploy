@@ -1,0 +1,234 @@
+---
+name: GenRepositoryISO
+on:
+  push:
+    tags:
+      - 'iso-latest'
+  workflow_dispatch:
+    inputs:
+      upload_iso:
+        description: 'Build and upload ISO packages'
+        type: boolean
+        default: true
+      upload_harbor:
+        description: 'Build and upload Harbor offline packages'
+        type: boolean
+        default: true
+
+jobs:
+  update-tag:
+    name: Update iso-latest Tag
+    runs-on: ubuntu-latest
+    if: github.repository == 'kubesphere/kubekey' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Check or update iso-latest tag
+        shell: bash
+        run: |
+          CURRENT_TAG_SHA=$(git rev-parse iso-latest 2>/dev/null || echo "")
+          LATEST_MAIN_SHA=$(git rev-parse origin/main)
+
+          if [ "$CURRENT_TAG_SHA" = "$LATEST_MAIN_SHA" ]; then
+            echo "Tag is already up-to-date, skipping update"
+          else
+            echo "Updating iso-latest tag to latest main commit ($LATEST_MAIN_SHA)"
+            git tag -d iso-latest 2>/dev/null || true
+            git tag -f iso-latest origin/main
+            git push origin :refs/tags/iso-latest 2>/dev/null || true
+            git push origin --tags
+          fi
+
+  build-iso:
+    runs-on: ubuntu-latest
+    needs: update-tag
+    if: github.repository == 'kubesphere/kubekey' && (github.event_name == 'push' || github.event.inputs.upload_iso == 'true')
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: almalinux-9.0-rpms
+            dockerfile: dockerfile.almalinux90
+          - name: centos-8-rpms
+            dockerfile: dockerfile.centos8
+          - name: debian-10-debs
+            dockerfile: dockerfile.debian10
+          - name: debian-11-debs
+            dockerfile: dockerfile.debian11
+          - name: kylin-v10SP3-2403-rpms
+            dockerfile: dockerfile.kylinv10sp3-2403
+          - name: kylin-v10SP3-rpms
+            dockerfile: dockerfile.kylinv10sp3
+          - name: kylin-v10SP2-rpms
+            dockerfile: dockerfile.kylinv10sp2
+          - name: kylin-v10SP1-rpms
+            dockerfile: dockerfile.kylinv10sp1
+          - name: ubuntu-18.04-debs
+            dockerfile: dockerfile.ubuntu1804
+          - name: ubuntu-20.04-debs
+            dockerfile: dockerfile.ubuntu2004
+          - name: ubuntu-22.04-debs
+            dockerfile: dockerfile.ubuntu2204
+          - name: ubuntu-24.04-debs
+            dockerfile: dockerfile.ubuntu2404
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: iso-latest
+          fetch-depth: 0
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build iso image to local
+        uses: docker/build-push-action@v7
+        with:
+          context: hack/gen-repository-iso
+          file: hack/gen-repository-iso/${{ matrix.dockerfile }}
+          platforms: linux/amd64,linux/arm64
+          outputs: type=local,dest=./output
+
+      - name: Prepare for upload iso
+        shell: bash
+        run: |
+          mv ./output/linux_amd64/*.iso ${{ matrix.name }}-amd64.iso
+          mv ./output/linux_arm64/*.iso ${{ matrix.name }}-arm64.iso
+          sha256sum *.iso >  ${{ matrix.name }}.iso.sha256sum.txt
+
+      - name: Release and upload ISO packages
+        uses: softprops/action-gh-release@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: iso-latest
+          name: iso-latest
+          files: |
+            ${{ matrix.name }}.iso.sha256sum.txt
+            ${{ matrix.name }}-amd64.iso
+            ${{ matrix.name }}-arm64.iso
+          overwrite: true
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: iso-${{ matrix.name }}
+          path: |
+            ${{ matrix.name }}.iso.sha256sum.txt
+            ${{ matrix.name }}-amd64.iso
+            ${{ matrix.name }}-arm64.iso
+          retention-days: 5
+
+  sync-iso-oss:
+    runs-on: ubuntu-latest
+    needs: build-iso
+    if: github.repository == 'kubesphere/kubekey' && (github.event_name == 'push' || github.event.inputs.upload_iso == 'true')
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: almalinux-9.0-rpms
+          - name: centos-8-rpms
+          - name: debian-10-debs
+          - name: debian-11-debs
+          - name: kylin-v10SP3-2403-rpms
+          - name: kylin-v10SP3-rpms
+          - name: kylin-v10SP2-rpms
+          - name: kylin-v10SP1-rpms
+          - name: ubuntu-18.04-debs
+          - name: ubuntu-20.04-debs
+          - name: ubuntu-22.04-debs
+          - name: ubuntu-24.04-debs
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v8
+        with:
+          name: iso-${{ matrix.name }}
+          path: .
+
+      - name: Synchronize artifacts to OSS
+        run: |
+          rm -rf qsctl_v2.4.3_linux_amd64.tar.gz
+          wget https://attack-on-titan.gd2.qingstor.com/qsctl/v2.4.3/qsctl_v2.4.3_linux_amd64.tar.gz
+          tar -zxvf qsctl_v2.4.3_linux_amd64.tar.gz
+          rm -rf qsctl_v2.4.3_linux_amd64.tar.gz
+          mv qsctl_v2.4.3_linux_amd64 /usr/local/bin/qsctl
+          echo "access_key_id: ${{secrets.KS_QSCTL_ACCESS_KEY_ID}}" > qsctl-config.yaml
+          echo "secret_access_key: ${{ secrets.KS_QSCTL_SECRET_ACCESS_KEY }}" >> qsctl-config.yaml
+
+          qsctl -c qsctl-config.yaml cp ${{ matrix.name }}.iso.sha256sum.txt qs://kubekey/github.com/kubesphere/kubekey/releases/download/iso-latest/${{ matrix.name }}.iso.sha256sum.txt
+          qsctl -c qsctl-config.yaml cp ${{ matrix.name }}-amd64.iso qs://kubekey/github.com/kubesphere/kubekey/releases/download/iso-latest/${{ matrix.name }}-amd64.iso
+          qsctl -c qsctl-config.yaml cp ${{ matrix.name }}-arm64.iso qs://kubekey/github.com/kubesphere/kubekey/releases/download/iso-latest/${{ matrix.name }}-arm64.iso
+
+          rm -rf qsctl-config.yaml
+
+  build-harbor:
+    runs-on: ubuntu-latest
+    needs: update-tag
+    if: github.repository == 'kubesphere/kubekey' && (github.event_name == 'push' || github.event.inputs.upload_harbor == 'true')
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: iso-latest
+          fetch-depth: 0
+
+      - name: Build harbor offline installer
+        shell: bash
+        run: |
+          for d in $(ls config/harbor); do
+            if [ -d "config/harbor/$d" ]; then
+              cd "config/harbor/$d" && make build
+            fi
+          done
+
+      - name: Release and upload harbor packages
+        uses: softprops/action-gh-release@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: iso-latest
+          name: iso-latest
+          files: config/harbor/*/*harbor-offline-installer*.tgz
+          overwrite: true
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: harbor
+          path: config/harbor
+          retention-days: 5
+
+  sync-harbor-oss:
+    runs-on: ubuntu-latest
+    needs: build-harbor
+    if: github.repository == 'kubesphere/kubekey' && (github.event_name == 'push' || github.event.inputs.upload_harbor == 'true')
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v8
+        with:
+          name: harbor
+          path: ./config/harbor
+
+      - name: Synchronize harbor packages to OSS
+        shell: bash
+        run: |
+          rm -rf qsctl_v2.4.3_linux_amd64.tar.gz
+          wget https://attack-on-titan.gd2.qingstor.com/qsctl/v2.4.3/qsctl_v2.4.3_linux_amd64.tar.gz
+          tar -zxvf qsctl_v2.4.3_linux_amd64.tar.gz
+          rm -rf qsctl_v2.4.3_linux_amd64.tar.gz
+          mv qsctl_v2.4.3_linux_amd64 /usr/local/bin/qsctl
+          echo "access_key_id: ${{secrets.KS_QSCTL_ACCESS_KEY_ID}}" > /usr/local/bin/qsctl-config.yaml
+          echo "secret_access_key: ${{ secrets.KS_QSCTL_SECRET_ACCESS_KEY }}" >> /usr/local/bin/qsctl-config.yaml
+
+          for d in $(ls config/harbor); do
+            if [ -d "config/harbor/$d" ]; then
+              qsctl -c /usr/local/bin/qsctl-config.yaml cp config/harbor/$d/harbor-offline-installer-"$d".tgz qs://kubekey/github.com/kubesphere/kubekey/releases/download/iso-latest/harbor-offline-installer-"$d".tgz
+            fi
+          done
+
+          rm -rf /usr/local/bin/qsctl-config.yaml

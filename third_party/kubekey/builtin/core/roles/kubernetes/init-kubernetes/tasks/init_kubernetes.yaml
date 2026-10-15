@@ -1,0 +1,80 @@
+---
+- name: Init | Generate kubeadm initialization configuration
+  template:
+    src: >-
+      {{- if .kubernetes.kube_version | semverCompare ">=v1.31.0" -}}
+      kubeadm/kubeadm-init.v1beta4
+      {{- else -}}
+      kubeadm/kubeadm-init.v1beta3
+      {{- end -}}
+    dest: /etc/kubernetes/kubeadm-config.yaml
+
+- name: Init | Initialize Kubernetes cluster
+  block:
+    - name: Init | Pre-initialization for kube-vip
+      when: 
+        - .kubernetes.kube_version | semverCompare ">=v1.29.0"
+        - eq .kubernetes.control_plane_endpoint.type "kube-vip"
+      command: |
+        sed -i 's#path: /etc/kubernetes/admin.conf#path: /etc/kubernetes/super-admin.conf#' \
+          /etc/kubernetes/manifests/kube-vip.yaml
+    - name: Init | Run kubeadm init 
+      command: | 
+        # In Kubernetes, the ImagePullCheck for the pause image uses a hardcoded tag.
+        # Adding --ignore-preflight-errors=ImagePull allows customization of the pause image reference.
+        /usr/local/bin/kubeadm init --config=/etc/kubernetes/kubeadm-config.yaml --ignore-preflight-errors=ImagePull
+    - name: Init | Post-initialization for kube-vip
+      when: 
+        - .kubernetes.kube_version | semverCompare ">=v1.29.0"
+        - eq .kubernetes.control_plane_endpoint.type "kube-vip"
+      command: |
+        sed -i 's#path: /etc/kubernetes/super-admin.conf#path: /etc/kubernetes/admin.conf#' \
+          /etc/kubernetes/manifests/kube-vip.yaml
+
+# Reset local DNS for control_plane_endpoint to 127.0.0.1 and ::1.
+# This ensures the control_plane_endpoint resolves locally before kube-vip is running,
+# preventing failures for tasks that execute kubectl apply on the current node.
+- name: Init | Reset local DNS for control_plane_endpoint
+  loop: "{{ .native.localDNS | toJson }}"
+  when: or (.kubernetes.control_plane_endpoint.type | ne "local") (.kubernetes.control_plane_endpoint.local.address | empty)
+  command: |
+    sed -i '/# kubekey kubernetes control_plane_endpoint BEGIN/,/# kubekey kubernetes control_plane_endpoint END/d' {{ .item }}
+    cat >> {{ .item }} <<EOF
+    # kubekey kubernetes control_plane_endpoint BEGIN
+    127.0.0.1 {{ .kubernetes.control_plane_endpoint.host }}
+    ::1 {{ .kubernetes.control_plane_endpoint.host }}
+    # kubekey kubernetes control_plane_endpoint END
+    EOF
+    
+- name: Init | Copy kubeconfig to default directory
+  when: .kubernetes_install_LoadState.stdout | eq "not-found"
+  command: |
+    if [ ! -d /root/.kube ]; then
+      mkdir -p /root/.kube
+    fi
+    cp -f /etc/kubernetes/admin.conf /root/.kube/config
+    chown root:root /root/.kube/config
+    if [ "$SUDO_USER" != "root" ]; then
+      if [ ! -d /home/$SUDO_USER/.kube ]; then
+        mkdir -p /home/$SUDO_USER/.kube
+      fi
+      cp -f /etc/kubernetes/admin.conf /home/$SUDO_USER/.kube/config
+      chown "$SUDO_USER":root /home/$SUDO_USER/.kube/config
+    fi
+
+- name: Init | Configure node as worker
+  when: .groups.kube_worker | default list | has .inventory_hostname
+  block:
+    - name: Init | Remove master/control-plane taints from node
+      ignore_errors: true
+      command: |
+        /usr/local/bin/kubectl taint nodes {{ .hostname }} node-role.kubernetes.io/master=:NoSchedule-
+        /usr/local/bin/kubectl taint nodes {{ .hostname }} node-role.kubernetes.io/control-plane=:NoSchedule-
+    - name: Init | Add worker label to node
+      command: |
+        /usr/local/bin/kubectl label --overwrite node {{ .hostname }} node-role.kubernetes.io/worker=
+
+- name: Init | Add custom annotations to node
+  when: .annotations | empty | not
+  command: |
+    kubectl annotate {{ .hostname }} {{- range $k,$v := .annotations }}{{ printf "%s=%s" $k $v}} {{- end }}

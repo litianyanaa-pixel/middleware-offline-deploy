@@ -1,0 +1,170 @@
+- name: DNS | Ensure local DNS entries are up-to-date
+  loop: "{{ .native.localDNS | toJson }}"
+  command: |
+    # Clean up any previous Kubekey-managed DNS blocks
+    sed -i '/# kubekey hosts BEGIN/,/# kubekey hosts END/d' {{ .item }}
+    # Write the latest Kubekey DNS configuration
+    cat >> {{ .item }} <<EOF
+    # kubekey hosts BEGIN
+    # Kubernetes cluster nodes
+    {{- range .groups.k8s_cluster | default list }}
+      {{- $hostname := index $.hostvars . "hostname" -}}
+      {{- $clusterName := $.kubernetes.cluster_name | default "kubekey" -}}
+      {{- $dnsDomain := $.kubernetes.networking.dns_domain | default "cluster.local" -}}
+      {{- if (index $.hostvars . "internal_ipv4") | empty | not }}
+    {{ index $.hostvars . "internal_ipv4" }} {{ $hostname }} {{ printf "%s.%s" $hostname $clusterName }} {{ printf "%s.%s.%s" $hostname $clusterName $dnsDomain }}
+      {{- end }}
+      {{- if (index $.hostvars . "internal_ipv6") | empty | not }}
+    {{ index $.hostvars . "internal_ipv6" }} {{ $hostname }} {{ printf "%s.%s" $hostname $clusterName }} {{ printf "%s.%s.%s" $hostname $clusterName $dnsDomain }}
+      {{- end }}
+    {{- end }}
+    # etcd cluster nodes
+    {{- range .groups.etcd | default list }}
+      {{- if (index $.hostvars . "internal_ipv4") | empty | not }}
+    {{ index $.hostvars . "internal_ipv4" }} {{ index $.hostvars . "hostname" }}
+      {{- end }}
+      {{- if (index $.hostvars . "internal_ipv6") | empty | not }}
+    {{ index $.hostvars . "internal_ipv6" }} {{ index $.hostvars . "hostname" }}
+      {{- end }}
+    {{- end }}
+    # Image registry nodes
+    {{- range .groups.image_registry | default list }}
+      {{- if (index $.hostvars . "internal_ipv4") | empty | not }}
+    {{ index $.hostvars . "internal_ipv4" }} {{ index $.hostvars . "hostname" }}
+      {{- end }}
+      {{- if (index $.hostvars . "internal_ipv6") | empty | not }}
+    {{ index $.hostvars . "internal_ipv6" }} {{ index $.hostvars . "hostname" }}
+      {{- end }}
+    {{- end }}
+    # kubekey image_registry control_plane_endpoint BEGIN
+    {{- $registryHost := .image_registry.auth.registry | splitList "/" | first | splitList ":" | first }}
+    {{- if and ($registryHost | empty | not) ($registryHost | isIP | not) }}
+      {{- if .image_registry.ha_vip | empty | not }}
+    {{ .image_registry.ha_vip }} {{ $registryHost }}
+      {{- else if or (.image_registry.type | eq "harbor") (.image_registry.type | eq "docker-registry") }}
+        {{- if .groups.image_registry | empty | not }}
+          {{- if (index .hostvars (.groups.image_registry | first) "internal_ipv4") | empty | not }}
+    {{ index .hostvars (.groups.image_registry | first) "internal_ipv4" }} {{ $registryHost }}
+          {{- end }}
+          {{- if (index .hostvars (.groups.image_registry | first) "internal_ipv6") | empty | not }}
+    {{ index .hostvars (.groups.image_registry | first) "internal_ipv6" }} {{ $registryHost }}
+          {{- end }}
+        {{- end }}
+      {{- end }}
+    {{- end }}
+    # kubekey image_registry control_plane_endpoint END
+    # NFS server nodes
+    {{- range .groups.nfs | default list }}
+      {{- if (index $.hostvars . "internal_ipv4") | empty | not }}
+    {{ index $.hostvars . "internal_ipv4" }} {{ index $.hostvars . "hostname" }}
+      {{- end }}
+      {{- if (index $.hostvars . "internal_ipv6") | empty | not }}
+    {{ index $.hostvars . "internal_ipv6" }} {{ index $.hostvars . "hostname" }}
+      {{- end }}
+    {{- end }}
+    # kubekey hosts END
+    EOF
+
+# - name: DNS | Ensure image registry control plane endpoint DNS is current
+#   loop: "{{ .native.localDNS | toJson }}"
+#   command: |
+#     # Remove any previous Kubekey-managed image registry control plane endpoint entries
+#     sed -i '/# kubekey image_registry control_plane_endpoint BEGIN/,/# kubekey image_registry control_plane_endpoint END/d' {{ .item }}
+#     # Write the latest Kubekey image registry control plane endpoint DNS configuration
+#     cat >> {{ .item }} <<EOF
+#     # kubekey image_registry control_plane_endpoint BEGIN
+#     {{- if .image_registry.type | empty | not }}
+#     {{- $registryHost := .image_registry.auth.registry | splitList "/" | first }}
+#     {{- if and ($registryHost | empty | not) ($registryHost | isIP | not) }}
+#       {{- if .image_registry.ha_vip | empty | not }}
+#     {{ .image_registry.ha_vip }} {{ $registryHost }}
+#       {{- else if or (.image_registry.type | eq "harbor") (.image_registry.type | eq "docker-registry") }}
+#         {{- if .groups.image_registry | empty | not }}
+#           {{- if (index .hostvars (.groups.image_registry | first) "internal_ipv4") | empty | not }}
+#     {{ index .hostvars (.groups.image_registry | first) "internal_ipv4" }} {{ $registryHost }}
+#           {{- end }}
+#           {{- if (index .hostvars (.groups.image_registry | first) "internal_ipv6") | empty | not }}
+#     {{ index .hostvars (.groups.image_registry | first) "internal_ipv6" }} {{ $registryHost }}
+#           {{- end }}
+#         {{- end }}
+#       {{- end }}
+#     {{- end }}
+#     # kubekey image_registry control_plane_endpoint END
+#     EOF
+  
+
+# High Availability: Local DNS configuration for each .kubernetes.control_plane_endpoint.type
+#
+# For 'local' endpoint type:
+#   When local.address is not empty (external load balancer address):
+#     - Control plane: {{ .kubernetes.control_plane_endpoint.local.address }} {{ .kubernetes.control_plane_endpoint.host }}
+#     - Worker:        {{ .kubernetes.control_plane_endpoint.local.address }} {{ .kubernetes.control_plane_endpoint.host }}
+#
+#   Before cluster initialization:
+#     - Control plane: 127.0.0.1 {{ .kubernetes.control_plane_endpoint.host }}
+#     - Worker:        127.0.0.1 {{ .kubernetes.control_plane_endpoint.host }}
+#   After cluster initialization:
+#     - Control plane: 127.0.0.1 {{ .kubernetes.control_plane_endpoint.host }}
+#     - Worker:        127.0.0.1 {{ .kubernetes.control_plane_endpoint.host }}
+#   Before joining cluster:
+#     - Control plane: {{ .init_kubernetes_node }} {{ .kubernetes.control_plane_endpoint.host }}
+#     - Worker:        {{ .init_kubernetes_node }} {{ .kubernetes.control_plane_endpoint.host }}
+#   After joining cluster:
+#     - Control plane: 127.0.0.1 {{ .kubernetes.control_plane_endpoint.host }}
+#     - Worker:        {{ .init_kubernetes_node }} {{ .kubernetes.control_plane_endpoint.host }}
+#
+# For 'kube_vip' endpoint type:
+#   Before cluster initialization:
+#     - Control plane: {{ .kubernetes.control_plane_endpoint.kube_vip.address }} {{ .kubernetes.control_plane_endpoint.host }}
+#     - Worker:        {{ .kubernetes.control_plane_endpoint.kube_vip.address }} {{ .kubernetes.control_plane_endpoint.host }}
+#   After cluster initialization:
+#     - Control plane: {{ .kubernetes.control_plane_endpoint.kube_vip.address }} {{ .kubernetes.control_plane_endpoint.host }}
+#     - Worker:        {{ .kubernetes.control_plane_endpoint.kube_vip.address }} {{ .kubernetes.control_plane_endpoint.host }}
+#   Before joining cluster:
+#     - Control plane: {{ .kubernetes.control_plane_endpoint.kube_vip.address }} {{ .kubernetes.control_plane_endpoint.host }}
+#     - Worker:        {{ .kubernetes.control_plane_endpoint.kube_vip.address }} {{ .kubernetes.control_plane_endpoint.host }}
+#   After joining cluster:
+#     - Control plane: 127.0.0.1 {{ .kubernetes.control_plane_endpoint.host }}
+#     - Worker:        {{ .kubernetes.control_plane_endpoint.kube_vip.address }} {{ .kubernetes.control_plane_endpoint.host }}
+#
+# For 'haproxy' endpoint type:
+#   Before cluster initialization:
+#     - Control plane: 127.0.0.1 {{ .kubernetes.control_plane_endpoint.host }}
+#     - Worker:        127.0.0.1 {{ .kubernetes.control_plane_endpoint.host }}
+#   After cluster initialization:
+#     - Control plane: 127.0.0.1 {{ .kubernetes.control_plane_endpoint.host }}
+#     - Worker:        127.0.0.1 {{ .kubernetes.control_plane_endpoint.host }}
+#   Before joining cluster:
+#     - Control plane: {{ .init_kubernetes_node }} {{ .kubernetes.control_plane_endpoint.host }}
+#     - Worker:        {{ .init_kubernetes_node }} {{ .kubernetes.control_plane_endpoint.host }}
+#   After joining cluster:
+#     - Control plane: 127.0.0.1 {{ .kubernetes.control_plane_endpoint.host }}
+#     - Worker:        127.0.0.1 {{ .kubernetes.control_plane_endpoint.host }}
+#
+
+- name: DNS | Set local DNS for kubernetes control plane endpoint
+  loop: "{{ .native.localDNS | toJson }}"
+  when:
+    - .groups.k8s_cluster | default list | has .inventory_hostname
+    # During a cluster upgrade the control_plane_endpoint DNS is already
+    # configured by the create pipeline (worker -> init_kubernetes_node real IP,
+    # control plane -> 127.0.0.1). Rewriting every node to 127.0.0.1/::1 here
+    # would break worker 'kubeadm upgrade node' on single-APIServer topologies,
+    # so skip the rewrite on upgrade.
+    - .upgrade.kubernetes | default false | not
+  command: |
+    # Remove any previous Kubekey-managed kubernetes control plane endpoint DNS entries
+    sed -i '/# kubekey kubernetes control_plane_endpoint BEGIN/,/# kubekey kubernetes control_plane_endpoint END/d' {{ .item }}
+    # Write the current control plane endpoint DNS configuration
+    cat >> {{ .item }} <<EOF
+    # kubekey kubernetes control_plane_endpoint BEGIN
+    {{- if .kubernetes.control_plane_endpoint.type | eq "kube-vip" }}
+    {{ .kubernetes.control_plane_endpoint.kube_vip.address }} {{ .kubernetes.control_plane_endpoint.host }}
+    {{- else if and (.kubernetes.control_plane_endpoint.type | eq "local") (.kubernetes.control_plane_endpoint.local.address | empty | not) }}
+    {{ .kubernetes.control_plane_endpoint.local.address }} {{ .kubernetes.control_plane_endpoint.host }}
+    {{- else }}
+    127.0.0.1 {{ .kubernetes.control_plane_endpoint.host }}
+    ::1 {{ .kubernetes.control_plane_endpoint.host }}
+    {{- end }}
+    # kubekey kubernetes control_plane_endpoint END
+    EOF

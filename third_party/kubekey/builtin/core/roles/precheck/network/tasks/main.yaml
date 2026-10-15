@@ -1,0 +1,154 @@
+---
+- name: Network | Ensure either internal_ipv4 or internal_ipv6 is defined
+  assert:
+    that: or (.internal_ipv4 | empty | not) (.internal_ipv6 | empty | not)
+    fail_msg: >-
+      Either "internal_ipv4" or "internal_ipv6" must be specified. Both cannot be empty.
+
+- name: Network | Ensure required network interfaces are present
+  command: |
+    {{- if .internal_ipv4 | empty | not }}
+    if ! ip -o addr show | grep -q {{ .internal_ipv4 }}; then
+      echo 'The specified IPv4 address is not assigned to any network interface.' >&2
+      exit 1
+    fi
+    {{- end }}
+    {{- if .internal_ipv6 | empty | not }}
+    if ! ip -o addr show | grep -q {{ .internal_ipv6 }}; then
+      echo 'The specified IPv6 address is not assigned to any network interface.' >&2
+      exit 1
+    fi
+    {{- end }}
+
+# https://kubernetes.io/docs/concepts/services-networking/dual-stack/
+- name: Network | Validate dual-stack CIDR configuration
+  run_once: true
+  block:
+    # Every entry has to be a valid CIDR before any of the checks below ask for its
+    # address family: "ipFamily" fails on malformed input, which would abort the run
+    # with a template error instead of the failure message of the check that caught it.
+    - name: Network | Check pod CIDR is one or two valid CIDRs
+      assert:
+        that:
+          - .cni.pod_cidr | empty | not
+          - le (len (.cni.pod_cidr | splitList ",")) 2
+          - .cni.pod_cidr | splitList "," | first | isCIDR
+          - .cni.pod_cidr | splitList "," | last | isCIDR
+        fail_msg: >-
+          "cni.pod_cidr" must be one or two comma-separated CIDRs, in the form ipv4_cidr,
+          ipv6_cidr or the dual-stack form ipv4_cidr,ipv6_cidr, but it is "{{ .cni.pod_cidr }}".
+    - name: Network | Check service CIDR is one or two valid CIDRs
+      assert:
+        that:
+          - .cni.service_cidr | empty | not
+          - le (len (.cni.service_cidr | splitList ",")) 2
+          - .cni.service_cidr | splitList "," | first | isCIDR
+          - .cni.service_cidr | splitList "," | last | isCIDR
+        fail_msg: >-
+          "cni.service_cidr" must be one or two comma-separated CIDRs, in the form ipv4_cidr,
+          ipv6_cidr or the dual-stack form ipv4_cidr,ipv6_cidr, but it is "{{ .cni.service_cidr }}".
+    # Pod and Service networking must agree on the address families, otherwise the
+    # cluster ends up with, for example, IPv6 pods served by IPv4 Services.
+    - name: Network | Ensure pod CIDR and service CIDR use the same address families
+      when:
+        - .cni.pod_cidr | empty | not
+        - .cni.service_cidr | empty | not
+      assert:
+        that:
+          - eq (.cni.pod_cidr | splitList "," | first | ipFamily) (.cni.service_cidr | splitList "," | first | ipFamily)
+          - eq (.cni.pod_cidr | splitList "," | last | ipFamily) (.cni.service_cidr | splitList "," | last | ipFamily)
+        fail_msg: >-
+          "cni.pod_cidr" and "cni.service_cidr" must list the same address families in the same
+          order (IPv4 first), but they are "{{ .cni.pod_cidr }}" and "{{ .cni.service_cidr }}".
+    - name: Network | Ensure pod networking is properly configured for dual-stack
+      when:
+        - .cni.pod_cidr | empty | not
+        - .cni.pod_cidr | splitList "," | len | eq 2
+      assert:
+        that:
+          - .kubernetes.kube_version | semverCompare ">=v1.20.0"
+          - .cni.pod_cidr | splitList "," | first | ipFamily | eq "IPv4"
+          - .cni.pod_cidr | splitList "," | last | ipFamily | eq "IPv6"
+        fail_msg: >-
+          Dual-stack pod networking is only supported in Kubernetes v1.20.0 or newer.
+    - name: Network | Ensure service networking is properly configured for dual-stack
+      when:
+        - .cni.service_cidr | empty | not
+        - .cni.service_cidr | splitList "," | len | eq 2
+      assert:
+        that:
+          - .kubernetes.kube_version | semverCompare ">=v1.20.0"
+          - .cni.service_cidr | splitList "," | first | ipFamily | eq "IPv4"
+          - .cni.service_cidr | splitList "," | last | ipFamily | eq "IPv6"
+        fail_msg: >-
+          Dual-stack service networking is only supported in Kubernetes v1.20.0 or newer.
+
+# A node is dual-stack when both "internal_ipv4" and "internal_ipv6" are defined,
+# and the cluster is dual-stack when the pod CIDR lists both families. kubelet
+# publishes every entry of "--node-ip" as a NodeInternalIP, while kube-proxy and
+# the controller manager route only the families of "--cluster-cidr", so the two
+# sides must agree: a family known to one side alone leaves the pods of that node
+# without a routable address of that family.
+- name: Network | Ensure node addresses match the address families of the cluster pod CIDR
+  when: .groups.k8s_cluster | default list | has .inventory_hostname
+  block:
+    - name: Network | Require both IPv4 and IPv6 node addresses on a dual-stack cluster
+      when:
+        - .cni.pod_cidr | splitList "," | first | ipFamily | eq "IPv4"
+        - .cni.pod_cidr | splitList "," | last | ipFamily | eq "IPv6"
+      assert:
+        that:
+          - .internal_ipv4 | empty | not
+          - .internal_ipv6 | empty | not
+        fail_msg: >-
+          "cni.pod_cidr" is dual-stack, so node "{{ .inventory_hostname }}" must define both
+          "internal_ipv4" and "internal_ipv6"; one of them is missing.
+    - name: Network | Require IPv4-only node addresses on an IPv4-only cluster
+      when:
+        - .cni.pod_cidr | splitList "," | first | ipFamily | eq "IPv4"
+        - .cni.pod_cidr | splitList "," | last | ipFamily | eq "IPv4"
+      assert:
+        that:
+          - .internal_ipv4 | empty | not
+          - .internal_ipv6 | empty
+        fail_msg: >-
+          "cni.pod_cidr" is IPv4-only, so node "{{ .inventory_hostname }}" must define
+          "internal_ipv4" only, but "internal_ipv6" is also set. Drop "internal_ipv6" or make
+          "cni.pod_cidr" and "cni.service_cidr" dual-stack.
+    - name: Network | Require IPv6-only node addresses on an IPv6-only cluster
+      when: .cni.pod_cidr | splitList "," | first | ipFamily | eq "IPv6"
+      assert:
+        that:
+          - .internal_ipv6 | empty | not
+          - .internal_ipv4 | empty
+        fail_msg: >-
+          "cni.pod_cidr" is IPv6-only, so node "{{ .inventory_hostname }}" must define
+          "internal_ipv6" only, but "internal_ipv4" is also set. Drop "internal_ipv4" or make
+          "cni.pod_cidr" and "cni.service_cidr" dual-stack.
+
+- name: Network | Fail if the selected network plugin is not supported
+  run_once: true
+  when: .cni.type | empty | not
+  assert:
+    that: .cluster_require.require_network_plugin | has .cni.type
+    fail_msg: >-
+      The network plugin "{{ .cni.type }}" is not supported. Please select a supported network plugin.
+
+# Note: This check is intentionally conservative. While it is technically possible to schedule more pods than the available addresses in the CIDR range (for example, if some pods use the host network), this cannot be reliably determined at provisioning time. This check ensures there is enough address space for the configured maximum pods per node.
+# Note: IPv6-only scenarios are not checked here.
+- name: Network | Ensure sufficient address space for all pods
+  run_once: true
+  when: .groups.k8s_cluster | default list | has .inventory_hostname
+  block:
+    - name: Network | Ensure enough IPv4 addresses are available for pods
+      when: .cni.pod_cidr | splitList "," | first | ipFamily | eq "IPv4"
+      assert:
+        that: le (.kubernetes.kubelet.max_pods | default 110) (sub (pow 2 (float64 (sub 32 (.cni.ipv4_mask_size | default 24)))) 2)
+        fail_msg: >-
+          The configured maximum number of pods per node exceeds the number of available IPv4 addresses in the pod CIDR range.
+    - name: Network | Ensure enough IPv6 addresses are available for pods
+      when: .cni.pod_cidr | splitList "," | last | ipFamily | eq "IPv6"
+      assert:
+        that: le (.kubernetes.kubelet.max_pods | default 110) (sub (pow 2 (float64 (sub 128 (.cni.ipv6_mask_size | default 64)))) 2)
+        fail_msg: >-
+          The configured maximum number of pods per node exceeds the number of available IPv6 addresses in the pod CIDR range.

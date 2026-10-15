@@ -20,6 +20,7 @@ backups/
 
 # 打包器生成的样例配置(个人本地文件)
 example-config.json
-kkstage/
-kubekey/
+/kkstage/
+# 根目录的历史 kubekey 试验目录(源码已收编入库: third_party/kubekey, 按 Apache-2.0 分发)
+/kubekey/
 .workbuddy/

@@ -1,0 +1,193 @@
+kubernetes:
+  # Name of the cluster to be installed
+  cluster_name: kubekey
+
+  # Image repository for built-in Kubernetes images
+  image_repository: >-
+    {{ .image_registry.k8sio_registry }}{{ if .image_registry.auth.registry | empty | not }}/kubernetes{{ end }}
+
+  # Pause/sandbox image configuration
+  sandbox_image: 
+    registry: >-
+      {{ .image_registry.k8sio_registry }}
+    repository: >-
+      {{- .image_registry.auth.registry | empty | ternary "pause" "kubernetes/pause" -}}
+      
+
+  # Kubernetes network configuration
+  # kube-apiserver pod parameters
+  apiserver:
+    port: 6443
+    certSANs: []
+    extra_args:
+      # Example: feature-gates: ExpandCSIVolumes=true,CSIStorageCapacity=true,RotateKubeletServerCertificate=true
+
+  # kube-controller-manager pod parameters
+  controller_manager:
+    extra_args:
+      cluster-signing-duration: 87600h
+      # Example: feature-gates: ExpandCSIVolumes=true,CSIStorageCapacity=true,RotateKubeletServerCertificate=true
+
+  # kube-scheduler pod parameters
+  scheduler:
+    extra_args:
+      # Example: feature-gates: ExpandCSIVolumes=true,CSIStorageCapacity=true,RotateKubeletServerCertificate=true
+
+  # kube-proxy pod parameters
+  kube_proxy:
+    # Take over the deployment of kube-proxy
+    manage:
+      enabled: false
+      # affinity:
+      #   nodeAffinity:
+      #     requiredDuringSchedulingIgnoredDuringExecution:
+      #       nodeSelectorTerms:
+      #         - matchExpressions:
+      #             - key: kubernetes.io/os
+      #               operator: In
+      #               values:
+      #                 - linux
+    # Supported proxy modes: iptables, ipvs, nftables.
+    # This is the baseline default; Kubernetes v1.34 and later override it to
+    # "nftables" via roles/defaults/vars/v1.{34,35,36}.yaml. ipvs is deprecated
+    # in v1.34 and removed in v1.36, so keep it only for clusters running
+    # v1.33 or earlier. Set this field explicitly to pin a mode.
+    mode: "ipvs"
+    # kube-proxy config. These keys belong to the iptables backend and are
+    # ignored when mode is "nftables", whose defaults are equivalent. To tune
+    # the nftables backend, nest the keys under "nftables" instead.
+    config:
+      iptables:
+        masqueradeAll: false
+        masqueradeBit: 14
+        minSyncPeriod: 0s
+        syncPeriod: 30s
+
+  # kubelet service parameters
+  kubelet:
+    max_pods: 110
+    pod_pids_limit: 10000
+#    feature_gates:
+    container_log_max_size: 5Mi
+    container_log_max_files: 3
+#    extra_args:
+#    extra_config:   # Extra fields merged into KubeletConfiguration (e.g. maxOpenFiles, eventRecordQPS)
+#      maxOpenFiles: 1000000
+
+  # Specify a stable IP address or DNS name for the control plane endpoint.
+  # For high availability, it is recommended to set control_plane_endpoint to a DNS name.
+  # Configuration guidance:
+  # 1. If a DNS name is available:
+  #    - Set control_plane_endpoint to that DNS name and ensure it resolves to all control plane node IPs.
+  # 2. If no DNS name is available:
+  #    - You can set a DNS name now and add the resolution later.
+  #    - Add the resolution to each node's local DNS file, for example:
+  #      {{ vip }} {{ control_plane_endpoint }}
+  #    - If you have a VIP (Virtual IP):
+  #        Deploy kube-vip on control plane nodes to map the VIP to the actual node IPs.
+  #    - If you do not have a VIP:
+  #        Deploy HAProxy on worker nodes, use a fixed IP (such as 127.0.0.2) as the VIP, and forward to all control plane node IPs.
+  #
+  # For non-HA scenarios (manual configuration only, not automatically installed):
+  # You can set the VIP to the IP of a single control plane node.
+  control_plane_endpoint:
+    host: lb.kubesphere.local
+    port: "{{ .kubernetes.apiserver.port }}"
+    # Supported types: local, kube-vip, haproxy
+    # When type is local, configure as follows:
+    #   - On control-plane nodes: 127.0.0.1 {{ .kubernetes.control_plane_endpoint.host }}
+    #   - On worker nodes: {{ .init_kubernetes_node }} {{ .kubernetes.control_plane_endpoint.host }}
+    type: local
+    local:
+      # When using 'local' as load balancing, you can specify an external load balancer address here.
+      # Note: You must set up the actual load balancing yourself; this setting is only for DNS resolution.
+      address: ""
+    kube_vip:
+      # The IP address of the node's network interface (e.g., "eth0").
+      address: ""
+      # Supported modes: ARP, BGP
+      mode: ARP
+      # Environment variables for the kube-vip container, common to both ARP and BGP modes.
+      # Mode-specific env vars (e.g. bgp_* in BGP mode) are kept in their respective template.
+      env:
+        port: "6443"
+        vip_cidr: "32"
+        cp_enable: "true"
+        cp_namespace: kube-system
+        vip_ddns: "false"
+        # Whether kube-vip manages Service (type LoadBalancer) VIPs.
+        # Set to "false" when a separate Service VIP manager (e.g. MetalLB) is used,
+        # so kube-vip only manages the apiserver VIP.
+        svc_enable: "true"
+        lb_enable: "true"
+        lb_port: "6443"
+      image:
+        registry: >-
+          {{ .image_registry.dockerio_registry }}
+        repository: plndr/kube-vip
+        tag: v0.7.2
+    haproxy:
+      # The IP address on the node's "lo" (loopback) interface.
+      address: 127.0.0.1
+      health_port: 8081
+      image: 
+        registry: >-
+          {{ .image_registry.dockerio_registry }}
+        repository: library/haproxy
+        tag: 2.9.6-alpine
+
+  # Whether to automatically renew Kubernetes certificates
+  certs:
+    # There are three ways to provide the Kubernetes CA (Certificate Authority) files:
+    # 1. kubeadm: Leave ca_cert and ca_key empty, and kubeadm will generate them automatically. These certificates are valid for 10 years and will not change.
+    # 2. kubekey: Set ca_cert to {{ .work_dir }}/pki/ca.cert and ca_key to {{ .work_dir }}/pki/ca.key.
+    #    These certificates are generated by kubekey, valid for 10 years, and can be updated via `cert.ca_date`.
+    # 3. Custom: Manually specify the absolute paths for ca_cert and ca_key to use your own CA files.
+    #
+    # To use custom CA files, fill in the absolute paths below.
+    # If left empty, the default behavior (kubeadm or kubekey) will be used.
+    ca_cert: ""
+    ca_key: ""
+    # The following fields are for the Kubernetes front-proxy CA certificate and key.
+    # To use custom front-proxy CA files, fill in the absolute paths below.
+    # If left empty, the default behavior will be used.
+    front_proxy_cert: ""
+    front_proxy_key: ""
+    # Automatically renew service certificates (Note: CA certificates cannot be renewed automatically)
+    renew: true
+
+  # Backup configuration for Kubernetes disaster recovery.
+  backup:
+    # Directory for timestamped kubeadm-config backups on control-plane nodes.
+    kubeadm_config_dir: /etc/kubekey/backup/kubernetes
+
+  patches: []
+    # Patches applied via a directory containing patch files.
+    # - name: kube-apiserver0+merge.yaml
+    #   path: /etc/kubernetes/kube-apiserver-patch.yaml
+    #   content: |
+    #     apiVersion: v1
+    #     kind: Pod
+    #     spec:
+    #       containers:
+    #         - name: kube-apiserver
+    #           command:
+    #             - kube-apiserver
+    #             - --service-account-issuer=https://kubernetes.default.svc.cluster.local
+    #             - --service-account-jwks-uri=https://kubernetes.default.svc.cluster.local/openid/v1/jwks
+    #   # The directory contains files named "target[suffix][+patchtype].extension".
+    #   # "target" can be one of: kube-apiserver, kube-controller-manager, kube-scheduler,
+    #   #                       etcd, kubeletconfiguration, corednsdeployment
+    #   # "patchtype" can be: strategic (default), merge, json
+    #   # "extension" can be: yaml or json
+    #   # "suffix" (optional) determines apply order (alpha-numeric).
+    #   # Examples:
+    #   #   kube-apiserver+merge.yaml          # merge patch for kube-apiserver
+    #   #   kube-apiserver001+strategic.yaml   # strategic patch with ordering suffix
+    #   #   kube-controller-manager+merge.yaml
+    #   #   kube-scheduler+json.yaml
+    #   #   kubeletconfiguration+merge.yaml
+
+  # skip phases for kubeadm init
+  skip_phases: []
+    # - addon/kube-proxy

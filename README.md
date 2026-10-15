@@ -407,7 +407,10 @@ warehouse/images/postgres/15.19/arm64.tar   ← postgres-15.19-arm64.tar 放这�
 ├── sql/xxl-job.sql            # XXL-Job 建表脚本
 ├── tests/                     # 回归测试(pytest 单测 / 冒烟打包 / 集群场景矩阵)
 │   └── normalize_sim_test.sh
-├── tools/update_pages.py      # 同步 GitHub Pages 演示站(docs/)
+├── tools/
+│   ├── setup-packer-env.sh    # 打包机环境一键准备(Linux 多发行版: Python3/Docker/Go, --check 盘点)
+│   └── update_pages.py        # 同步 GitHub Pages 演示站(docs/)
+├── third_party/kubekey/       # KubeKey 信创适配源码(Apache-2.0 随仓库分发, 修改声明见其 MODIFICATIONS.md)
 ├── docs/                      # Pages 站点源目录(落地页 + packer 前端副本 + 截图)
 ├── docs/images/               # README 截图
 ├── warehouse/                 # ★ 原始物料仓库(不进 git, 体积大)
@@ -467,6 +470,20 @@ v1.28+flannel 实测 639MB，10 个镜像一次收齐）；CNI chart 从 GitHub 
 
 物料准备（打过补丁的 kk、离线产物、OS 依赖包）与信创适配矩阵：
 [docs/k8s-信创离线部署.md](docs/k8s-信创离线部署.md) · [docs/k8s-README.md](docs/k8s-README.md)
+
+**kk 源码随仓库分发，克隆即构建**：打过信创补丁的 KubeKey 源码已收编入库
+`third_party/kubekey/`（上游 Apache-2.0，仅 4 个 YAML 角色文件的信创改动，修改声明见其
+[MODIFICATIONS.md](third_party/kubekey/MODIFICATIONS.md)，合规说明见
+[docs/THIRD-PARTY.md](docs/THIRD-PARTY.md)）。用户克隆本仓库后：
+`python prepare_cluster.py --kk-build` 生成 `build-kk.bat`，本机 Go 1.25+ 一键交叉编译
+amd64/arm64（源码默认取库内路径，`set KK_SRC=...` 可指向外部源码）；不想装 Go 也可直接从
+[Releases](https://github.com/litianyanaa-pixel/middleware-offline-deploy/releases) 下载现成的
+kk 二进制放进 `warehouse/cluster/kk/v4.0.7-xc1/<arch>/kk`。
+
+**Linux 打包机环境一键准备**：`sudo bash tools/setup-packer-env.sh`（幂等，按需装
+Python3 / Docker Engine / Go 1.25+），`--cn` 走国内源（golang.google.cn + 阿里云 Docker 镜像），
+`--only python|docker|go` 单装一项，`--check` 只盘点（全齐退出码 0）。Windows 打包机用官方
+安装包装 Python / Docker Desktop / Go 即可，无需脚本。
 
 ## 📚 十、文档索引
 

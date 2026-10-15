@@ -1,0 +1,46 @@
+---
+- name: Kubevip | Discover network interface for kube-vip
+  block:
+    - name: Kubevip | Gather all network interfaces with CIDR addresses
+      command: |
+        ip -o addr show | awk '
+          BEGIN {
+            printf "[\n"; 
+            first = 1;
+          }
+          /inet / && !/ lo|docker|br-|veth/ {
+            if (!first) {
+              printf ",\n";
+            }
+            first = 0;
+            printf "  {\n";
+            printf "    \"interface\": \"%s\",\n", $2;
+            printf "    \"cidr\": \"%s\"\n", $4;
+            printf "  }";
+          }
+          END {
+            printf "\n]\n";
+          }
+        '
+      register: kube_vip_interfaces
+      register_type: json
+    - name: Kubevip | Select network interface matching kube-vip address
+      set_fact:
+        kube_vip_interface: >-
+          {{- $interface := "" }}
+          {{- range .kube_vip_interfaces.stdout | default list -}}
+            {{- if .cidr | ipInCIDR | has $.kubernetes.control_plane_endpoint.kube_vip.address -}}
+              {{- $interface = .interface -}}
+            {{- end -}}
+          {{- end -}}
+          {{ $interface }}
+    - name: Kubevip | Ensure matching network interface exists
+      assert:
+        that: .kube_vip_interface | empty | not
+        fail_msg: "Kubevip: Unable to find a network interface matching the kube-vip address."    
+
+- name: Kubevip | Generate kube-vip manifest file
+  template:
+    src: >-
+      kubevip/kubevip.{{ .kubernetes.control_plane_endpoint.kube_vip.mode }}
+    dest: /etc/kubernetes/manifests/kube-vip.yaml

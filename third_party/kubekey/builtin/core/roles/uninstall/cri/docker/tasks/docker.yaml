@@ -1,0 +1,49 @@
+---
+- name: Docker | Gracefully stop and disable the Docker service
+  ignore_errors: true
+  command: |
+    systemctl stop docker.service
+    systemctl disable docker.service
+    rm -rf /etc/systemd/system/docker.service*
+    systemctl daemon-reload
+    systemctl reset-failed docker.service
+
+- name: Docker | Completely uninstall containerd and remove all related files
+  block:
+    - name: Docker | Stop and disable the containerd service
+      ignore_errors: true
+      command: |
+        systemctl stop containerd.service
+        systemctl disable containerd.service
+        rm -rf /etc/systemd/system/containerd.service*
+        systemctl daemon-reload
+        systemctl reset-failed containerd.service
+
+    - name: Docker | Terminate residual runtime shim processes
+      ignore_errors: true
+      command: |
+        pgrep -f "containerd-shim" | xargs -r kill -9
+
+    - name: Docker | Remove all containerd-related files and binaries
+      command: |
+        rm -rf {{ .cri.containerd.data_root }}
+        rm -rf /etc/containerd
+        for bin in containerd containerd-shim containerd-shim-runc-v2 ctr runc; do
+          if path=$(command -v $bin 2>/dev/null); then
+            rm -f "$path"
+          fi
+        done
+
+- name: Docker | Remove all Docker residual files and binaries
+  command: |
+    rm -rf {{ .cri.docker.data_root }}
+    rm -rf /etc/docker
+    for bin in docker dockerd docker-init docker-proxy; do
+      if path=$(command -v $bin 2>/dev/null); then
+        rm -f "$path"
+      fi
+    done
+
+- name: Docker | Remove the docker0 network interface
+  ignore_errors: true
+  command: ip link delete docker0

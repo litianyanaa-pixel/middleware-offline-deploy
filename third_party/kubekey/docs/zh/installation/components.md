@@ -1,0 +1,387 @@
+# kubernetes
+
+内建的playbook实现了kubernetes的一整套生命周期管理，包含创建集群，删除集群，添加节点，删除节点，升级集群等。
+
+> **说明**：本文档详细列出了 KubeKey 支持的 Kubernetes 集群各组件的版本兼容性信息。这些版本信息基于官方文档和源码分析，确保各组件之间的兼容性和稳定性。在使用 KubeKey 部署或升级集群时，建议参考本文档选择合适的组件版本。
+
+## 组件
+
+> **注意**：以下列出的所有组件版本均经过测试验证，确保与对应 Kubernetes 版本的兼容性。版本选择遵循以下原则：
+> - 优先使用官方推荐的稳定版本
+> - 默认版本通常选择该 Kubernetes 版本范围内最新的稳定版本
+> - 可通过配置参数自定义组件版本，但需确保版本兼容性
+
+### [私有镜像仓库](../image-registry/README.md)
+
+> **说明**：KubeKey 支持部署私有镜像仓库，用于在离线环境或内网环境中存储和管理容器镜像。选择合适的镜像仓库方案取决于您的具体需求（如安全性、功能丰富度、部署复杂度等）。
+
+**Harbor**：一个用于存储和管理容器镜像的企业级开源镜像仓库，支持镜像访问控制、镜像签名、漏洞扫描及多种身份认证方式，适合大规模生产环境使用。
+
+- **默认版本**：v2.10.2
+- **适用场景**：企业级生产环境、需要高级安全功能的场景
+- **主要特性**：RBAC权限控制、镜像扫描、Helm Chart仓库、多租户支持
+
+**Docker Registry**：Docker官方的开源镜像仓库服务，用于保存和分发Docker镜像，功能简洁、部署方便，适合小型或自定义需求的场景。
+
+- **默认版本**：2.8.3
+- **适用场景**：小型团队、简单部署、快速搭建
+- **主要特性**：轻量级、易于部署和维护
+
+### etcd
+
+> **说明**：etcd 是 Kubernetes 集群的核心数据存储组件，负责存储集群的所有配置数据、状态信息和元数据。etcd 的版本选择至关重要，必须与 Kubernetes 版本保持兼容。
+
+> **重要提示**：
+> - etcd 版本不兼容可能导致集群无法启动或数据丢失
+> - 升级 etcd 前请务必备份数据
+> - 建议使用官方推荐的默认版本，除非有特殊需求
+
+各个kubernetes版本中etcd推荐列表：
+| kubernetes 版本 | 内置 etcd 默认版本 | etcd 最小要求版本 | kubekey 默认 etcd 版本 |
+|---|---|---|---|
+| 1.23 | [1.23.0](https://github.com/kubernetes/kubernetes/blob/v1.23.0/cmd/kubeadm/app/constants/constants.go#L304)～[1.23.13](https://github.com/kubernetes/kubernetes/blob/v1.23.13/cmd/kubeadm/app/constants/constants.go#L304): 3.5.1<br>[1.23.14](https://github.com/kubernetes/kubernetes/blob/v1.23.14/cmd/kubeadm/app/constants/constants.go#L304): 3.5.5<br>[1.23.15](https://github.com/kubernetes/kubernetes/blob/v1.23.15/cmd/kubeadm/app/constants/constants.go#L304)～[1.23.17](https://github.com/kubernetes/kubernetes/blob/v1.23.17/cmd/kubeadm/app/constants/constants.go#L304): 3.5.6 | [1.23.0](https://github.com/kubernetes/kubernetes/blob/v1.23.0/cmd/kubeadm/app/constants/constants.go#L301)～[1.23.17](https://github.com/kubernetes/kubernetes/blob/v1.23.17/cmd/kubeadm/app/constants/constants.go#L301): 3.2.18 | v3.5.6 |
+| 1.24 | [1.24.0](https://github.com/kubernetes/kubernetes/blob/v1.24.0/cmd/kubeadm/app/constants/constants.go#L323)～[1.24.7](https://github.com/kubernetes/kubernetes/blob/v1.24.7/cmd/kubeadm/app/constants/constants.go#L323): 3.5.3<br>[1.24.8](https://github.com/kubernetes/kubernetes/blob/v1.24.8/cmd/kubeadm/app/constants/constants.go#L323): 3.5.5<br>[1.24.9](https://github.com/kubernetes/kubernetes/blob/v1.24.9/cmd/kubeadm/app/constants/constants.go#L323)～[1.24.17](https://github.com/kubernetes/kubernetes/blob/v1.24.17/cmd/kubeadm/app/constants/constants.go#L323): 3.5.6 | [1.24.0](https://github.com/kubernetes/kubernetes/blob/v1.24.0/cmd/kubeadm/app/constants/constants.go#L320)～[1.24.17](https://github.com/kubernetes/kubernetes/blob/v1.24.17/cmd/kubeadm/app/constants/constants.go#L320): 3.2.18 | v3.5.6 |
+| 1.25 | [1.25.0](https://github.com/kubernetes/kubernetes/blob/v1.25.0/cmd/kubeadm/app/constants/constants.go#L316)～[1.25.3](https://github.com/kubernetes/kubernetes/blob/v1.25.3/cmd/kubeadm/app/constants/constants.go#L316): 3.5.4<br>[1.25.4](https://github.com/kubernetes/kubernetes/blob/v1.25.4/cmd/kubeadm/app/constants/constants.go#L316): 3.5.5<br>[1.25.5](https://github.com/kubernetes/kubernetes/blob/v1.25.5/cmd/kubeadm/app/constants/constants.go#L316)～[1.25.14](https://github.com/kubernetes/kubernetes/blob/v1.25.14/cmd/kubeadm/app/constants/constants.go#L318): 3.5.6<br>[1.25.15](https://github.com/kubernetes/kubernetes/blob/v1.25.15/cmd/kubeadm/app/constants/constants.go#L318)～[1.25.16](https://github.com/kubernetes/kubernetes/blob/v1.25.16/cmd/kubeadm/app/constants/constants.go#L318): 3.5.9 | [1.25.0](https://github.com/kubernetes/kubernetes/blob/v1.25.0/cmd/kubeadm/app/constants/constants.go#L313)～[1.25.16](https://github.com/kubernetes/kubernetes/blob/v1.25.16/cmd/kubeadm/app/constants/constants.go#L315): 3.2.18 | v3.5.9 |
+| 1.26 | [1.26.0](https://github.com/kubernetes/kubernetes/blob/v1.26.0/cmd/kubeadm/app/constants/constants.go#L312)～[1.26.9](https://github.com/kubernetes/kubernetes/blob/v1.26.9/cmd/kubeadm/app/constants/constants.go#L314): 3.5.6<br>[1.26.10](https://github.com/kubernetes/kubernetes/blob/v1.26.10/cmd/kubeadm/app/constants/constants.go#L314)～[1.26.12](https://github.com/kubernetes/kubernetes/blob/v1.26.12/cmd/kubeadm/app/constants/constants.go#L314): 3.5.9<br>[1.26.13](https://github.com/kubernetes/kubernetes/blob/v1.26.13/cmd/kubeadm/app/constants/constants.go#L314)～[1.26.15](https://github.com/kubernetes/kubernetes/blob/v1.26.15/cmd/kubeadm/app/constants/constants.go#L314): 3.5.10 | [1.26.0](https://github.com/kubernetes/kubernetes/blob/v1.26.0/cmd/kubeadm/app/constants/constants.go#L309)～[1.26.15](https://github.com/kubernetes/kubernetes/blob/v1.26.15/cmd/kubeadm/app/constants/constants.go#L311): 3.2.18 | v3.5.10 |
+| 1.27 | [1.27.0](https://github.com/kubernetes/kubernetes/blob/v1.27.0/cmd/kubeadm/app/constants/constants.go#L312)～[1.27.6](https://github.com/kubernetes/kubernetes/blob/v1.27.6/cmd/kubeadm/app/constants/constants.go#L314): 3.5.7<br>[1.27.7](https://github.com/kubernetes/kubernetes/blob/v1.27.7/cmd/kubeadm/app/constants/constants.go#L314)～[1.27.9](https://github.com/kubernetes/kubernetes/blob/v1.27.9/cmd/kubeadm/app/constants/constants.go#L314): 3.5.9<br>[1.27.10](https://github.com/kubernetes/kubernetes/blob/v1.27.10/cmd/kubeadm/app/constants/constants.go#L314)～[1.27.11](https://github.com/kubernetes/kubernetes/blob/v1.27.11/cmd/kubeadm/app/constants/constants.go#L314): 3.5.10<br>[1.27.12](https://github.com/kubernetes/kubernetes/blob/v1.27.12/cmd/kubeadm/app/constants/constants.go#L314)～[1.27.16](https://github.com/kubernetes/kubernetes/blob/v1.27.16/cmd/kubeadm/app/constants/constants.go#L314): 3.5.12 | [1.27.0](https://github.com/kubernetes/kubernetes/blob/v1.27.0/cmd/kubeadm/app/constants/constants.go#L309)～[1.27.16](https://github.com/kubernetes/kubernetes/blob/v1.27.16/cmd/kubeadm/app/constants/constants.go#L311): 3.2.18 | v3.5.12 |
+| 1.28 | [1.28.0](https://github.com/kubernetes/kubernetes/blob/v1.28.0/cmd/kubeadm/app/constants/constants.go#L308)～[1.28.5](https://github.com/kubernetes/kubernetes/blob/v1.28.5/cmd/kubeadm/app/constants/constants.go#L308): 3.5.9<br>[1.28.6](https://github.com/kubernetes/kubernetes/blob/v1.28.6/cmd/kubeadm/app/constants/constants.go#L308)～[1.28.7](https://github.com/kubernetes/kubernetes/blob/v1.28.7/cmd/kubeadm/app/constants/constants.go#L308): 3.5.10<br>[1.28.8](https://github.com/kubernetes/kubernetes/blob/v1.28.8/cmd/kubeadm/app/constants/constants.go#L308)～[1.28.13](https://github.com/kubernetes/kubernetes/blob/v1.28.13/cmd/kubeadm/app/constants/constants.go#L308): 3.5.12<br>[1.28.14](https://github.com/kubernetes/kubernetes/blob/v1.28.14/cmd/kubeadm/app/constants/constants.go#L308)～[1.28.15](https://github.com/kubernetes/kubernetes/blob/v1.28.15/cmd/kubeadm/app/constants/constants.go#L308): 3.5.15 | [1.28.0](https://github.com/kubernetes/kubernetes/blob/v1.28.0/cmd/kubeadm/app/constants/constants.go#L305)～[1.28.15](https://github.com/kubernetes/kubernetes/blob/v1.28.15/cmd/kubeadm/app/constants/constants.go#L305): 3.4.13-4 | v3.5.15 |
+| 1.29 | [1.29.0](https://github.com/kubernetes/kubernetes/blob/v1.29.0/cmd/kubeadm/app/constants/constants.go#L312)～[1.29.2](https://github.com/kubernetes/kubernetes/blob/v1.29.2/cmd/kubeadm/app/constants/constants.go#L312): 3.5.10<br>[1.29.3](https://github.com/kubernetes/kubernetes/blob/v1.29.3/cmd/kubeadm/app/constants/constants.go#L312)～[1.29.8](https://github.com/kubernetes/kubernetes/blob/v1.29.8/cmd/kubeadm/app/constants/constants.go#L312): 3.5.12<br>[1.29.9](https://github.com/kubernetes/kubernetes/blob/v1.29.9/cmd/kubeadm/app/constants/constants.go#L312)～[1.29.10](https://github.com/kubernetes/kubernetes/blob/v1.29.10/cmd/kubeadm/app/constants/constants.go#L312): 3.5.15<br>[1.29.11](https://github.com/kubernetes/kubernetes/blob/v1.29.11/cmd/kubeadm/app/constants/constants.go#L312)～[1.29.15](https://github.com/kubernetes/kubernetes/blob/v1.29.15/cmd/kubeadm/app/constants/constants.go#L312): 3.5.16 | [1.29.0](https://github.com/kubernetes/kubernetes/blob/v1.29.0/cmd/kubeadm/app/constants/constants.go#L309)～[1.29.15](https://github.com/kubernetes/kubernetes/blob/v1.29.15/cmd/kubeadm/app/constants/constants.go#L309): 3.4.13-4 | v3.5.15 |
+| 1.30 | [1.30.0](https://github.com/kubernetes/kubernetes/blob/v1.30.0/cmd/kubeadm/app/constants/constants.go#L323)～[1.30.4](https://github.com/kubernetes/kubernetes/blob/v1.30.4/cmd/kubeadm/app/constants/constants.go#L323): 3.5.12<br>[1.30.5](https://github.com/kubernetes/kubernetes/blob/v1.30.5/cmd/kubeadm/app/constants/constants.go#L323)～[1.30.14](https://github.com/kubernetes/kubernetes/blob/v1.30.14/cmd/kubeadm/app/constants/constants.go#L323): 3.5.15 | [1.30.0](https://github.com/kubernetes/kubernetes/blob/v1.30.0/cmd/kubeadm/app/constants/constants.go#L320)～[1.30.14](https://github.com/kubernetes/kubernetes/blob/v1.30.14/cmd/kubeadm/app/constants/constants.go#L320): 3.4.13-4 | v3.5.15 |
+| 1.31 | [1.31.0](https://github.com/kubernetes/kubernetes/blob/v1.31.0/cmd/kubeadm/app/constants/constants.go#L325)～[1.31.13](https://github.com/kubernetes/kubernetes/blob/v1.31.13/cmd/kubeadm/app/constants/constants.go#L325): 3.5.15<br>[1.31.14](https://github.com/kubernetes/kubernetes/blob/v1.31.14/cmd/kubeadm/app/constants/constants.go#L325): 3.5.24 | [1.31.0](https://github.com/kubernetes/kubernetes/blob/v1.31.0/cmd/kubeadm/app/constants/constants.go#L322)～[1.31.13](https://github.com/kubernetes/kubernetes/blob/v1.31.13/cmd/kubeadm/app/constants/constants.go#L322): 3.5.11-0<br>[1.31.14](https://github.com/kubernetes/kubernetes/blob/v1.31.14/cmd/kubeadm/app/constants/constants.go#L322): 3.5.24-0 | v3.5.24 |
+| 1.32 | [1.32.0](https://github.com/kubernetes/kubernetes/blob/v1.32.0/cmd/kubeadm/app/constants/constants.go#L329)～[1.32.9](https://github.com/kubernetes/kubernetes/blob/v1.32.9/cmd/kubeadm/app/constants/constants.go#L329): 3.5.16<br>[1.32.10](https://github.com/kubernetes/kubernetes/blob/v1.32.10/cmd/kubeadm/app/constants/constants.go#L329)～[1.32.13](https://github.com/kubernetes/kubernetes/blob/v1.32.13/cmd/kubeadm/app/constants/constants.go#L329): 3.5.24 | [1.32.0](https://github.com/kubernetes/kubernetes/blob/v1.32.0/cmd/kubeadm/app/constants/constants.go#L326)～[1.32.9](https://github.com/kubernetes/kubernetes/blob/v1.32.9/cmd/kubeadm/app/constants/constants.go#L326): 3.5.11-0<br>[1.32.10](https://github.com/kubernetes/kubernetes/blob/v1.32.10/cmd/kubeadm/app/constants/constants.go#L326)～[1.32.13](https://github.com/kubernetes/kubernetes/blob/v1.32.13/cmd/kubeadm/app/constants/constants.go#L326): 3.5.24-0 | v3.5.24 |
+| 1.33 | [1.33.0](https://github.com/kubernetes/kubernetes/blob/v1.33.0/cmd/kubeadm/app/constants/constants.go#L329)～[1.33.5](https://github.com/kubernetes/kubernetes/blob/v1.33.5/cmd/kubeadm/app/constants/constants.go#L329): 3.5.21<br>[1.33.6](https://github.com/kubernetes/kubernetes/blob/v1.33.6/cmd/kubeadm/app/constants/constants.go#L329)～[1.33.13](https://github.com/kubernetes/kubernetes/blob/v1.33.13/cmd/kubeadm/app/constants/constants.go#L334): 3.5.24 | [1.33.0](https://github.com/kubernetes/kubernetes/blob/v1.33.0/cmd/kubeadm/app/constants/constants.go#L326)～[1.33.5](https://github.com/kubernetes/kubernetes/blob/v1.33.5/cmd/kubeadm/app/constants/constants.go#L326): 3.5.11-0<br>[1.33.6](https://github.com/kubernetes/kubernetes/blob/v1.33.6/cmd/kubeadm/app/constants/constants.go#L326)～[1.33.13](https://github.com/kubernetes/kubernetes/blob/v1.33.13/cmd/kubeadm/app/constants/constants.go#L331): 3.5.24-0 | v3.5.24 |
+| 1.34 | [1.34.0](https://github.com/kubernetes/kubernetes/blob/v1.34.0/cmd/kubeadm/app/constants/constants.go#L329)～[1.34.1](https://github.com/kubernetes/kubernetes/blob/v1.34.1/cmd/kubeadm/app/constants/constants.go#L329): 3.6.4<br>[1.34.2](https://github.com/kubernetes/kubernetes/blob/v1.34.2/cmd/kubeadm/app/constants/constants.go#L329)～[1.34.11](https://github.com/kubernetes/kubernetes/blob/v1.34.11/cmd/kubeadm/app/constants/constants.go#L334): 3.6.5 | [1.34.0](https://github.com/kubernetes/kubernetes/blob/v1.34.0/cmd/kubeadm/app/constants/constants.go#L326)～[1.34.1](https://github.com/kubernetes/kubernetes/blob/v1.34.1/cmd/kubeadm/app/constants/constants.go#L326): 3.5.21-0<br>[1.34.2](https://github.com/kubernetes/kubernetes/blob/v1.34.2/cmd/kubeadm/app/constants/constants.go#L326)～[1.34.11](https://github.com/kubernetes/kubernetes/blob/v1.34.11/cmd/kubeadm/app/constants/constants.go#L331): 3.5.24-0 | v3.6.5 |
+| 1.35 | [1.35.0](https://github.com/kubernetes/kubernetes/blob/v1.35.0/cmd/kubeadm/app/constants/constants.go#L329)～[1.35.8](https://github.com/kubernetes/kubernetes/blob/v1.35.8/cmd/kubeadm/app/constants/constants.go#L334): 3.6.6 | [1.35.0](https://github.com/kubernetes/kubernetes/blob/v1.35.0/cmd/kubeadm/app/constants/constants.go#L326)～[1.35.8](https://github.com/kubernetes/kubernetes/blob/v1.35.8/cmd/kubeadm/app/constants/constants.go#L331): 3.5.24-0 | v3.6.6 |
+| 1.36 | [1.36.0](https://github.com/kubernetes/kubernetes/blob/v1.36.0/cmd/kubeadm/app/constants/constants.go#L329)～[1.36.4](https://github.com/kubernetes/kubernetes/blob/v1.36.4/cmd/kubeadm/app/constants/constants.go#L334): 3.6.8 | [1.36.0](https://github.com/kubernetes/kubernetes/blob/v1.36.0/cmd/kubeadm/app/constants/constants.go#L326)～[1.36.4](https://github.com/kubernetes/kubernetes/blob/v1.36.4/cmd/kubeadm/app/constants/constants.go#L331): 3.5.24-0 | v3.6.8 |
+| 1.37 | [1.37.0](https://github.com/kubernetes/kubernetes/blob/v1.37.0/cmd/kubeadm/app/constants/constants.go#L330): 3.7.0 | [1.37.0](https://github.com/kubernetes/kubernetes/blob/v1.37.0/cmd/kubeadm/app/constants/constants.go#L327): 3.5.24-0 | v3.7.0 |
+
+> **说明**：KubeKey 为每个 Kubernetes 中版本（如 1.23、1.24）选择该版本范围内最大的 etcd 版本作为默认值，以确保最佳兼容性和稳定性。「内置 etcd 默认版本」列取自该 Kubernetes 版本 `constants.go` 的 `DefaultEtcdVersion`，「etcd 最小要求版本」列取自同一文件的 `MinExternalEtcdVersion`；区间两端的链接分别指向各自 tag 的对应行。
+>
+> **关于 1.29 的默认值选取**：1.29 固定为 `v3.5.15`，而非其范围内的最大值 `v3.5.16`。升级路径为 1.28 → 1.29 → 1.30，前后两个中版本都用 `v3.5.15`；若 1.29 取 `v3.5.16`，1.29 → 1.30 这一跳就会降级 etcd，被 KubeKey 的 etcd precheck 直接拒绝。
+
+> **自定义版本**：可通过 `--set etcd.etcd_version="v3.6.5"` 指定安装的 etcd 版本，但需确保该版本与您的 Kubernetes 版本兼容（参考上表）。  
+
+### 容器运行时
+
+> **说明**：容器运行时是 Kubernetes 节点上负责运行容器的底层软件。内建 core playbook 支持 **containerd**（默认）与 **Docker**（通过 [cri-dockerd](https://github.com/Mirantis/cri-dockerd) CRI 适配层）；CRI-O 不由内建 core playbook 提供。
+
+> **重要**：Kubernetes 自 v1.24 起移除了内建的 `dockershim`，因此从 1.24 开始 Docker 只能通过外部 cri-dockerd 适配层作为节点运行时使用。新部署推荐使用 containerd。
+
+#### 版本选择：以 Docker 为锚
+
+**核心：两种容器运行时可互换。** Docker 模式下 `cri/docker` 把 `docker-<version>.tgz` 的整个 `docker/*` 解到 `/usr/local/bin`，containerd / runc / dockerd 全部来自该包，`cri.containerd_version` / `cri.runc_version` 不生效。故 KubeKey 把 containerd/runc 默认值设成所选 Docker 包内嵌的那一对，两种模式运行时栈一致、可原地互换。
+
+| kubernetes 版本 | containerd 官方推荐版本 | 适配的 docker 版本 | docker 内置 containerd 版本 | docker 内置 runc 版本 |
+|---|---|---|---|---|
+| 1.23 | containerd: [v1.6.39](https://github.com/containerd/containerd/blob/v1.6.39/RELEASES.md#support-horizon)<br>runc: [>=1.3.0](https://github.com/containerd/containerd/blob/v1.6.39/docs/RUNC.md) | v23.0.6 | [v1.6.21](https://github.com/moby/moby/blob/9dbdbd4b6d7681bd18c897a6ba0376073c2a72ff/Dockerfile#L195) | [v1.1.7](https://github.com/moby/moby/blob/9dbdbd4b6d7681bd18c897a6ba0376073c2a72ff/Dockerfile#L283) |
+| 1.24 ~ 1.29 | containerd: [v1.7.35](https://github.com/containerd/containerd/blob/v1.7.35/RELEASES.md#support-horizon)<br>runc: [>=1.3.6](https://github.com/containerd/containerd/blob/v1.7.35/docs/RUNC.md) | v28.5.2 | [v1.7.28](https://github.com/moby/moby/blob/89c5e8fd66634b6128fc4c0e6f1236e2540e46e0/Dockerfile#L174) | [v1.3.3](https://github.com/moby/moby/blob/89c5e8fd66634b6128fc4c0e6f1236e2540e46e0/Dockerfile#L264) |
+| 1.30 ~ 1.34 | containerd: [v2.0.12](https://github.com/containerd/containerd/blob/v2.0.12/RELEASES.md#support-horizon)<br>runc: [>=1.3.6](https://github.com/containerd/containerd/blob/v2.0.12/docs/RUNC.md) | v29.6.2 | [v2.2.6](https://github.com/moby/moby/blob/3d80467678f6e36325fa9ae3dd486fe91e5652e3/Dockerfile#L145) | [v1.3.6](https://github.com/moby/moby/blob/3d80467678f6e36325fa9ae3dd486fe91e5652e3/Dockerfile#L251) |
+| 1.35 | containerd: [v2.2.8](https://github.com/containerd/containerd/blob/v2.2.8/RELEASES.md#support-horizon)<br>runc: [>=1.3.6](https://github.com/containerd/containerd/blob/v2.2.8/docs/RUNC.md) | v29.6.2 | [v2.2.6](https://github.com/moby/moby/blob/3d80467678f6e36325fa9ae3dd486fe91e5652e3/Dockerfile#L145) | [v1.3.6](https://github.com/moby/moby/blob/3d80467678f6e36325fa9ae3dd486fe91e5652e3/Dockerfile#L251) |
+| 1.36 ~ 1.37 | containerd: [v2.3.5](https://github.com/containerd/containerd/blob/v2.3.5/RELEASES.md#support-horizon)<br>runc: [>=1.5.1](https://github.com/containerd/containerd/blob/v2.3.5/docs/RUNC.md) | v29.7.2 | [v2.3.3](https://github.com/moby/moby/blob/6a43e3d5afddf4111da0f864bbc7cae5d7e95001/Dockerfile#L145) | [v1.4.3](https://github.com/moby/moby/blob/6a43e3d5afddf4111da0f864bbc7cae5d7e95001/Dockerfile#L251) |
+
+> **来源**：「containerd 官方推荐版本」列链接到该 containerd 版本 tag 的 `RELEASES.md` 与 `docs/RUNC.md`；「docker 内置 containerd / runc」两列链接到对应 Docker 版本 tag 所在 commit 的 `Dockerfile` 中 `ARG CONTAINERD_VERSION` / `ARG RUNC_VERSION` 所在行。
+
+> **分组依据**：一个 Docker 包只内嵌一个 containerd 构建，Docker 不发布 Kubernetes 兼容矩阵；按各 Kubernetes 小版本所需的 containerd 系列分组，取仍提供该系列的最新 Docker 版本。1.30~1.35 取 2.2（2.1 已 EOL）；1.36~1.37 取 2.3（29.8.0 待镜像同步）。
+
+> **cri-dockerd**：自 v0.4.0 要求 Docker API v1.42（= Docker v23），上表全部满足，统一 `v0.4.7`。1.23 用内建 dockershim，不装 cri-dockerd。
+
+> **1.23 安全提示**：docker v23.0.6 内嵌 runc v1.1.7 < CVE-2024-21626 修复线 v1.1.12，属刻意取舍（抬到 ≥24.0.9 会破坏与 containerd 模式的版本一致性）。
+
+#### [containerd](https://github.com/containerd/containerd)
+
+> **说明**：containerd 是 KubeKey 的默认运行时——自 Kubernetes 1.24 起 `container_manager: containerd` 为默认值。
+
+> **安装**：
+> - 使用 `--set cri.container_manager="containerd"` 选择 containerd
+> - 使用 `--set cri.containerd_version="v2.3.3"` 指定要安装的 containerd 版本（不指定则使用默认值）
+> - 使用 `--set cri.runc_version="v1.4.3"` 指定 runc 版本（不指定则使用默认值）
+
+#### [Docker](https://github.com/moby/moby)
+
+> **说明**：从 Kubernetes 1.24 起 Docker 只能通过外部 cri-dockerd 适配层作为节点运行时；在 Kubernetes 1.23 上内建 dockershim 仍然存在，不会安装 cri-dockerd。
+
+> **安装**：
+> - 使用 `--set cri.container_manager="docker"` 选择 Docker
+> - 使用 `--set cri.docker_version="29.7.2"` 指定要安装的 Docker 版本（不指定则使用默认值）
+> - 使用 `--set cri.cridockerd_version="v0.4.7"` 指定 cri-dockerd 版本（不指定则使用默认值）
+> - Docker 模式下 containerd / runc 二进制来自 Docker 包本身，`cri.containerd_version` 与 `cri.runc_version` 不生效
+
+### 容器网络插件
+
+> **说明**：容器网络插件（CNI）是 Kubernetes 集群中负责 Pod 之间网络通信的核心组件。不同的 CNI 插件提供不同的网络功能特性，如网络策略、多租户隔离、服务网格集成等。
+
+> **重要提示**：
+> - KubeKey 默认只会安装一个网络插件，避免多个 CNI 插件冲突
+> - 默认安装 Calico，如需使用其他插件请通过配置指定
+> - 可通过 `--set cni.type="none"` 不安装任何插件（适用于已有网络插件或自定义网络方案）
+> - 选择网络插件后，更换插件需要重新部署集群，请谨慎选择
+
+#### [cni-plugins](https://github.com/containernetworking/plugins)
+
+> **说明**：cni-plugins 是 CNI 官方维护的标准插件集合，包含 `loopback`、`bridge`、`host-local`、`macvlan`、`ipvlan`、`portmap`、`bandwidth` 等参考实现。Kubelet 依赖 `loopback` 插件创建 Pod 的 loopback 接口；Multus 等多 CNI 方案则通过委托方式使用这些插件为 Pod 配置额外网络接口。
+
+> **兼容性**：Kubernetes 只要求 CNI 插件兼容 **CNI spec >= v0.4.0**（推荐 v1.0.0），故使用时直接使用最新的 cni-plugins 稳定版即可。
+
+> **安装方式**：
+> - 通过 `--set cni.cni_plugins_version="v1.9.1"` 指定安装的 cni-plugins 版本（不指定则使用默认版本）
+> - 插件二进制文件默认部署到 `/opt/cni/bin/`
+
+| kubernetes 版本 | kubekey 默认版本 | CNI Spec |
+|---|---|---|
+| 1.23~1.37 | v1.9.1 | 1.0.0 |
+
+#### [calico](https://github.com/projectcalico/calico)
+> **说明**：Calico 是一个功能强大的网络和网络安全解决方案，支持 BGP 路由、网络策略、IP 地址管理等功能。适合需要细粒度网络控制和策略管理的生产环境。
+
+> **安装方式**：
+> - 通过 `--set cni.type="calico"` 指定安装 Calico 作为容器网络插件
+> 通过 `--set cni.calico_version="v3.32.2"` 指定安装的 calico 版本
+
+| kubernetes 版本 | 推荐 calico 版本 | kubekey 默认版本 |
+|---|---|---|
+| 1.23 | [3.25](https://archive-os-3-25.netlify.app/calico/3.25/getting-started/kubernetes/requirements/#kubernetes-requirements) | v3.25.2 |
+| 1.24 | [3.25](https://archive-os-3-25.netlify.app/calico/3.25/getting-started/kubernetes/requirements/#kubernetes-requirements), [3.26](https://archive-os-3-26.netlify.app/calico/3.26/getting-started/kubernetes/requirements/#kubernetes-requirements) | v3.26.5 |
+| 1.25 | [3.25](https://archive-os-3-25.netlify.app/calico/3.25/getting-started/kubernetes/requirements/#kubernetes-requirements), [3.26](https://archive-os-3-26.netlify.app/calico/3.26/getting-started/kubernetes/requirements/#kubernetes-requirements) | v3.26.5 |
+| 1.26 | [3.25](https://archive-os-3-25.netlify.app/calico/3.25/getting-started/kubernetes/requirements/#kubernetes-requirements), [3.26](https://archive-os-3-26.netlify.app/calico/3.26/getting-started/kubernetes/requirements/#kubernetes-requirements) | v3.26.5 |
+| 1.27 | [3.25](https://archive-os-3-25.netlify.app/calico/3.25/getting-started/kubernetes/requirements/#kubernetes-requirements), [3.26](https://archive-os-3-26.netlify.app/calico/3.26/getting-started/kubernetes/requirements/#kubernetes-requirements), [3.27](https://archive-os-3-27.netlify.app/calico/3.27/getting-started/kubernetes/requirements/#kubernetes-requirements), [3.28](https://archive-os-3-28.netlify.app/calico/3.28/getting-started/kubernetes/requirements/#kubernetes-requirements) | v3.28.5 |
+| 1.28 | [3.25](https://archive-os-3-25.netlify.app/calico/3.25/getting-started/kubernetes/requirements/#kubernetes-requirements), [3.26](https://archive-os-3-26.netlify.app/calico/3.26/getting-started/kubernetes/requirements/#kubernetes-requirements), [3.27](https://archive-os-3-27.netlify.app/calico/3.27/getting-started/kubernetes/requirements/#kubernetes-requirements), [3.28](https://archive-os-3-28.netlify.app/calico/3.28/getting-started/kubernetes/requirements/#kubernetes-requirements) | v3.28.5 |
+| 1.29 | [3.27](https://archive-os-3-27.netlify.app/calico/3.27/getting-started/kubernetes/requirements/#kubernetes-requirements), [3.28](https://archive-os-3-28.netlify.app/calico/3.28/getting-started/kubernetes/requirements/#kubernetes-requirements), [3.29](https://docs.tigera.io/calico/3.29/getting-started/kubernetes/requirements#kubernetes-requirements) | v3.29.7 |
+| 1.30 | [3.28](https://archive-os-3-28.netlify.app/calico/3.28/getting-started/kubernetes/requirements/#kubernetes-requirements), [3.29](https://docs.tigera.io/calico/3.29/getting-started/kubernetes/requirements#kubernetes-requirements) | v3.29.7 |
+| 1.31 | [3.29](https://docs.tigera.io/calico/3.29/getting-started/kubernetes/requirements#kubernetes-requirements), [3.30](https://docs.tigera.io/calico/3.30/getting-started/kubernetes/requirements#kubernetes-requirements) | v3.30.7 |
+| 1.32 | [3.29](https://docs.tigera.io/calico/3.29/getting-started/kubernetes/requirements#kubernetes-requirements), [3.30](https://docs.tigera.io/calico/3.30/getting-started/kubernetes/requirements#kubernetes-requirements), [3.31](https://docs.tigera.io/calico/3.31/getting-started/kubernetes/requirements#kubernetes-requirements) | v3.31.7 |
+| 1.33 | [3.30](https://docs.tigera.io/calico/3.30/getting-started/kubernetes/requirements#kubernetes-requirements), [3.31](https://docs.tigera.io/calico/3.31/getting-started/kubernetes/requirements#kubernetes-requirements) | v3.31.7 |
+| 1.34 | [3.31](https://docs.tigera.io/calico/3.31/getting-started/kubernetes/requirements#kubernetes-requirements), [3.32](https://docs.tigera.io/calico/latest/getting-started/kubernetes/requirements#kubernetes-requirements) | v3.32.2 |
+| 1.35 | [3.31](https://docs.tigera.io/calico/3.31/getting-started/kubernetes/requirements#kubernetes-requirements), [3.32](https://docs.tigera.io/calico/latest/getting-started/kubernetes/requirements#kubernetes-requirements) | v3.32.2 |
+| 1.36 | [3.32](https://docs.tigera.io/calico/latest/getting-started/kubernetes/requirements#kubernetes-requirements) | v3.32.2 |
+| 1.37 | [3.32](https://docs.tigera.io/calico/latest/getting-started/kubernetes/requirements#kubernetes-requirements) | v3.32.2 |
+
+> **注意**：Tigera 对 Calico v3.32 的测试覆盖 Kubernetes 1.34~1.36，v3.31 覆盖 1.32~1.35，v3.30 覆盖 1.31~1.35；Cilium 1.20 的测试覆盖 1.33~1.36，Cilium 1.19 覆盖 1.32~1.35。KubeKey 会为每个 CNI 保留**仍覆盖目标 Kubernetes 小版本的小版本系列中的最新 patch**。因此 Calico 默认版本：1.34~1.36 使用 `v3.32.2`（v3.32 最新），1.32/1.33 使用 `v3.31.7`（v3.31 最新），1.31 使用 `v3.30.7`（v3.30 最新）；Cilium 默认版本：1.33~1.36 使用 `1.20.1`（v1.20 最新），1.31/1.32 使用 `1.19.7`（v1.19 最新，v1.20 不覆盖这两个小版本）。
+> **关于 Kubernetes 1.37**：两个 CNI 都尚未发布针对 Kubernetes 1.37 的官方矩阵——Calico v3.32 的测试覆盖 1.34~1.36（计划于 2026 年 9 月下旬发布的 v3.33 将是首个明示支持 1.37 的小版本）；Cilium 1.20 的测试覆盖 1.33~1.36（Kubernetes 1.37.0 发布时 Cilium 1.21 仍在开发分支上）。因此 KubeKey 让 1.37 沿用与 1.36 相同的前向兼容默认值——Calico `v3.32.2` 与 Cilium `1.20.1`，而不是绑定尚未发布的 CNI 小版本。待 Calico v3.33 与 Cilium 1.21.0 正式可用后，可再上调这些默认值。
+
+
+#### [cilium](https://github.com/cilium/cilium)
+
+> **说明**：Cilium 是基于 eBPF 技术的新一代网络和安全解决方案，提供高性能的网络转发、网络策略、服务网格和可观测性功能。适合需要高性能和丰富功能的企业级环境。
+
+> **安装方式**：
+> - 通过 `--set cni.type="cilium"` 指定安装 Cilium 作为容器网络插件
+> - 通过 `--set cni.cilium_version="1.20.1"` 指定安装的 Cilium 版本（不指定则使用默认版本）
+
+> **主要特性**：基于 eBPF 的高性能数据平面、网络策略、服务网格集成、可观测性、多集群支持
+
+| kubernetes 版本 | 推荐 cilium 版本 | kubekey 默认版本 |
+|---|---|---|
+| 1.23 | [1.14](https://docs.cilium.io/en/v1.14/network/kubernetes/compatibility/) | 1.14.19 |
+| 1.24 | [1.14](https://docs.cilium.io/en/v1.14/network/kubernetes/compatibility/) | 1.14.19 |
+| 1.25 | [1.14](https://docs.cilium.io/en/v1.14/network/kubernetes/compatibility/) | 1.14.19 |
+| 1.26 | [1.14](https://docs.cilium.io/en/v1.14/network/kubernetes/compatibility/), [1.15](https://docs.cilium.io/en/v1.15/network/kubernetes/compatibility/) | 1.15.19 |
+| 1.27 | [1.14](https://docs.cilium.io/en/v1.14/network/kubernetes/compatibility/), [1.15](https://docs.cilium.io/en/v1.15/network/kubernetes/compatibility/), [1.16](https://docs.cilium.io/en/v1.16/network/kubernetes/compatibility/) | 1.16.19 |
+| 1.28 | [1.15](https://docs.cilium.io/en/v1.15/network/kubernetes/compatibility/), [1.16](https://docs.cilium.io/en/v1.16/network/kubernetes/compatibility/) | 1.16.19 |
+| 1.29 | [1.15](https://docs.cilium.io/en/v1.15/network/kubernetes/compatibility/), [1.16](https://docs.cilium.io/en/v1.16/network/kubernetes/compatibility/), [1.17](https://docs.cilium.io/en/v1.17/network/kubernetes/compatibility/) | 1.17.18 |
+| 1.30 | [1.16](https://docs.cilium.io/en/v1.16/network/kubernetes/compatibility/), [1.17](https://docs.cilium.io/en/v1.17/network/kubernetes/compatibility/), [1.18](https://docs.cilium.io/en/v1.18/network/kubernetes/compatibility/) | 1.18.13 |
+| 1.31 | [1.17](https://docs.cilium.io/en/v1.17/network/kubernetes/compatibility/), [1.18](https://docs.cilium.io/en/v1.18/network/kubernetes/compatibility/) | 1.19.7 |
+| 1.32 | [1.17](https://docs.cilium.io/en/v1.17/network/kubernetes/compatibility/), [1.18](https://docs.cilium.io/en/v1.18/network/kubernetes/compatibility/), [1.19](https://docs.cilium.io/en/v1.19/network/kubernetes/compatibility/) | 1.19.7 |
+| 1.33 | [1.18](https://docs.cilium.io/en/v1.18/network/kubernetes/compatibility/), [1.19](https://docs.cilium.io/en/v1.19/network/kubernetes/compatibility/), [1.20](https://docs.cilium.io/en/v1.20/network/kubernetes/compatibility/) | 1.20.1 |
+| 1.34 | [1.19](https://docs.cilium.io/en/v1.19/network/kubernetes/compatibility/), [1.20](https://docs.cilium.io/en/v1.20/network/kubernetes/compatibility/) | 1.20.1 |
+| 1.35\~1.37 | [1.20](https://docs.cilium.io/en/v1.20/network/kubernetes/compatibility/) | 1.20.1 |
+
+#### [flannel](https://github.com/flannel-io/flannel)
+
+> **说明**：Flannel 是一个简单可靠的网络插件，为 Kubernetes 集群提供覆盖网络（overlay network）。Flannel 设计简洁，易于部署和维护，适合中小型集群或对网络功能要求不高的场景。
+
+> **安装方式**：
+> - 通过 `--set cni.type="flannel"` 指定安装 Flannel 作为容器网络插件
+> - 通过 `--set cni.flannel_version="v0.28.9"` 指定安装的 Flannel 版本（不指定则使用默认版本）
+
+> **主要特性**：简单易用、轻量级、支持多种后端（VXLAN、host-gw、UDP）、跨节点通信
+
+| kubernetes 版本 | 推荐 flannel 版本 | kubekey 默认版本 |
+|---|---|---|
+| 1.23\~1.34 | [0.19.0+](https://github.com/flannel-io/flannel/blob/master/Documentation/kubernetes.md) | v0.27.4 |
+| 1.35\~1.37 | [0.19.0+](https://github.com/flannel-io/flannel/blob/master/Documentation/kubernetes.md) | v0.28.9 |
+
+
+#### [kubeovn](https://github.com/kubeovn/kube-ovn)
+
+> **说明**：Kube-OVN 是基于 OVN（Open Virtual Network）的 Kubernetes 网络插件，提供企业级的网络功能，包括子网管理、QoS、网络策略、静态 IP 分配等。适合需要丰富网络功能和精细控制的场景。
+
+> **安装方式**：
+> - 通过 `--set cni.type="kubeovn"` 指定安装 Kube-OVN 作为容器网络插件
+> - 通过 `--set cni.kubeovn_version="v1.16.2"` 指定安装的 Kube-OVN 版本（不指定则使用默认版本）
+
+> **主要特性**：子网管理、QoS 流量控制、网络策略、静态 IP 分配、多租户支持、VPC 网络
+
+| kubernetes 版本 | 推荐 kubeovn 版本 | kubekey 默认版本 |
+|---|---|---|
+| 1.23\~1.28 | [1.12](https://kubeovn.github.io/docs/v1.12.x/en/start/prepare/), [1.13](https://kubeovn.github.io/docs/v1.13.x/en/start/prepare/) | v1.13.15 |
+| 1.29\~1.34 | [1.15](https://kubeovn.github.io/docs/v1.15.x/en/start/prepare/), [1.16](https://kubeovn.github.io/docs/v1.16.x/en/start/prepare/) | v1.15.0 |
+| 1.35\~1.37 | [1.15](https://kubeovn.github.io/docs/v1.15.x/en/start/prepare/), [1.16](https://kubeovn.github.io/docs/v1.16.x/en/start/prepare/) | v1.16.2 |
+
+
+### 多容器网络插件
+
+> **说明**：多容器网络插件（Multi-CNI）用于配合主 CNI 插件工作，提供高级网络功能，例如为 Pod 配置多个网络接口。它需要在主 CNI 插件安装完成后再进行部署。
+
+> **重要提示**：
+> - 多容器网络插件必须与主 CNI 插件（如 Calico、Flannel、Cilium 等）配合使用
+> - 主 CNI 负责默认网络，多容器网络插件提供额外的网络接口
+> - KubeKey 支持 `multus` 和 `spiderpool` 作为多容器网络插件
+
+#### [multus](https://github.com/k8snetworkplumbingwg/multus-cni)
+
+> **说明**：Multus CNI 是一个元 CNI 插件，能够为 Kubernetes Pod 启用多个网络接口。它作为"元插件"将其他 CNI 插件串联起来，为需要多个网络接口的 Pod 提供高级网络功能。
+
+> **安装方式**：
+> - 通过 `--set cni.multi_cni="multus"` 开启 Multus 作为多容器网络插件
+> - 通过 `--set cni.multus.image.tag="v4.3.0"` 指定 Multus 版本（不指定则使用默认版本）
+
+> **前置条件**：Multus 需要先安装主 CNI 插件（如 Calico、Flannel、Cilium 等）。Multus 将与主 CNI 配合工作，为 Pod 提供额外的网络接口。
+
+> **主要特性**：Pod 多网络接口支持、CNI 链式调用、支持多种 CNI 插件（macvlan、ipvlan、SR-IOV 等）、NetworkAttachmentDefinition CRD 支持
+
+| kubernetes 版本 | 推荐 multus 版本 | kubekey 默认版本 |
+|---|---|---|
+| 1.23\~1.37 | [v4.0.0+](https://github.com/k8snetworkplumbingwg/multus-cni/releases) | v4.3.0 |
+
+#### [spiderpool](https://github.com/spidernet-io/spiderpool)
+
+> **说明**：Spiderpool 是 Kubernetes 的 Underlay 和 RDMA 网络解决方案，支持 macvlan CNI、ipvlan CNI 和 SR-IOV CNI。它适用于裸金属、虚拟机和公共云环境。Spiderpool 是 CNCF 沙箱项目，提供卓越的网络性能，特别有利于存储、中间件和 AI 等网络 I/O 密集型和低延迟应用。
+
+> **安装方式**：
+> - 通过 `--set cni.multi_cni="spiderpool"` 开启 Spiderpool 作为多容器网络插件
+> - 通过 `--set cni.spiderpool_version="v1.2.2"` 指定 Spiderpool 版本（不指定则使用默认版本）
+
+> **前置条件**：Spiderpool 需要先安装主 CNI 插件（Spiderpool 将作为额外的 CNI 与主 CNI 一起部署）。
+
+> **主要特性**：简化安装流程、基于 CRD 的双栈 IPAM 管理、RDMA 网络加速（RoCE、InfiniBand）、卓越的网络性能（低延迟、高吞吐）、多集群网络互通
+
+| kubernetes 版本 | 推荐 spiderpool 版本 | kubekey 默认版本 |
+|---|---|---|
+| 1.23\~1.37 | [v1.0.x, v1.1.x, v1.2.x](https://spidernet-io.github.io/spiderpool/v1.1/usage/install/system-requirements/#node-requirements) | v1.2.2 |
+
+### 存储
+
+> **说明**：存储插件为 Kubernetes 集群提供持久化存储能力，允许 Pod 挂载持久卷（PV）来保存数据。KubeKey 支持安装多个存储插件，以满足不同的存储需求。
+
+> **重要提示**：
+> - KubeKey 默认会安装 LocalPV 存储插件，提供本地存储能力
+> - 可以根据实际需求启用其他存储插件（如 NFS）
+> - 多个存储插件可以同时存在，通过 StorageClass 区分不同的存储类型
+
+#### [localpv](https://github.com/openebs/dynamic-localpv-provisioner)
+
+> **说明**：LocalPV 提供本地持久化存储能力，使用节点上的本地磁盘或目录作为存储后端。适合需要高性能本地存储的场景，如数据库、缓存等应用。
+
+> **安装方式**：
+> - 通过 `--set storage_class.local.enabled=true` 开启 LocalPV（默认已开启）
+> - 通过 `--set storage_class.localpv_provisioner_version="4.4.0"` 指定版本（不指定则使用默认版本）
+
+> **主要特性**：本地高性能存储、自动 PV 创建、支持多种存储类型（hostpath、device、lvm）
+
+| kubernetes 版本 | 推荐 localpv 版本 | kubekey 默认版本 |
+|---|---|---|
+| 1.23\~1.33 | [v4.0.x, v4.1.x, v4.2.x, HEAD](https://github.com/openebs/dynamic-localpv-provisioner?tab=readme-ov-file#kubernetes-compatibility-matrix) | 4.4.0 |
+
+#### [nfs](https://github.com/kubernetes-sigs/nfs-subdir-external-provisioner)
+
+> **说明**：NFS 存储插件提供基于 NFS（Network File System）的共享存储能力，允许多个 Pod 共享同一个存储卷。适合需要共享存储的场景，如文件服务、内容管理等应用。
+
+> **安装方式**：
+> - 通过 `--set storage_class.nfs.enabled=true` 开启 NFS 存储插件
+> - 通过 `--set storage_class.nfs_provisioner_version="4.0.18"` 指定版本（不指定则使用默认版本）
+
+> **前置条件**：需要预先配置 NFS 服务器，并在 KubeKey 配置中指定 NFS 服务器地址和路径
+
+> **主要特性**：共享存储、多 Pod 访问、易于扩展、成本较低
+
+| kubernetes 版本 | 推荐 nfs 版本 | kubekey 默认版本 |
+|---|---|---|
+| 1.23\~1.37 | [v4.0.0+](https://github.com/kubernetes-sigs/nfs-subdir-external-provisioner/blob/nfs-subdir-external-provisioner-4.0.0/charts/nfs-subdir-external-provisioner/README.md#prerequisites) | 4.0.18 |
+
+### 域名服务
+
+> **说明**：域名服务（DNS）是 Kubernetes 集群中负责服务发现和域名解析的核心组件。KubeKey 会自动部署 DNS 服务，确保集群内的 Pod 和服务可以通过域名相互访问。
+
+#### coredns
+
+> **说明**：CoreDNS 是 Kubernetes 集群的默认 DNS 服务器，负责解析集群内的 Service 和 Pod 域名。CoreDNS 是集群正常运行所必需的组件，KubeKey 会自动安装。
+
+> **版本指定**：可通过 `--set dns.dns_image.tag="v1.12.1"` 指定 CoreDNS 版本（不指定则使用默认版本）
+
+> **主要功能**：Service 域名解析、Pod 域名解析、自定义 DNS 规则、上游 DNS 转发
+
+| kubernetes 版本 | 内置 coredns 版本 | kubekey 默认 coredns 版本 |
+|---|---|---|
+| 1.23 | [v1.8.6](https://github.com/kubernetes/kubernetes/blob/v1.23.0/cluster/addons/dns/coredns/coredns.yaml.base#L142) | v1.8.6 |
+| 1.24 | [v1.8.6](https://github.com/kubernetes/kubernetes/blob/v1.24.0/cluster/addons/dns/coredns/coredns.yaml.base#L142) | v1.8.6 |
+| 1.25 | [v1.9.3](https://github.com/kubernetes/kubernetes/blob/v1.25.0/cluster/addons/dns/coredns/coredns.yaml.base#L142) | v1.9.3 |
+| 1.26 | [v1.9.3](https://github.com/kubernetes/kubernetes/blob/v1.26.0/cluster/addons/dns/coredns/coredns.yaml.base#L142) | v1.9.3 |
+| 1.27 | [v1.10.1](https://github.com/kubernetes/kubernetes/blob/v1.27.0/cluster/addons/dns/coredns/coredns.yaml.base#L142) | v1.10.1 |
+| 1.28 | [v1.10.1](https://github.com/kubernetes/kubernetes/blob/v1.28.0/cluster/addons/dns/coredns/coredns.yaml.base#L136) | v1.10.1 |
+| 1.29 | [v1.11.1](https://github.com/kubernetes/kubernetes/blob/v1.29.0/cluster/addons/dns/coredns/coredns.yaml.base#L136) | v1.11.1 |
+| 1.30 | [1.30.0\~1.30.4](https://github.com/kubernetes/kubernetes/blob/v1.30.0/cluster/addons/dns/coredns/coredns.yaml.base#L136): v1.11.1<br>[1.30.5\~1.30.14](https://github.com/kubernetes/kubernetes/blob/v1.30.5/cluster/addons/dns/coredns/coredns.yaml.base#L136): v1.11.3 | v1.11.3 |
+| 1.31 | [1.31.0](https://github.com/kubernetes/kubernetes/blob/v1.31.0/cluster/addons/dns/coredns/coredns.yaml.base#L136): v1.11.1<br>[1.31.1\~1.31.14](https://github.com/kubernetes/kubernetes/blob/v1.31.1/cluster/addons/dns/coredns/coredns.yaml.base#L136): v1.11.3 | v1.11.3 |
+| 1.32 | [v1.11.3](https://github.com/kubernetes/kubernetes/blob/v1.32.0/cluster/addons/dns/coredns/coredns.yaml.base#L136) | v1.11.3 |
+| 1.33 | [v1.12.0](https://github.com/kubernetes/kubernetes/blob/v1.33.0/cluster/addons/dns/coredns/coredns.yaml.base#L136) | v1.12.0 |
+| 1.34 | [v1.12.1](https://github.com/kubernetes/kubernetes/blob/v1.34.0/cluster/addons/dns/coredns/coredns.yaml.base#L136) | v1.12.1 |
+| 1.35 | [v1.13.1](https://github.com/kubernetes/kubernetes/blob/v1.35.0/cluster/addons/dns/coredns/coredns.yaml.base#L136) | v1.13.1 |
+| 1.36 | [v1.14.2](https://github.com/kubernetes/kubernetes/blob/v1.36.0/cluster/addons/dns/coredns/coredns.yaml.base#L136) | v1.14.2 |
+| 1.37 | [v1.14.6](https://github.com/kubernetes/kubernetes/blob/v1.37.0/cluster/addons/dns/coredns/coredns.yaml.base#L136) | v1.14.6 |
+
+#### nodelocaldns
+
+> **说明**：NodeLocalDNS 是一个 DNS 缓存守护进程，运行在每个节点上，用于缓存 DNS 查询结果，减少对 CoreDNS 的请求压力，提高 DNS 解析性能。NodeLocalDNS 是可选的性能优化组件。
+
+> **版本指定**：可通过 `--set dns.dns_cache_image.tag="v1.26.4"` 指定 NodeLocalDNS 版本（不指定则使用默认版本）
+
+> **主要功能**：DNS 查询缓存、减少 DNS 查询延迟、降低 CoreDNS 负载、提高集群 DNS 性能
+
+> **注意**：NodeLocalDNS 不是必需组件，但建议在生产环境中启用以提升 DNS 性能
+
+| kubernetes 版本 | 内置 nodelocaldns 版本 | kubekey 默认 nodelocaldns 版本 |
+|---|---|---|
+| 1.23 | [1.21.1](https://github.com/kubernetes/kubernetes/blob/v1.23.0/cluster/addons/dns/nodelocaldns/nodelocaldns.yaml#L141) | v1.21.1 |
+| 1.24 | [1.21.1](https://github.com/kubernetes/kubernetes/blob/v1.24.0/cluster/addons/dns/nodelocaldns/nodelocaldns.yaml#L141) | v1.21.1 |
+| 1.25 | [1.22.8](https://github.com/kubernetes/kubernetes/blob/v1.25.0/cluster/addons/dns/nodelocaldns/nodelocaldns.yaml#L141) | v1.22.8 |
+| 1.26 | [1.22.13](https://github.com/kubernetes/kubernetes/blob/v1.26.0/cluster/addons/dns/nodelocaldns/nodelocaldns.yaml#L141) | v1.22.13 |
+| 1.27 | [1.22.20](https://github.com/kubernetes/kubernetes/blob/v1.27.0/cluster/addons/dns/nodelocaldns/nodelocaldns.yaml#L141) | v1.22.20 |
+| 1.28 | [1.22.23](https://github.com/kubernetes/kubernetes/blob/v1.28.0/cluster/addons/dns/nodelocaldns/nodelocaldns.yaml#L141) | v1.22.23 |
+| 1.29 | [1.22.23](https://github.com/kubernetes/kubernetes/blob/v1.29.0/cluster/addons/dns/nodelocaldns/nodelocaldns.yaml#L141) | v1.22.23 |
+| 1.30 | [1.22.28](https://github.com/kubernetes/kubernetes/blob/v1.30.0/cluster/addons/dns/nodelocaldns/nodelocaldns.yaml#L141) | v1.22.28 |
+| 1.31 | [1.23.1](https://github.com/kubernetes/kubernetes/blob/v1.31.0/cluster/addons/dns/nodelocaldns/nodelocaldns.yaml#L141) | v1.23.1 |
+| 1.32 | [1.23.1](https://github.com/kubernetes/kubernetes/blob/v1.32.0/cluster/addons/dns/nodelocaldns/nodelocaldns.yaml#L141) | v1.23.1 |
+| 1.33 | [1.25.0](https://github.com/kubernetes/kubernetes/blob/v1.33.0/cluster/addons/dns/nodelocaldns/nodelocaldns.yaml#L141) | v1.25.0 |
+| 1.34 | [1.26.4](https://github.com/kubernetes/kubernetes/blob/v1.34.0/cluster/addons/dns/nodelocaldns/nodelocaldns.yaml#L141) | v1.26.4 |
+| 1.35 | [1.26.4](https://github.com/kubernetes/kubernetes/blob/v1.35.0/cluster/addons/dns/nodelocaldns/nodelocaldns.yaml#L141) | v1.26.4 |
+| 1.36 | [1.26.7](https://github.com/kubernetes/kubernetes/blob/v1.36.0/cluster/addons/dns/nodelocaldns/nodelocaldns.yaml#L141) | v1.26.7 |
+| 1.37 | [1.26.8](https://github.com/kubernetes/kubernetes/blob/v1.37.0/cluster/addons/dns/nodelocaldns/nodelocaldns.yaml#L141) | v1.26.8 |
+
+### pause 镜像
+
+> **说明**：pause 镜像是 Kubernetes 中一个特殊的容器镜像，每个 Pod 都会包含一个 pause 容器。pause 容器作为 Pod 的网络命名空间和 PID 命名空间的占位符，用于保持 Pod 的网络配置和进程隔离。pause 镜像版本必须与 Kubernetes 版本匹配。
+
+> **版本指定**：可通过 `--set kubernetes.sandbox_image="3.10.1"` 指定 pause 镜像版本（不指定则使用默认版本）
+
+> **重要提示**：
+> - pause 镜像版本由 Kubernetes 版本决定，不建议随意修改
+> - pause 容器对用户不可见，但它是 Pod 正常运行的基础
+> - 版本不匹配可能导致 Pod 无法正常启动
+
+| kubernetes 版本 | 内置 pause 版本 | kubekey 默认 pause 版本 |
+|---|---|---|
+| 1.23 | [3.6](https://github.com/kubernetes/kubernetes/blob/v1.23.0/cmd/kubeadm/app/constants/constants.go#L412) | 3.6 |
+| 1.24 | [3.7](https://github.com/kubernetes/kubernetes/blob/v1.24.0/cmd/kubeadm/app/constants/constants.go#L428) | 3.7 |
+| 1.25 | [3.8](https://github.com/kubernetes/kubernetes/blob/v1.25.0/cmd/kubeadm/app/constants/constants.go#L424) | 3.8 |
+| 1.26 | [3.9](https://github.com/kubernetes/kubernetes/blob/v1.26.0/cmd/kubeadm/app/constants/constants.go#L420) | 3.9 |
+| 1.27 | [3.9](https://github.com/kubernetes/kubernetes/blob/v1.27.0/cmd/kubeadm/app/constants/constants.go#L420) | 3.9 |
+| 1.28 | [3.9](https://github.com/kubernetes/kubernetes/blob/v1.28.0/cmd/kubeadm/app/constants/constants.go#L419) | 3.9 |
+| 1.29 | [3.9](https://github.com/kubernetes/kubernetes/blob/v1.29.0/cmd/kubeadm/app/constants/constants.go#L423) | 3.9 |
+| 1.30 | [3.9](https://github.com/kubernetes/kubernetes/blob/v1.30.0/cmd/kubeadm/app/constants/constants.go#L436) | 3.9 |
+| 1.31 | [3.10](https://github.com/kubernetes/kubernetes/blob/v1.31.0/cmd/kubeadm/app/constants/constants.go#L438) | 3.10 |
+| 1.32 | [3.10](https://github.com/kubernetes/kubernetes/blob/v1.32.0/cmd/kubeadm/app/constants/constants.go#L445) | 3.10 |
+| 1.33 | [3.10](https://github.com/kubernetes/kubernetes/blob/v1.33.0/cmd/kubeadm/app/constants/constants.go#L445) | 3.10 |
+| 1.34 | [3.10.1](https://github.com/kubernetes/kubernetes/blob/v1.34.0/cmd/kubeadm/app/constants/constants.go#L445) | 3.10.1 |
+| 1.35 | [3.10.1](https://github.com/kubernetes/kubernetes/blob/v1.35.0/cmd/kubeadm/app/constants/constants.go#L445) | 3.10.1 |
+| 1.36 | [3.10.2](https://github.com/kubernetes/kubernetes/blob/v1.36.0/cmd/kubeadm/app/constants/constants.go#L445) | 3.10.2 |
+| 1.37 | [3.10.2](https://github.com/kubernetes/kubernetes/blob/v1.37.0/cmd/kubeadm/app/constants/constants.go#L446) | 3.10.2 |
+

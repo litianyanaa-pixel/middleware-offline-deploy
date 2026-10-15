@@ -1,0 +1,49 @@
+- name: Package | Copy manifests to artifact directory
+  when: printf "%s/manifests.yaml" .binary_dir | fileExists
+  block:
+    - name: Package | Copy manifests to artifact/kubekey directory
+      copy:
+        src: "{{ .binary_dir }}/manifests.yaml"
+        dest: "{{ .artifact_dir }}/kubekey/manifests.yaml"
+    - name: Package | Copy manifests to artifact directory
+      copy:
+        src: "{{ .binary_dir }}/manifests.yaml"
+        dest: "{{ .artifact_dir }}/manifests.yaml"
+
+- name: Package | Download tools to artifact directory
+  loop: >
+    {{- $result := list -}}
+    {{- range $arch := .download.arch }}
+      {{- range $tool,$url := $.download.tools }}
+        {{- $result = append $result (dict "arch" $arch "tool" $tool "url" $url) -}}
+      {{- end }}
+    {{- end }}
+    {{- $result | toJson }}
+  when: printf "%s/tools/%s/%s" .artifact_dir .item.arch (base (tpl .item.url .item)) | fileExists | not
+  copy:
+    src: "{{ .work_dir }}/tools/{{ .item.arch }}/{{ base (tpl .item.url .item) }}"
+    dest: "{{ .artifact_dir }}/tools/{{ .item.arch }}/{{ base (tpl .item.url .item) }}"
+
+- name: Tools | Download charts to artifact directory
+  loop: "{{ .download.charts | toJson }}"
+  command: |
+    url={{ .item.url }}
+    version={{ .item.version }}
+    mkdir -p "{{ .artifact_dir }}/charts"
+    # OCI
+    if [[ "$url" == oci://* ]]; then
+      if [[ -z "$version" ]]; then
+        helm pull "$url" --destination "{{ .artifact_dir }}/charts"
+      else
+        helm pull "$url" --version "$version" --destination "{{ .artifact_dir }}/charts"
+      fi
+    else
+      # HTTP - url format: chart@repo
+      chart=$(echo "$url" | cut -d'@' -f1)
+      repo=$(echo "$url" | cut -d'@' -f2)
+      if [[ -z "$version" ]]; then
+        helm pull "$chart" --repo "$repo" --destination "{{ .artifact_dir }}/charts"
+      else
+        helm pull "$chart" --repo "$repo" --version "$version" --destination "{{ .artifact_dir }}/charts"
+      fi
+    fi

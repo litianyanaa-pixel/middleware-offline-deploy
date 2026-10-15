@@ -1,0 +1,123 @@
+---
+- hosts:
+    - all
+  gather_facts: true
+  roles:
+    - native/root
+# Load default variables and perform prechecks on all hosts
+- hosts:
+    - all
+  gather_facts: true
+  roles:
+    - defaults
+
+- hosts:
+    - etcd
+  roles:
+    - role: etcd/prepare
+      when: 
+        - .delete.etcd
+        - .etcd.deployment_type | eq "external"
+- hosts:
+    - etcd
+  serial: 1 
+  roles:
+    - role: etcd/scaling_down
+      when: 
+        - .delete.etcd
+        - .etcd.deployment_type | eq "external"
+        - .need_uninstall_etcd | has .inventory_hostname
+- hosts:
+    - etcd
+  gather_facts: true
+  roles:
+    - role: etcd/postprocess
+      when: 
+        - .delete.etcd
+        - .etcd.deployment_type | eq "external"
+        - .need_uninstall_etcd | empty | not
+        - .need_uninstall_etcd | has .inventory_hostname | not 
+
+- hosts:
+    - kube_control_plane
+  serial: 1
+  pre_tasks:
+    - name: DeleteNode | Ensure at least one control plane node remains in the cluster
+      command: |
+        {{- $cpNodes := list -}}
+        {{- range .groups.kube_control_plane -}}
+          {{- if index $.hostvars . "kubernetes_install_LoadState" "stdout" | eq "loaded" -}}
+            {{- $cpNodes = append $cpNodes . -}}
+          {{- end -}}
+        {{- end -}}
+        {{- if (subtractList $cpNodes .delete_nodes) | empty }}
+        echo "At least one control plane node must be retained in the cluster." >&2
+        exit 1
+        {{- end }}
+  roles:
+    - role: kubernetes/sync-etcd-config
+      when:
+        - .need_installed_etcd | empty | not
+        - .etcd.deployment_type | eq "external"
+        - .kubernetes_install_ActiveState.stdout | eq "active"
+        - .delete_nodes | default list | has .inventory_hostname | not
+
+- hosts: 
+    - k8s_cluster
+  pre_tasks:
+    - name: DeleteNode | Remove node from Kubernetes cluster
+      delegate_to: "{{ subtractList .groups.kube_control_plane .delete_nodes | first }}"
+      when: .delete_nodes | default list | has .inventory_hostname
+      command: |
+        if kubectl get node {{ .hostname }} > /dev/null 2>&1; then
+          kubectl cordon {{ .hostname }}
+          if [ $(kubectl get nodes --no-headers | wc -l) -gt 1 ]; then
+            kubectl drain {{ .hostname }} --ignore-daemonsets --delete-emptydir-data --force --disable-eviction
+          else
+            kubectl drain {{ .hostname }} --ignore-daemonsets --delete-emptydir-data --force
+          fi
+        {{- if .cni.type | eq "calico" }}
+          calicoctl delete node {{ .hostname }}
+        {{- end }}
+          kubectl delete node {{ .hostname }}
+        fi
+  roles:
+    - role: uninstall/kubernetes
+      when: .delete_nodes | default list | has .inventory_hostname
+    - role: uninstall/cri
+      when: 
+        - .delete.cri
+        - .groups.image_registry | default list | has .inventory_hostname | not
+        - .delete_nodes | default list | has .inventory_hostname
+    - role: uninstall/storage
+      when:
+        - .delete.data | default false
+        - .delete_nodes | default list | has .inventory_hostname
+  post_tasks:
+    - name: DeleteNode | Clean up local DNS configuration files
+      ignore_errors: true
+      loop: "{{ .native.localDNS | toJson }}"
+      command: |
+        sed -i '/# kubekey hosts BEGIN/,/# kubekey hosts END/d' {{ .item }}
+        sed -i '/# kubekey kubernetes control_plane_endpoint BEGIN/,/# kubekey kubernetes control_plane_endpoint END/d' {{ .item }}
+        sed -i '/# kubekey image_registry control_plane_endpoint BEGIN/,/# kubekey image_registry control_plane_endpoint END/d' {{ .item }}
+      when: 
+        - .delete.dns
+        - .delete_nodes | default list | has .inventory_hostname
+
+- hosts:
+    - etcd
+  roles:
+    - role: etcd
+      when: 
+        - .delete.etcd
+        - .etcd.deployment_type | eq "external"
+        - .delete_nodes | default list | has .inventory_hostname
+
+- hosts:
+   - image_registry
+  roles:
+    - role: uninstall/image-registry
+      when:
+       - .delete.image_registry
+       - .delete_nodes | default list | has .inventory_hostname

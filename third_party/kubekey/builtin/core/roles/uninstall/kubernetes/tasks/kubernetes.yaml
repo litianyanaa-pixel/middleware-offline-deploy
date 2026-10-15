@@ -1,0 +1,36 @@
+---
+- name: Kubernetes | Completely reset the node using kubeadm
+  ignore_errors: true
+  command: |
+    # After Kubernetes v1.27.0, the remove-etcd-member phase will automatically clean up /var/lib/etcd
+    kubeadm reset -f {{ if .etcd.deployment_type | eq "external" }}--skip-phases remove-etcd-member{{ end }}
+
+- name: Kubernetes | Gracefully stop and disable the kubelet service
+  ignore_errors: true
+  command: |
+    systemctl stop kubelet.service
+    systemctl disable kubelet.service
+    rm -rf /etc/systemd/system/kubelet.service*
+    systemctl daemon-reload
+    systemctl reset-failed kubelet.service
+
+- name: Kubernetes | Terminate residual control plane and kubelet processes
+  ignore_errors: true
+  command: |
+    pgrep -f "kube-apiserver|kube-controller-manager|kube-scheduler|kubelet" | xargs -r kill -9
+
+- name: Kubernetes | Remove all residual Kubernetes files and directories
+  command: |
+    rm -rf /var/lib/kubelet/
+    # If /var/log/pods/ is not cleaned up, static pods may accumulate unexpected restarts due to lingering log files interfering with their lifecycle.
+    rm -rf /var/log/pods/
+    rm -rf /etc/kubernetes/
+    rm -rf /root/.kube/config
+    if [ "$SUDO_USER" != "root" ]; then
+      rm -rf /home/$SUDO_USER/.kube/config
+    fi
+    for bin in kubeadm kubelet kubectl; do
+      if path=$(command -v $bin 2>/dev/null); then
+        rm -f "$path"
+      fi
+    done

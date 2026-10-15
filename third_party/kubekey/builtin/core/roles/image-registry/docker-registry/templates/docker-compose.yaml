@@ -1,0 +1,33 @@
+---
+version: '2.3'
+services:
+  registry:
+    image: registry:{{ .image_registry.docker_registry_version }}
+    container_name: registry
+    restart: always
+    dns_search: .
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - SETGID
+      - SETUID
+    volumes:
+      - type: bind
+        source: /opt/docker-registry/{{ .image_registry.docker_registry_version }}/ssl/
+        target: /etc/registry/ssl/
+      - type: bind
+        source: /opt/docker-registry/{{ .image_registry.docker_registry_version }}/config.yml
+        target: /etc/docker/registry/config.yml
+    ports:
+{{- if .image_registry.auth.plain_http | default false }}
+      - {{ .image_registry.http_port | default 80 }}:5000
+{{- else }}
+      - {{ .image_registry.https_port | default 443 }}:5000
+{{- end }}
+    networks:
+      - proxy
+networks:
+  proxy:
+    external: false

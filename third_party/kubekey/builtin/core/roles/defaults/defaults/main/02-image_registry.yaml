@@ -1,0 +1,91 @@
+# In an online environment (when image_registry.auth.registry is empty), images are pulled directly from their original registries to the cluster.
+# In an offline environment (when image_registry.auth.registry is set), images are first pulled from the source registry, cached locally, pushed to a private registry (such as Harbor), and then used by the cluster.
+
+image_registry:
+  # Specify which image registry to install. Supported values: harbor, docker-registry
+  # If left empty, no image registry will be installed (assumes an existing registry is already available).
+  type: ""
+  ha_vip: ""
+  # Image registry authentication settings
+  # Note: The 'harbor' section below depends on values computed in this 'auth' section.
+  auth:
+    # Whether to use plain HTTP for the registry (no TLS).
+    plain_http: false
+    registry: >-
+      {{- if .image_registry.type | empty | not -}}
+        {{- if .image_registry.ha_vip | empty | not -}}
+      {{ .image_registry.ha_vip }}
+        {{- else if .groups.image_registry | default list | empty | not -}}
+          {{- $internalIPv4 := index .hostvars (.groups.image_registry | default list | first) "internal_ipv4" | default "" -}}
+          {{- $internalIPv6 := index .hostvars (.groups.image_registry | default list | first) "internal_ipv6" | default "" -}}
+          {{- if $internalIPv4 | empty | not -}}
+      {{ $internalIPv4 }}
+          {{- else if $internalIPv6 | empty | not -}}
+      {{ $internalIPv6 }}
+          {{- end -}}
+        {{- end -}}
+      {{- else -}}
+        {{- if .zone | eq "cn" -}}
+      hub.kubesphere.com.cn
+        {{- end -}}
+      {{- end -}}
+    username: >-
+      {{- if .image_registry.type | empty | not -}}
+      admin
+      {{- end }}
+    password: >-
+      {{- if .image_registry.type | empty | not -}}
+      Harbor12345
+      {{- end }}
+    skip_tls_verify: >-
+      {{- .image_registry.type | empty -}}
+    ca_file: >-
+      {{- if .groups.image_registry | default list | empty | not -}}
+      {{ .work_dir }}/pki/root.crt
+      {{- end -}}
+    cert_file: >-
+      {{- if .groups.image_registry | default list | empty | not -}}
+      {{ .work_dir }}/pki/image-registry-client.crt
+      {{- end -}}
+    key_file: >-
+      {{- if .groups.image_registry | default list | empty | not -}}
+      {{ .work_dir }}/pki/image-registry-client.key
+      {{- end -}}
+
+  # Registry endpoint ports derived from image_registry.auth.registry and plain_http.
+  http_port: >-
+    {{- if and (.image_registry.type | empty | not) (.image_registry.auth.registry | empty | not) (.image_registry.auth.plain_http | default false) -}}
+      {{- $hostPart := .image_registry.auth.registry | splitList "/" | first -}}
+      {{- $port := $hostPart | splitList ":" | last -}}
+      {{- if and (ne $port $hostPart) (ne $port "") -}}
+    {{ $port }}
+      {{- else -}}
+    80
+      {{- end -}}
+    {{- end -}}
+  https_port: >-
+    {{- if and (.image_registry.type | empty | not) (.image_registry.auth.registry | empty | not) (not (.image_registry.auth.plain_http | default false)) -}}
+      {{- $hostPart := .image_registry.auth.registry | splitList "/" | first -}}
+      {{- $port := $hostPart | splitList ":" | last -}}
+      {{- if and (ne $port $hostPart) (ne $port "") -}}
+    {{ $port }}
+      {{- else -}}
+    443
+      {{- end -}}
+    {{- end -}}
+
+  # Registry endpoint for images from docker.io
+  dockerio_registry: >-
+    {{- .image_registry.auth.registry | empty | ternary "docker.io" .image_registry.auth.registry -}}
+
+  # Registry endpoint for images from quay.io
+  quayio_registry: >-
+    {{- .image_registry.auth.registry | empty | ternary "quay.io" .image_registry.auth.registry -}}
+
+  # Registry endpoint for images from ghcr.io
+  ghcrio_registry: >-
+    {{- .image_registry.auth.registry | empty | ternary "ghcr.io" .image_registry.auth.registry -}}
+
+  # Registry endpoint for images from ghcr.io
+  k8sio_registry: >-
+    {{- .image_registry.auth.registry | empty | ternary "registry.k8s.io" .image_registry.auth.registry -}}

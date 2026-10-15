@@ -1,0 +1,20 @@
+---
+- hosts:
+    - all
+  gather_facts: true
+  roles:
+    - native/root
+# Load default variables and perform prechecks on all hosts
+- hosts:
+    - localhost
+  roles:
+    - defaults
+
+- hosts:
+    - localhost
+  roles:
+    - role: download
+    - role: image-registry/pull
+      tags: ["pull"]
+    - role: image-registry/push
+      tags: ["push"]
