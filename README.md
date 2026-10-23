@@ -6,10 +6,10 @@
 服务器上解压后执行 `./deploy.sh` 一条命令，全程零交互完成 Docker/Compose 离线安装和全部中间件部署，
 部署完自动生成《部署报告》并贴出日常运维命令。
 
-> 为谁而生：内网/隔离机房/无公网的服务器交付场景。不需要服务器能上网，不需要服务器预装任何网络工具，
-> 不需要在服务器上回答任何问题——所有决策在打包时已完成。
+> 适用场景：内网/隔离机房/无公网的服务器交付。服务器不需要能上网，不需要预装任何网络工具，
+> 部署时也不会问任何问题——所有决策在打包时已完成。
 
-**🌐 在线演示**：<https://litianyanaa-pixel.github.io/middleware-offline-deploy/packer.html>
+**在线演示**：<https://litianyanaa-pixel.github.io/middleware-offline-deploy/packer.html>
 （静态演示版：界面与配置流程可完整体验；打包/预览/物料检查需要本地后端）
 项目主页：<https://litianyanaa-pixel.github.io/middleware-offline-deploy/>
 
@@ -24,7 +24,7 @@
 └────────────────────────────────┘              └───────────────────────────┘
 ```
 
-## ✨ 功能亮点
+## 功能亮点
 
 - **零交互部署**：端口、密码、数据库来源、备份策略全部在打包时决定，服务器上不问任何问题
 - **Java 运行时**：Temurin JDK 8/17/21 双架构(amd64/arm64)作为基础中间件随包分发——服务器池按台勾选部署目标，
@@ -54,7 +54,7 @@
 - **消息队列**：Apache Kafka(KRaft 单节点, 免 ZooKeeper) + Kafka UI 可视化控制台；
   也可一键切换 **3 节点集群**(KRaft 组合模式, SASL_PLAINTEXT 多用户鉴权, 广播地址部署时自动改写为服务器 IP)
 
-## 🖼 界面导览
+## 界面导览
 
 **基础设置 + 选择中间件**：项目名、部署目录、Docker 数据目录、镜像加速器（一键填入实测可用源）；按卡片勾选中间件，自动识别架构与体积。
 
@@ -84,7 +84,7 @@
 
 ![生成预览](docs/images/zh/ui-preview.png)
 
-## 📦 一、本地打包
+## 一、本地打包
 
 ```bash
 python packer.py            # 打开 http://127.0.0.1:8765 (纯标准库, 无需装依赖)
@@ -123,7 +123,7 @@ xxx-offline/
 └── README.txt           # 面向服务器操作者的两步说明
 ```
 
-## 🛳 二、服务器部署
+## 二、服务器部署
 
 ```bash
 tar -xzf <项目名>-offline.tar.gz
@@ -205,7 +205,7 @@ docker compose restart         # 重启全部(单个: docker compose restart <�
 docker compose down            # 停止(数据目录保留, 不删除)
 ```
 
-## 💾 三、备份与恢复
+## 三、备份与恢复
 
 备份策略在打包时配置（周几/几点/保留份数/目录），部署时自动写入 crontab；也可以手工执行：
 
@@ -221,7 +221,7 @@ cd /data/middleware
 - 交互确认可加 `--yes` 跳过；backup.sh 与 restore.sh 共用文件锁，不会互相踩
 - 当前备份/恢复仅覆盖 MySQL；PostgreSQL 插件暂未纳入，需要时可按 `pg_dumpall` 思路扩展
 
-## 🔁 四、维护（升级中间件 / 新增中间件）
+## 四、维护（升级中间件 / 新增中间件）
 
 ### 升级内置中间件
 1. 新镜像放进 `warehouse/images/<中间件>/<版本>/<架构>.tar`
@@ -316,7 +316,7 @@ warehouse/images/postgres/15.19/arm64.tar   ← postgres-15.19-arm64.tar 放这�
 当前插件边界：插件中间件暂未纳入定时备份/恢复（backup.sh/restore.sh 仅覆盖 MySQL），
 需要时可按 `pg_dumpall` / `mongodump` / `rabbitmqctl export_definitions` 思路扩展。
 
-## 🪞 五、镜像加速器实测结论（2026-09-09）
+## 五、镜像加速器实测结论（2026-09-09）
 
 | 加速器 | 结果 |
 |---|---|
@@ -336,7 +336,7 @@ warehouse/images/postgres/15.19/arm64.tar   ← postgres-15.19-arm64.tar 放这�
 页面默认预填实测可用的六个。注意：加速器只作为 `docker pull` 兜底，
 **离线镜像包本身完全不依赖加速器**，可达性以打包机当时网络为准。
 
-## ❓ 六、FAQ / 已知事项
+## 六、FAQ / 已知事项
 
 **Q: 服务器是精简系统，没装 ss/netstat/curl，能部署吗？**
 能。端口预检直接读内核 `/proc/net/tcp(6)`（任何 Linux 恒有），磁盘预检只用 `df/du`；
@@ -365,7 +365,7 @@ warehouse/images/postgres/15.19/arm64.tar   ← postgres-15.19-arm64.tar 放这�
 - 服务器兼容：bash 4.2+（CentOS 7）、systemd、x86_64/aarch64；内核需支持 overlay2
 - 无论服务器是否已装 Docker，部署脚本都会确保 docker/containerd systemd 服务开机自启
 
-## 🔐 七、安全
+## 七、安全
 
 - **打包器 Web API 三道闸**：写操作要求页面注入的 `X-Packer-Token` 请求头（防跨站 drive-by）、
   Host 头回环校验（防 DNS rebinding）、`Content-Type: application/json` 约束（纵深防御）；
@@ -377,7 +377,7 @@ warehouse/images/postgres/15.19/arm64.tar   ← postgres-15.19-arm64.tar 放这�
 - 本仓库**不含**任何物料与产物：`warehouse/`（原始镜像/安装包）与 `dist/`（打包产物）已在 `.gitignore`
   排除，请按内部流程单独保管与传输
 
-## 📁 八、目录结构
+## 八、目录结构
 
 ```
 ├── packer.py                  # 打包器入口(Web + CLI 双模式): 兼容薄壳, 实现在 packerlib/
@@ -426,7 +426,7 @@ warehouse/images/postgres/15.19/arm64.tar   ← postgres-15.19-arm64.tar 放这�
 > `python build_webui.py`（测试会拦截"改了源忘构建"）；`packer.py` 与 `packer.html`
 > 分别是两者的交付形态，不要直接改 `packer.html`。
 
-## ☸ 九、Kubernetes 集群离线部署（信创）
+## 九、Kubernetes 集群离线部署（信创）
 
 除单机中间件外，打包器还能交付 **K8s 集群**（基于 KubeKey，支持信创）：页面勾选
 「Kubernetes 集群」卡片（可再叠加任意中间件同包部署）→ 在部署形态区填集群参数并给
@@ -485,7 +485,7 @@ Python3 / Docker Engine / Go 1.25+），`--cn` 走国内源（golang.google.cn +
 `--only python|docker|go` 单装一项，`--check` 只盘点（全齐退出码 0）。Windows 打包机用官方
 安装包装 Python / Docker Desktop / Go 即可，无需脚本。
 
-## 📚 十、文档索引
+## 十、文档索引
 
 | 文档 | 内容 |
 |---|---|

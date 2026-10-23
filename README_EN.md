@@ -6,7 +6,7 @@ Pick your middleware, ports, passwords, databases and backup policy in a local w
 
 > Built for: air-gapped / isolated / no-public-network server delivery. The server needs no internet access, no network tools pre-installed, and never asks a single question — every decision is made at packing time.
 
-**🌐 Live demo**: <https://litianyanaa-pixel.github.io/middleware-offline-deploy/packer.html>
+**Live demo**: <https://litianyanaa-pixel.github.io/middleware-offline-deploy/packer.html>
 (Static demo: the UI and configuration flow work fully; packing/preview/material checks need the local backend.)
 Project home: <https://litianyanaa-pixel.github.io/middleware-offline-deploy/>
 
@@ -21,7 +21,7 @@ Local (Windows / macOS / Linux)                Server (offline intranet)
 └────────────────────────────────┘               └───────────────────────────┘
 ```
 
-## ✨ Highlights
+## Highlights
 
 - **Zero-interaction deployment**: ports, passwords, database sources and backup policy are all decided at packing time; the server asks nothing
 - **Java runtime**: Eclipse Temurin JDK 8/17/21, dual architecture (amd64/arm64), shipped as a base middleware — pick per-server deploy targets from the pool, multiple versions coexist with the default one written into `JAVA_HOME`, sha256-verified then extracted to `/data/java` (customizable); `python prepare_java.py --download` pre-fetches materials (packing auto-fetches anything missing). Verified on a real Ubuntu 22.04 environment: single-version install, multi-version coexistence and idempotent re-runs all pass
@@ -41,7 +41,7 @@ Local (Windows / macOS / Linux)                Server (offline intranet)
 - **Observability, closed loop**: Node Exporter (host metrics) + Prometheus + Loki/Promtail (container logs) + Grafana datasources/dashboards **pre-provisioned** — open Grafana after deploy and the host monitoring dashboard is already there
 - **Message queue**: Apache Kafka (single-node KRaft, no ZooKeeper) + Kafka UI console; one click switches to a **3-node cluster** (KRaft combined mode, SASL_PLAINTEXT multi-user auth, advertised addresses auto-rewritten to the server IPs at deploy time)
 
-## 🖼 UI Tour
+## UI Tour
 
 **Basics + middleware selection**: project name, deploy directory, Docker data root, registry mirrors (one-click fill with tested-working mirrors); select middleware by card with automatic architecture and size detection.
 
@@ -71,7 +71,7 @@ Local (Windows / macOS / Linux)                Server (offline intranet)
 
 ![Preview](docs/images/en/ui-preview.png)
 
-## 📦 1. Pack Locally
+## 1. Pack Locally
 
 ```bash
 python packer.py            # opens http://127.0.0.1:8765 (stdlib only, no dependencies)
@@ -109,7 +109,7 @@ xxx-offline/
 └── README.txt           # two-step instructions for the server operator
 ```
 
-## 🛳 2. Deploy on the Server
+## 2. Deploy on the Server
 
 ```bash
 tar -xzf <project>-offline.tar.gz
@@ -185,7 +185,7 @@ docker compose restart         # restart everything (single: docker compose rest
 docker compose down            # stop (data directories are kept, nothing deleted)
 ```
 
-## 💾 3. Backup & Restore
+## 3. Backup & Restore
 
 The backup policy is configured at packing time (day of week / hour / retention count / directory) and installed into crontab at deploy time; manual execution also works:
 
@@ -201,7 +201,7 @@ cd /data/middleware
 - Skip the interactive confirmation with `--yes`; backup.sh and restore.sh share a file lock so they never collide
 - Currently backup/restore covers MySQL only; the PostgreSQL plugin isn't covered yet — extend along the `pg_dumpall` approach if needed
 
-## 🔁 4. Maintenance (Upgrade / Add Middleware)
+## 4. Maintenance (Upgrade / Add Middleware)
 
 ### Upgrading built-in middleware
 1. Put the new image in `warehouse/images/<middleware>/<version>/<arch>.tar`
@@ -290,7 +290,7 @@ warehouse/images/postgres/15.19/arm64.tar   ← postgres-15.19-arm64.tar goes he
 Current plugin boundary: plugin middleware is not yet covered by scheduled backup/restore (backup.sh/restore.sh are MySQL-only);
 extend along the `pg_dumpall` / `mongodump` / `rabbitmqctl export_definitions` approach if needed.
 
-## 🪞 5. Registry Mirror Test Results (2026-09-09)
+## 5. Registry Mirror Test Results (2026-09-09)
 
 | Mirror | Result |
 |---|---|
@@ -310,7 +310,7 @@ extend along the `pg_dumpall` / `mongodump` / `rabbitmqctl export_definitions` a
 The page pre-fills the six tested-working mirrors by default. Note: mirrors are only a fallback for `docker pull`;
 **the offline image bundles themselves don't depend on mirrors at all** — reachability depends on the packing machine's network at that moment.
 
-## ❓ 6. FAQ / Known Issues
+## 6. FAQ / Known Issues
 
 **Q: The server is a stripped-down system without ss/netstat/curl — will deployment work?**
 Yes. Port pre-checks read the kernel's `/proc/net/tcp(6)` directly (present on every Linux), disk checks use only `df/du`;
@@ -339,7 +339,7 @@ Port/password changes should go through "edit locally → repack → redeploy", 
 - Server compatibility: bash 4.2+ (CentOS 7), systemd, x86_64/aarch64; kernel must support overlay2
 - Whether or not Docker is pre-installed, the script ensures docker/containerd systemd services start on boot
 
-## 🔐 7. Security
+## 7. Security
 
 - **Packer Web API triple gate**: write operations require the page-injected `X-Packer-Token` header (blocks cross-site drive-by), Host header loopback validation (blocks DNS rebinding), and `Content-Type: application/json` enforcement (defense in depth); user-controlled values in deploy scripts are injected via `printf %q` with allowlist validation, closing quote-escape injection
 - `.env` and `manifest.sh` contain all plaintext passwords, permission 600 inside the bundle — control their distribution and retention
@@ -348,7 +348,7 @@ Port/password changes should go through "edit locally → repack → redeploy", 
   the XXL-Job console initial password is written into the init SQL from your registered value at packing time — no public fixed password
 - This repo contains **no materials or artifacts**: `warehouse/` (raw images/packages) and `dist/` (build outputs) are excluded via `.gitignore`; keep and transfer them via your internal process
 
-## 📁 8. Directory Structure
+## 8. Directory Structure
 
 ```
 ├── packer.py                  # packer entry (web + CLI, stdlib only): thin compatibility shell, implementation in packerlib/
@@ -394,7 +394,7 @@ Port/password changes should go through "edit locally → repack → redeploy", 
 > `python build_webui.py` (tests fail on "sources changed without a rebuild"); `packer.py` and
 > `packer.html` are the two deliverable forms — do not edit `packer.html` directly.
 
-## ☸ 9. Kubernetes Cluster Deployment (Xinchuang-ready)
+## 9. Kubernetes Cluster Deployment (Xinchuang-ready)
 
 Beyond middleware, the packer also delivers a **Kubernetes cluster** (based on KubeKey):
 tick the "Kubernetes cluster" card (optionally stack any middleware into the same bundle) →
@@ -468,7 +468,7 @@ installs Python3 / Docker Engine / Go 1.25+ as needed (idempotent; `--cn` for Ch
 mirrors, `--only python|docker|go`, `--check` to audit only). Windows packer machines
 just install Python, Docker Desktop and Go from official installers.
 
-## 📚 10. Documentation Index
+## 10. Documentation Index
 
 | Doc | Content |
 |---|---|
