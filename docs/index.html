@@ -126,12 +126,15 @@
       <div class="feat"><b>打包器安全加固</b><p>本地 Web API 三道闸：写操作 token 校验（防跨站 drive-by）+ Host 回环校验（防 DNS rebinding）+ Content-Type 约束；上线前经三视角全检修复。</p></div>
       <div class="feat"><b>真机验证</b><p>CentOS 7.9 + docker-ce 26 真实服务器部署实测：九步部署、健康实测、密码替换正负验证（对密码通过/错密码拒绝）全部通过。</p></div>
       <div class="feat"><b>插件化中间件</b><p>一个插件文件 + 镜像 tar 即接入新中间件，已内置 PostgreSQL / RabbitMQ / MongoDB / ES / Kafka 等 12 个插件。</p></div>
+      <div class="feat"><b>kk 源码随仓库分发</b><p>打过信创补丁的 KubeKey 源码收编入库（Apache-2.0），克隆即构建 amd64/arm64；Releases 另提供现成 kk 二进制下载。</p></div>
+      <div class="feat"><b>物料自动补齐</b><p>打包时缺失的镜像/二进制自动拉取收集（多源逐试、可自行换源），仓库已有物料逐项打标跳过，每种物料独立子进度条。</p></div>
+      <div class="feat"><b>打包机一键备环境</b><p>Linux 打包机 sudo bash tools/setup-packer-env.sh 按需装 Python3/Docker/Go（幂等，--cn 走国内源，--check 只盘点）；Windows 用官方安装包即可。</p></div>
     </div>
   </section>
 
   <section id="start">
     <h2>快速开始</h2>
-    <div class="sub">打包机只需要 Python 3（纯标准库）；服务器什么都不需要</div>
+    <div class="sub">打包机只需要 Python 3（纯标准库，Linux 可用 tools/setup-packer-env.sh 一键准备）；服务器什么都不需要</div>
     <div class="cols">
       <div>
         <p style="font-size:13px;color:var(--mut);margin-bottom:8px"><b style="color:var(--txt)">① 本地打包</b>（克隆仓库后执行）</p>
