@@ -160,6 +160,21 @@ cd xxx-offline
     </div>
   </section>
 
+  <section>
+    <h2>最近更新</h2>
+    <div class="sub">v1.4.0 · 2026-11-06</div>
+    <div class="feats">
+      <div class="feat"><b>包内契约</b><p>部署内容、配置覆盖策略、镜像指纹随包写入 manifest.json。重部署前 deploy.sh 会打印变更清单，支持 --dry-run 和机器可读的部署报告。</p></div>
+      <div class="feat"><b>打包器更好用了</b><p>端口/密码页加服务锚点与搜索，底部状态条直接指出哪里不能打包，预览支持行号、按服务折叠、与上次 diff 和风险分级，另有深色模式。</p></div>
+      <div class="feat"><b>启动不挑环境</b><p>去掉 PyYAML 硬依赖，任意 Python 3.9+ 直接 python packer.py；本机 Docker 只在需要时检测并给安装指引，不会替你装。</p></div>
+      <div class="feat"><b>两台真机 + 浏览器走查</b><p>CentOS 7 双机验证部署、备份恢复与主从复制；105 项测试通过，其中 12 条是真实浏览器视图用例。</p></div>
+    </div>
+    <div class="note" style="margin-top:14px">
+      完整记录见 <a href="https://github.com/litianyanaa-pixel/middleware-offline-deploy/blob/main/CHANGELOG.md" target="_blank">CHANGELOG</a>
+      与 <a href="https://github.com/litianyanaa-pixel/middleware-offline-deploy/releases/tag/v1.4.0" target="_blank">v1.4.0 Release</a>。
+    </div>
+  </section>
+
   <footer>
     中间件离线部署包 · MIT 供内部交付使用 · 服务器兼容 bash 4.2+ / systemd / x86_64 &amp; aarch64
   </footer>

@@ -13,7 +13,8 @@
 （静态演示版：界面与配置流程可完整体验；打包/预览/物料检查需要本地后端）
 项目主页：<https://litianyanaa-pixel.github.io/middleware-offline-deploy/>
 
-> 改了前端后同步演示站：`python tools/update_pages.py`，再提交推送 docs/ 即可。
+> 改了前端后同步演示站：`python tools/sync_pages.py`（刷新服务目录 → 重建两份产物 → 跑同步门禁），
+> 再提交推送 docs/ 即可。
 
 ```
 本地(Windows / macOS / Linux)                  服务器(离线内网)
@@ -440,7 +441,8 @@ warehouse/images/postgres/15.19/arm64.tar   ← postgres-15.19-arm64.tar 放这�
 │   └── normalize_sim_test.sh
 ├── tools/
 │   ├── setup-packer-env.sh    # 打包机环境一键准备(Linux 多发行版: Python3/Docker/Go, --check 盘点)
-│   └── update_pages.py        # 同步 GitHub Pages 演示站(docs/)
+│   ├── sync_pages.py          # 演示站同步单一入口(刷新目录 → 重建双份 → --check)
+│   └── update_pages.py        # 同步 docs/logos.js 等静态文件(由 sync_pages.py 调用)
 ├── third_party/kubekey/       # KubeKey 信创适配源码(Apache-2.0 随仓库分发, 修改声明见其 MODIFICATIONS.md)
 ├── docs/                      # Pages 站点源目录(落地页 + packer 前端副本 + 截图)
 ├── docs/images/               # README 截图
