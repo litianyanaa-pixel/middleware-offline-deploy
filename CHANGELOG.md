@@ -69,7 +69,7 @@ README 写着「纯标准库，无需装依赖」，代码却在 `validate.py` �
 
 全套 92 passed / 1 skipped；真实打包校验契约字段和 sha256 通过，golden 基线刷新到当前生成器产物。这轮没上真机，`--dry-run` 和契约 diff 由本地 bash harness 覆盖。
 
-## 2026-11-05 全库通读复核，两台真机验证
+## 2026-11-05 全库通读复核，真机验证
 
 把整个仓库通读了一遍，找出 5 处「注释这么说、代码那么干」的遗留问题，逐条修掉。
 
@@ -81,7 +81,7 @@ README 写着「纯标准库，无需装依赖」，代码却在 `validate.py` �
 
 `plugins/README.md` 和 `_template.py` 补了 `conf_files` 钩子、`ctx["bash_quote"]`、配置覆盖标记这些约定。`pytest` / `PyYAML` 装到 E 盘解释器，新增 8 条回归（3 条真跑 bash），全套 84 passed / 1 skipped；交付包 `dist/smoke1105-x86-20261105-1023-offline.tar.gz`（426 MB）包内 8 项断言和 sha256 都过了。
 
-真机部分用了两台 CentOS 7（112/113），全程 `/data/qa1105/` 隔离目录加独立端口，没碰原有 `/data/backup` 和 Docker 配置。单机包连跑三次 `deploy.sh` 都 EXIT=0、健康实测全过；从 `/` 执行 `restore.sh list` 能列备份，删库恢复后 2 行数据回来了；`uninstall.sh` 的锁落在 `backup.conf` 指定目录，cron 清干净，原有 postgres 容器没动；重部署 13 项配置覆盖断言全过。多机 Kafka 摘要在两机 bash 4.2 上各 6 项断言通过；两节点 MySQL 主从免密分发成功，复制线程 Yes、延迟 0、数据同步、`super_read_only=1`。测完把测试目录、加载的镜像、crontab、`daemon.json.packer` 都还原了。
+真机用隔离目录和独立端口跑通部署，没碰原有 `/data/backup` 和 Docker 配置。单机包连跑三次 `deploy.sh` 都 EXIT=0、健康实测全过；从 `/` 执行 `restore.sh list` 能列备份，删库恢复后 2 行数据回来了；`uninstall.sh` 的锁落在 `backup.conf` 指定目录，cron 清干净，原有 postgres 容器没动；重部署 13 项配置覆盖断言全过。多机 Kafka 摘要在真机 bash 4.2 上 6 项断言通过；MySQL 主从免密分发成功，复制线程 Yes、延迟 0、数据同步、`super_read_only=1`。测完把测试目录、加载的镜像、crontab、`daemon.json.packer` 都还原了。
 
 ## 2026-11-02（节点脚本模板化重构 + 备份变量注入修复）
 

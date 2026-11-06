@@ -2,7 +2,7 @@
 """
 参数化真机 e2e 框架 (SSH/SFTP via paramiko)
 
-把上一轮「两台 CentOS 7 真机双机验证」流程固化成可复用脚本。
+把上一轮真机验证流程固化成可复用脚本。
 **本文件默认不会执行任何远程操作**:
   - `python tests/e2e_real.py --help`      只打印用法并退出(不 import paramiko/不联网)
   - `python tests/e2e_real.py ...`         只打印执行计划(plan)并退出(不联网)
@@ -28,11 +28,11 @@ Windows / Git Bash 注意(MSYS 路径转换):
 
 用法示例:
   # 只看计划(默认, 绝不联网)
-  python tests/e2e_real.py --hosts 10.100.11.112,10.100.11.113 \
+  python tests/e2e_real.py --hosts 192.0.2.11,192.0.2.12 \
       --user root --workdir /data/qa-e2e --bundle dist/demo-offline.tar.gz
   # 真机执行(密码来自环境变量, 不落盘)
   QA_SSH_PASSWORD='******' MSYS_NO_PATHCONV=1 \
-      python tests/e2e_real.py --hosts 10.100.11.112,10.100.11.113 \
+      python tests/e2e_real.py --hosts 192.0.2.11,192.0.2.12 \
       --workdir /data/qa-e2e --bundle dist/demo-offline.tar.gz --run
   # 失败后保留现场排查
   ... --run --keep
@@ -408,10 +408,10 @@ def build_parser():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=("安全: SSH 密码只从 --ssh-password-env 指定的环境变量读取, 绝不写文件/打印。\n"
                 "示例: MSYS_NO_PATHCONV=1 QA_SSH_PASSWORD='***' python tests/e2e_real.py "
-                "--hosts 10.100.11.112,10.100.11.113 --workdir /data/qa-e2e "
+                "--hosts 192.0.2.11,192.0.2.12 --workdir /data/qa-e2e "
                 "--bundle dist/x.tar.gz --run"))
     p.add_argument("--hosts", default="",
-                   help="目标主机, 逗号分隔, 如 10.100.11.112,10.100.11.113")
+                   help="目标主机, 逗号分隔, 如 192.0.2.11,192.0.2.12")
     p.add_argument("--user", default="root", help="SSH 用户名(默认 root)")
     p.add_argument("--workdir", default="/data/qa-e2e",
                    help="远程测试工作目录(POSIX 绝对路径, 默认 /data/qa-e2e)")

@@ -43,7 +43,7 @@ arm64 的 K8s 集群还被 `validate.py` 一行硬编码挡着，页面也写「
 - `distribute.sh` 不再写明文 SSH 密码，改 `MW_SSH_PASSWORD` 或免密。
 - 前端 7 项改造 + 浏览器视图/流程测试，本机 Docker 只检测不安装。
 - 17 条生成脚本 golden 基线、参数化真机 e2e 框架、`tools/sync_pages.py` 单一入口。
-- 5 处遗留问题修复（`restore.sh list`、卸载锁、重部署配置覆盖、`__NODE_IP__`、恢复提示）和两台 CentOS 7 真机验证。
+- 5 处遗留问题修复（`restore.sh list`、卸载锁、重部署配置覆盖、`__NODE_IP__`、恢复提示）和真机验证。
 
 ## 本地自检
 
