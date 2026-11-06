@@ -394,7 +394,7 @@ warehouse/images/postgres/15.19/arm64.tar   ← postgres-15.19-arm64.tar 放这�
   （host-gateway），请确认外部库监听 0.0.0.0
 - SELinux 开启的服务器脚本会自动设置容器文件标签；若仍有挂载权限问题：
   `chcon -R system_u:object_r:container_file_t:s0 <部署目录>`
-- 服务器兼容：bash 4.2+（CentOS 7）、systemd、x86_64/aarch64；内核需支持 overlay2
+- 服务器兼容：bash 4.2+、systemd、x86_64/aarch64；内核需支持 overlay2
 - 无论服务器是否已装 Docker，部署脚本都会确保 docker/containerd systemd 服务开机自启
 
 ## 七、安全
@@ -497,8 +497,8 @@ v1.28+flannel 实测 639MB，10 个镜像一次收齐）；CNI chart 从 GitHub 
 
 ![历史产物](docs/images/zh/ui-cluster-packdone.png)
 
-本地已用容器化双节点（Ubuntu 22.04 systemd + SSH）完成端到端验证：kk 全流程 340 个任务
-0 失败、双节点注册、幂等重跑通过，过程与修复记录见
+本地已用容器化节点（systemd + SSH）完成端到端验证：kk 全流程 340 个任务
+0 失败、节点注册、幂等重跑通过，过程与修复记录见
 [docs/k8s-容器验证记录.md](docs/k8s-容器验证记录.md)。
 
 物料准备（打过补丁的 kk、离线产物、OS 依赖包）与信创适配矩阵：
@@ -526,7 +526,7 @@ Python3 / Docker Engine / Go 1.25+），`--cn` 走国内源（golang.google.cn +
 | [docs/k8s-容器验证记录.md](docs/k8s-容器验证记录.md) | K8s 容器化端到端验证记录 |
 | [docs/问题修复全记录.md](docs/问题修复全记录.md) | **全项目异常总账**（用户反馈+自发现+环境问题 68 条, 按现象→原因→解决→验证组织） |
 | [docs/参考文献.md](docs/参考文献.md) | 全部参考过的文献/官方文档/开源社区索引 |
-| [docs/真机重建-进行时.md](docs/真机重建-进行时.md) | 真机验证时间线（k8s 双节点/中间件 20 服务/多机主从） |
+| [docs/真机重建-进行时.md](docs/真机重建-进行时.md) | 真机验证时间线（K8s 集群/中间件 20 服务/多机主从） |
 | [docs/e2e-docker-全流程测试报告.md](docs/e2e-docker-全流程测试报告.md) | 容器化多机 E2E 测试报告 |
 | [docs/kk-功能对照.md](docs/kk-功能对照.md) | 与 Ansible 的能力对照 |
 | [CHANGELOG.md](CHANGELOG.md) | 版本变更记录 |

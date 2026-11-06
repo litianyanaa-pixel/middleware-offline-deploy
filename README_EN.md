@@ -24,7 +24,7 @@ Local (Windows / macOS / Linux)                Server (offline intranet)
 ## Highlights
 
 - **Zero-interaction deployment**: ports, passwords, database sources and backup policy are all decided at packing time; the server asks nothing
-- **Java runtime**: Eclipse Temurin JDK 8/17/21, dual architecture (amd64/arm64), shipped as a base middleware — pick per-server deploy targets from the pool, multiple versions coexist with the default one written into `JAVA_HOME`, sha256-verified then extracted to `/data/java` (customizable); `python prepare_java.py --download` pre-fetches materials (packing auto-fetches anything missing). Verified on a real Ubuntu 22.04 environment: single-version install, multi-version coexistence and idempotent re-runs all pass
+- **Java runtime**: Eclipse Temurin JDK 8/17/21, dual architecture (amd64/arm64), shipped as a base middleware — pick per-server deploy targets from the pool, multiple versions coexist with the default one written into `JAVA_HOME`, sha256-verified then extracted to `/data/java` (customizable); `python prepare_java.py --download` pre-fetches materials (packing auto-fetches anything missing). Verified in an isolated environment: single-version install, multi-version coexistence and idempotent re-runs all pass
 - **Bilingual UI**: the packer switches 中/EN from the top bar (choice remembered in the browser); the material catalog, deploy summary and validation messages are bilingual end to end; the server-side deployment report follows the language chosen at packing time
 - **Pack only what you need**: only the selected middleware and architectures are bundled — a typical project (nginx+mysql8+redis+xxljob) is ~0.7GB, not the whole warehouse
 - **Idempotent & re-runnable**: re-running deploy.sh is safe — skips installed Docker, skips imported tables, allows its own port bindings, auto-backs up old configs
@@ -336,7 +336,7 @@ Port/password changes should go through "edit locally → repack → redeploy", 
   (host-gateway); make sure the external DB listens on 0.0.0.0
 - On SELinux-enforcing servers the script sets container file labels automatically; if mounts still fail:
   `chcon -R system_u:object_r:container_file_t:s0 <deploy dir>`
-- Server compatibility: bash 4.2+ (CentOS 7), systemd, x86_64/aarch64; kernel must support overlay2
+- Server compatibility: bash 4.2+, systemd, x86_64/aarch64; kernel must support overlay2
 - Whether or not Docker is pre-installed, the script ensures docker/containerd systemd services start on boot
 
 ## 7. Security
@@ -445,8 +445,8 @@ auto-fetched prompt for a path:
 
 ![Artifacts history](docs/images/en/ui-cluster-packdone.png)
 
-Validated end-to-end with a containerized two-node cluster (Ubuntu 22.04 systemd + SSH):
-340 kk tasks with 0 failures, both nodes joined, idempotent re-run passed — see
+Validated end-to-end with containerized nodes (systemd + SSH):
+340 kk tasks with 0 failures, all nodes joined, idempotent re-run passed — see
 [docs/k8s-容器验证记录.md](docs/k8s-容器验证记录.md) (Chinese).
 
 Material preparation (patched kk, offline artifact, OS packages) and the Xinchuang

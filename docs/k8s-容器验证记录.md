@@ -1,11 +1,11 @@
 # K8s 集群离线部署 — 本地容器验证记录
 
-> 验证时间:2026-09-30 · 环境:Windows Docker Desktop(WSL2 后端,Docker 27.3.1)
-> 拓扑:2 台 `--privileged` systemd 容器(kk-node:22.04 自建镜像,sshd + sshpass),静态 IP 172.30.0.11/12
+> 验证时间:2026-09-30 · 环境:本地容器运行时(WSL2 后端,Docker 27.3.1)
+> 拓扑: `--privileged` systemd 容器(自建镜像,sshd + sshpass)
 > 物料:cache 模式真实物料(kk v4.0.7-xc1 补丁构建 + kubeadm/kubelet/kubectl v1.34.11 + etcd v3.6.5 +
-> cni v1.9.1 + helm v3.18.5 + crictl v1.34.0 + containerd v2.2.6 + runc v1.3.6 + Ubuntu OS 依赖包 124 deb)
-> 结果:**deploy.sh 全流程成功**(kk 340 个任务 success 327 / failed 0,双节点注册,
-> `kubectl get nodes` 可见 master1/worker1 v1.34.11),幂等重跑验证通过。
+> cni v1.9.1 + helm v3.18.5 + crictl v1.34.0 + containerd v2.2.6 + runc v1.3.6 + OS 依赖包 124 deb)
+> 结果:**deploy.sh 全流程成功**(kk 340 个任务 success 327 / failed 0,节点注册,
+> `kubectl get nodes` 可见各节点 v1.34.11),幂等重跑验证通过。
 
 ## 一、验证通过的能力
 
@@ -18,7 +18,7 @@
 | sudo 缺失自动远程安装 | 通过(worker 无 sudo,自动装好) |
 | cache 二进制缓存铺设 + download.fetch=false 离线跳过 | 通过 |
 | kk create cluster 全流程(precheck→系统包→CRI→镜像→init→join→CNI) | 通过(340 任务 0 失败) |
-| kubectl 验证节点注册 | 通过(master1/worker1 v1.34.11) |
+| kubectl 验证节点注册 | 通过(各节点 v1.34.11) |
 | 幂等重跑(已有集群检测 + 运维指引) | 通过 |
 
 ## 二、发现并修复的异常(交付物 bug,均已修复)
@@ -29,7 +29,7 @@
 | 2 | gather_facts 全部 127 | kk 连接器(本地+SSH)前置 `sudo`,容器/精简系统没有 sudo | deploy-cluster.sh:部署机缺 sudo 自动安装(die 兜底);节点预检增加 sudo 探测+远程安装 |
 | 3 | 只预检了第一个节点 | `${CLUSTER_NODES}` 只展开数组首元素 | 改 `${CLUSTER_NODES[@]}` |
 | 4 | `v1.34.11 要求 cgroup v2` 误报 | case glob `v1.3[0-4]` 未算 patch 后缀 | glob 补 `v1.3[0-4].*` |
-| 5 | worker1 无 OS 依赖包目录时整个预检段被短路 | elif 分支把"无 OS 包"与"跳过预检"混同 | 重构:预检(连通性/架构/sudo)始终执行,OS 包变为可选子步骤 |
+| 5 | 节点无 OS 依赖包目录时整个预检段被短路 | elif 分支把"无 OS 包"与"跳过预检"混同 | 重构:预检(连通性/架构/sudo)始终执行,OS 包变为可选子步骤 |
 | 6 | 内核 semver 检查崩溃(invalid semantic version) | WSL 内核 `6.18.33.2-...` 为 4 段版本,非合法 semver(kk 上游问题,信创新内核同样可能触发) | kk 源码 precheck/os:先取前三段再 semverCompare |
 | 7 | kk 报 `etcd inventory group must not be empty` | 生成的 inventory 缺 etcd 组 | packer.py:始终输出 etcd 组(堆叠=控制面节点) |
 | 8 | 物料目录里的断点下载残留(*.p0/*.part)会被打进包 | cache 目录只查"非空" | packer.py:物料扫描排除 `*.p[0-9]/part*/tmp` 临时文件 |
@@ -62,9 +62,9 @@ kinD 等方案使用专门的节点镜像入口与特权配置绕过此层,非�
 
 ```bash
 docker network create --subnet 172.30.0.0/24 kknet
-docker run -d --name kk-master --hostname master1 --network kknet --ip 172.30.0.11 \
+docker run -d --name kk-master --hostname k8s-node-1 --network kknet --ip <容器IP> \
   --privileged --cgroupns=host -v /sys/fs/cgroup:/sys/fs/cgroup:rw \
-  -v kk-master-ctd:/var/lib/containerd -v kk-master-ctd-kubelet:/var/lib/kubelet kk-node:22.04
+  -v kk-master-ctd:/var/lib/containerd -v kk-master-ctd-kubelet:/var/lib/kubelet kk-node:systemd
 # worker 同理;bundle docker cp 进 master 后 ./deploy.sh
 ```
 
@@ -96,11 +96,11 @@ docker run -d --name kk-master --hostname master1 --network kknet --ip 172.30.0.
 - OS 依赖包容器提取修复(容器工作目录问题), rpm 系逐包容错下载
 - 回归: 冒烟 11 项 + 全字段 config 断言 17 项全绿
 
-## 八、真机部署验证(2026-09-30,CentOS 7.9 双机)
+## 八、真机部署验证(2026-09-30)
 
-用户授权两台真实服务器(10.100.11.112/113, CentOS 7.9, 内核 3.10, /data1 数据盘):
-- **结果:部署完整跑通,双节点 Ready,全组件 Running,0 异常 Pod**(340 任务)
-- 版本适配:CentOS7 内核 3.10 → K8s v1.28.15 + `cluster_require.min_kernel_version` 覆盖 + containerd 1.7.28
+在真机隔离目录完成验证(/data 数据盘):
+- **结果:部署完整跑通,各节点 Ready,全组件 Running,0 异常 Pod**(340 任务)
+- 版本适配:老内核 → K8s v1.28.15 + `cluster_require.min_kernel_version` 覆盖 + containerd 1.7.28
 - 数据目录全部落 /data1(containerd/docker/etcd/kubelet rootDir/localpv)
 - 在线模式 zone=cn 实测可用(镜像从国内源拉取,与用户既有实践一致)
 - 真机暴露并修复 3 个 kk 上游 centos7 兼容 bug:

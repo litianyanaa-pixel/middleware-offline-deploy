@@ -99,20 +99,19 @@ README 写着「纯标准库，无需装依赖」，代码却在 `validate.py` �
   仅外观, 产物 diff 归一化空白后与基线一致）。
 - **fix: install-node.sh 备份段在无 cron 系统上 set -e 裸退**: 节点未装 crontab 命令
   （minimal 系统常见）或 crontab 写入失败时, `(...) | crontab -` 无兜底直接 exit 1——
-  且发生在 MySQL 已就绪、复制已配置之后, 无任何错误提示, 排查困难（本地 dind 双节点
+  且发生在 MySQL 已就绪、复制已配置之后, 无任何错误提示, 排查困难（本地 dind 容器
   实测踩坑）。现 warn 降级并打印手动 crontab 行, 不让已就绪的节点判死; 脚本新增 warn()
-  函数。dind 实测同步验证: 双节点分发/主从复制(延迟 0)/镜像断点续 load 后损坏重置/
-  幂等重跑/crontab 写入全通过; 随后真机复测(10.100.11.112 主库+主部署机本机节点 /
-  113 从库 SSH 密码分发): 全流程 EXIT=0, 主从复制秒级追平, crontab 成功写入, 幂等重跑通过。
+  函数。dind 实测同步验证: 多节点分发/主从复制(延迟 0)/镜像断点续 load 后损坏重置/
+  幂等重跑/crontab 写入全通过; 随后真机复测(主库与主部署机同机 / 从库 SSH 密码分发): 全流程 EXIT=0, 主从复制秒级追平, crontab 成功写入, 幂等重跑通过。
 - **fix: 节点备份 crontab 缺 # mw-backup 标记, 卸载后残留**: install-node.sh 的 CRON_LINE
   未带标记(主部署机 deploy.sh 带), uninstall.sh 按 `# mw-backup` 清理匹配不到节点行——
   真机卸载实测发现节点 crontab 残留一行; 现与 deploy.sh 同规补标记, 卸载可完整清理。
 
 ## 2026-10-15（真机部署时长基准测试 + 多机节点鉴权等待修复）
 
-- **人工 vs 工具部署对照实测**(10.100.11.112/113, 详见 docs/实测-部署时长与可复现性数据.md):
+- **人工 vs 工具部署对照实测**(详见 docs/实测-部署时长与可复现性数据.md):
   单机 mysql8+redis 人工 30min/20步/3错 vs 工具 服务器侧 56s/4命令/0错(≈32倍);
-  多机主从 1主1从 人工 ≈60min/23步/4错 vs 工具 161s/3命令/0错(≈22倍), 从节点
+  多机主从 人工 ≈60min/23步/4错 vs 工具 161s/3命令/0错(≈22倍), 从节点
   零登录, 复制 ≤10s 追平; 同配置连打 3 次产物逐字节一致, 卸载→重装报告仅时间戳
   一行之差, 幂等重跑全过。缺陷详档: docs/缺陷修复-真机基准测试两例.md。
 - **fix: install-node.sh 补 MySQL 真实鉴权等待**: mysqladmin ping 健康检查在首启
@@ -233,7 +232,7 @@ README 写着「纯标准库，无需装依赖」，代码却在 `validate.py` �
   (离线镜像为 OCI 合并 tar, 旧引擎 load 不支持)。
 - **真机验证**: 本地安全矩阵 curl 8/8(伪造 token/Host/Content-Type 全拒) + jsdom 全链路
   e2e 5/5(从真实 HTTP 服务取页面防假阳性) + 真实打包产物核验(690MB 包内权限/manifest);
-  **真实服务器部署验证**(CentOS 7.9 + docker-ce 26.1.4, 两台): deploy.sh 中间件九步
+  **真机部署验证**: deploy.sh 中间件九步
   全过、健康实测通过、密码替换正负验证全过(mysql/redis 对密码通过、错密码/无密码拒绝),
   测试后服务器恢复原状。
 
@@ -288,7 +287,7 @@ README 写着「纯标准库，无需装依赖」，代码却在 `validate.py` �
 - **镜像加速归位**: 「镜像加速 (docker.io)」从证书/NTP 附近移到「containerd 版本覆盖」
   行的下一行(运行时/镜像相关字段聚拢), 相关提示文案同步更新。
 - **Java 运行时真机安装测试通过**: 用打包管线生成纯 Java 节点安装脚本 + 真实 Temurin
-  物料, 在 Ubuntu 22.04(kk-node) 容器实测两轮:
+  物料, 在容器环境实测两轮:
   - 单版本 jdk17: sha256 校验 → 解压 `/data/java/jdk17` → `java -version`
     (Temurin-17.0.20.1+1) → `/etc/profile.d/java.sh` 写入 `JAVA_HOME=/data/java/jdk17`;
   - 多版本 jdk8+jdk17 共存: 两版本并行解压独立可运行(`1.8.0_504` / `17.0.20.1`),
@@ -567,10 +566,10 @@ README 写着「纯标准库，无需装依赖」，代码却在 `validate.py` �
 
 ## 2026-10-01（多机部署真机首验 + 异常总账整合）
 
-- **多机部署真机首验通过**：mysql8 + mysql57 双主从跨机（112 主部署机就地装双主库 +
-  113 SSH 分发双从库），deploy.sh → distribute.sh → install-node.sh 全链路真机跑通；
+- **多机部署真机首验通过**：mysql8 + mysql57 双主从跨机（主部署机就地装双主库 +
+  从节点 SSH 分发双从库），deploy.sh → distribute.sh → install-node.sh 全链路真机跑通；
   复制取证 IO/SQL 线程 Yes、延迟 0、主库写入端到端同步、从库 super_read_only 写保护、
-  幂等重跑通过；kafka 集群(3/5 台)与 redis 哨兵(3 台)需第三台真机，产物级由单测覆盖
+  幂等重跑通过；kafka 集群(3/5 节点)与 redis 哨兵(3 节点)需更多物理节点，产物级由单测覆盖
 - **多机链路修复 9 个缺陷**（tests/test_packer 30 项回归）：
   节点 MySQL 容器名/服务键按服务名生成（双 MySQL 同节点不再撞名）· 节点数据目录按服务名
   隔离（同节点双实例不再共用 datadir）· distribute.sh 节点包解到 $DEPLOY_DIR/nodes/<名>/

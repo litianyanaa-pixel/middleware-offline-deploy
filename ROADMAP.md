@@ -34,7 +34,7 @@ Redis 默认不限内存，`templates/redis.conf` 的 `maxmemory` 是注释状�
 
 arm64 的 K8s 集群还被 `validate.py` 一行硬编码挡着，页面也写「后续开放」。要放开得补齐 `third_party/kubekey` 的 arm64 产物和 `cluster.py` 的物料清单；MySQL 5.7 在 arm64 继续禁用，但提示要写清楚。
 
-`tests/e2e_real.py` 现在把每台机当独立目标跑单机闭环，上一轮真机验过的 `distribute.sh` 跨机分发和主从复制还没进框架。加 `--topology master-slave` 分支，带上 `SHOW REPLICA STATUS` 断言和两机清场。
+`tests/e2e_real.py` 现在把每台机当独立目标跑单机闭环，上一轮真机验过的 `distribute.sh` 跨机分发和主从复制还没进框架。加 `--topology master-slave` 分支，带上 `SHOW REPLICA STATUS` 断言和清场。
 
 ## 已经做完
 
