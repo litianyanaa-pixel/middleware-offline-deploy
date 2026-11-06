@@ -12,8 +12,11 @@
 
 可选:
   env_lines(cfg, ports, ctx)      返回追加到 .env 的行列表
-  manifest_lines(cfg, ports, ctx) 返回追加到 manifest.sh 的行列表(bash)
-  summary_lines(cfg, ports, ctx)  返回部署完成摘要行(含 __IP__ 占位符)
+  manifest_lines(cfg, ports, ctx) 返回追加到 manifest.sh 的行列表(bash);
+                                  写入 bash 的值一律用 ctx["bash_quote"](v) 包成单引号
+  summary_lines(cfg, ports, ctx)  返回部署完成摘要行(含 __IP__ 占位符; 双语行写 "中文|English")
+  conf_files(cfg, ports, ctx)     返回 {"conf/<服务名>/<文件名>": 内容字符串或 pathlib.Path}
+                                  随包进 conf/, deploy.sh 拷到部署目录同名路径
 
 ctx 可用字段:
   ctx["cfg"]              整份配置(含 secrets/extra_ports)
@@ -25,7 +28,14 @@ ctx 可用字段:
   ctx["extra_hosts"](conf)       host-gateway 的 YAML 片段
   ctx["networks_tail"]           固定的 networks 片段字符串
   ctx["local_mysql"]             本地 MySQL 服务名(未部署为 "")
+  ctx["bash_quote"](v)           bash 单引号转义(manifest_lines 里拼变量必用)
+  ctx["tr"]("中文|English")      按当前语言取半边
+  ctx["lang"]                    "zh" / "en"
 镜像包: 放到 META["images"] 指向的 warehouse 路径即可。
+
+conf_files 文件头约定: 首行含 "由打包器生成" 且不含 "只补齐" -> 重新部署随新包覆盖;
+声明 "只补齐不覆盖" 或目标文件被人工改动(生成标记已删) -> 保留用户版本,
+新包默认配置另存为 <文件名>.packer-new, 便于人工合并。
 """
 
 SERVICE_KEY = "elasticsearch"
@@ -86,3 +96,15 @@ def env_lines(cfg, ports, ctx):
 
 def summary_lines(cfg, ports, ctx):
     return ["Elasticsearch  http://__IP__:%d" % ports["es_http"]]
+
+
+def conf_files(cfg, ports, ctx):
+    """可选: 随包附带的配置文件(不需要就删掉本函数)。
+    键是离线包内路径 conf/<服务名>/<文件名>, 值可以是字符串或 pathlib.Path(指向仓库内模板)。
+    记得在 compose_block 的 volumes: 里挂载它, 例如 - ./es/es.yml:/usr/share/elasticsearch/config/es.yml"""
+    return {
+        "conf/elasticsearch/es.yml": (
+            "# 由打包器生成 (重新部署时自动覆盖)\n"
+            "cluster.name: docker-cluster\n"
+            "network.host: 0.0.0.0\n"),
+    }

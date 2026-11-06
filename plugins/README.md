@@ -21,12 +21,17 @@ plugins/
 | 可选 | 说明 |
 |---|---|
 | `env_lines(cfg, ports, ctx)` | 追加到 `.env` 的行 |
-| `manifest_lines(cfg, ports, ctx)` | 追加到 `manifest.sh` 的 bash 行 |
-| `summary_lines(cfg, ports, ctx)` | 部署完成摘要行（`__IP__` 会被替换成服务器 IP） |
+| `manifest_lines(cfg, ports, ctx)` | 追加到 `manifest.sh` 的 bash 行（写进 manifest.sh 的值一律用 `ctx["bash_quote"]` 包成单引号，避免空格/引号/密码特殊字符破坏 bash 语法） |
+| `summary_lines(cfg, ports, ctx)` | 部署完成摘要行；`__IP__` 会被 `deploy.sh` 替换成服务器 IP，多机地址请在打包期直接用 `cfg["servers"]` 的真实 IP 拼好，**不要自造占位符**（deploy.sh 只认识 `__IP__` 与兼容兜底的 `__NODE_IP__`）。双语行写 `中文|English` |
+| `conf_files(cfg, ports, ctx)` | 返回 `{"conf/<服务名>/<文件名>": 内容字符串或 pathlib.Path}`，随包进入 `conf/` 并由 `deploy.sh` 拷到部署目录同名路径（如 `conf/loki/loki.yml`） |
 | `CLUSTER` | 集群形态元数据 dict(image/tag/images)。配合 `cfg["topology"][SERVICE_KEY]` 在 `compose_block` 等函数里按形态分支（参考 kafka.py 的 3 节点集群实现；packer 会自动按形态切换物料检查与镜像打包） |
 
-`ctx` 里能拿到全部配置、密码、数据库选项，以及常用 YAML 片段生成器
-（`extra_ports_lines` / `depends_on` / `extra_hosts` / `networks_tail`），详见 `_template.py` 注释。
+`conf_files` 生成的文件头决定重部署行为：含 `由打包器生成` 且**不含** `只补齐` 的文件随新包覆盖；
+声明了 `只补齐不覆盖`（如 `templates/redis.conf`）或目标文件已无生成标记的，一律保留用户版本，
+新包默认配置另存为 `<文件名>.packer-new` 供人工合并。
+
+`ctx` 里能拿到全部配置、密码、数据库选项，以及常用片段生成器与工具
+（`extra_ports_lines` / `depends_on` / `extra_hosts` / `networks_tail` / `bash_quote` / `tr` / `lang` / `local_mysql`），详见 `_template.py` 注释。
 
 ## 上线一个新中间件的完整步骤
 

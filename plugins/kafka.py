@@ -204,13 +204,17 @@ def summary_lines(cfg, ports, ctx):
         servers = cfg.get("servers") or []
         inter = ports["kafka_mh_inter"]
         sasl = ports["kafka_mh_sasl"]
-        peers = ",".join("%s:%d" % (servers[i]["ip"], inter) for i in mh.get("brokers", []))
+        brokers = list(mh.get("brokers", []))
+        peers = ",".join("%s:%d" % (servers[i]["ip"], inter) for i in brokers)
+        # 摘要里必须给出可直接连接的 SASL 地址: 以前写 __NODE_IP__ 占位符,
+        # 而 deploy.sh 只替换 __IP__, 报告里会原样留下 __NODE_IP__。
+        sasl_peers = ",".join("%s:%d" % (servers[i]["ip"], sasl) for i in brokers)
         return [
             "Kafka 多机集群  %d 节点 KRaft+SASL (bootstrap: %s)|"
             "Kafka multi-host cluster %d-node KRaft+SASL (bootstrap: %s)"
             % (mh.get("count", 3), peers, mh.get("count", 3), peers),
-            "Kafka(SASL)    各节点 __NODE_IP__:%d  (用户 admin, 密码见节点 .env)|"
-            "Kafka (SASL)   per-node __NODE_IP__:%d  (user admin, password in node .env)" % (sasl, sasl),
+            "Kafka(SASL)    各节点 %s  (用户 admin, 密码见节点 .env)|"
+            "Kafka (SASL)   per-node %s  (user admin, password in node .env)" % (sasl_peers, sasl_peers),
         ]
     if _is_cluster(cfg):
         return [

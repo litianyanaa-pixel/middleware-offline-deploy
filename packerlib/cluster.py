@@ -11,8 +11,6 @@ import tempfile
 from datetime import datetime
 from pathlib import Path
 
-import yaml
-
 from .catalog import load_catalog
 from .paths import BASE_DIR, CLUSTER_SH, DIST_DIR, WAREHOUSE, log
 from .util import PackError, tr

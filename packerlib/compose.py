@@ -7,8 +7,6 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-import yaml
-
 from .catalog import PLUGINS, PROXYSQL_META
 from .nacos_sql import build_nacos_sql
 from .paths import SERVER_SH, TPL_DIR, WAREHOUSE

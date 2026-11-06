@@ -14,6 +14,7 @@ packer.html 构建脚本: 由 webui/ 源文件(template.html + style.css + app.j
 
 改 UI 的流程: 改 webui/ 下源文件 -> python build_webui.py -> 提交(测试会拦截忘记构建)。
 """
+import json
 import sys
 from pathlib import Path
 
@@ -24,6 +25,7 @@ MARKERS = {
     "//__INLINE:app.js__": WEBUI / "app.js",
 }
 TARGETS = [BASE / "packer.html", BASE / "docs" / "packer.html"]
+VERSIONS_JS_TARGETS = [BASE / "versions.js", BASE / "docs" / "versions.js"]
 
 
 def build_html():
@@ -43,18 +45,37 @@ def build_html():
     return b"".join(out)
 
 
+def build_versions_js():
+    """生成 versions.js: file:// 双击直开时 fetch 被浏览器拦截, 由 <script> 加载静态目录。
+    数据源取 docs/versions.json(--dump-catalog 的插件合并产物, 测试校验其与插件同步)。"""
+    src = BASE / "docs" / "versions.json"
+    if not src.is_file():
+        raise SystemExit("缺少 docs/versions.json, 无法生成 versions.js; "
+                         "请先运行: python packer.py --dump-catalog docs/versions.json")
+    data = json.loads(src.read_text(encoding="utf-8"))
+    body = json.dumps(data, ensure_ascii=False, separators=(",", ":"))
+    return ("/* 由 build_webui.py 自动生成 — 静态演示目录(file:// 双击兜底); "
+            "改目录请跑 --dump-catalog 后重新构建 */\nwindow.PACKER_VERSIONS=" + body + ";\n").encode("utf-8")
+
+
 def main():
     check_only = "--check" in sys.argv[1:]
     html = build_html()
+    vjs = build_versions_js()
     stale = [str(t.relative_to(BASE)) for t in TARGETS if t.read_bytes() != html]
+    stale += [str(t.relative_to(BASE)) for t in VERSIONS_JS_TARGETS
+              if not t.exists() or t.read_bytes() != vjs]
     if check_only:
         if stale:
             print("不同步: %s (请运行 python build_webui.py)" % ", ".join(stale))
             return 1
-        print("packer.html 与 webui/ 源文件同步")
+        print("packer.html / versions.js 与 webui/ 源文件同步")
         return 0
     for t in TARGETS:
         t.write_bytes(html)
+        print("已写入 %s" % t.relative_to(BASE))
+    for t in VERSIONS_JS_TARGETS:
+        t.write_bytes(vjs)
         print("已写入 %s" % t.relative_to(BASE))
     return 0
 

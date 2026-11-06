@@ -322,7 +322,7 @@
   .msg.ok{background:rgba(52,199,89,.1);color:#248a3d;border:1px solid rgba(52,199,89,.32)}
   .msg.warn{background:rgba(255,149,0,.09);color:#8f5700;border:1px solid rgba(255,149,0,.32)}
   #toast{position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:300;display:flex;flex-direction:column;align-items:center;gap:8px;pointer-events:none;max-width:min(520px,90vw)}
-  .toast{background:rgba(29,29,31,.85);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);color:#fff;border:1px solid rgba(255,255,255,.16);border-radius:14px;padding:11px 17px;font-size:12.5px;box-shadow:var(--sh-3);animation:toastin .28s var(--spring);max-width:360px;overflow:hidden;transition:opacity .3s ease,transform .3s ease,height .32s ease,padding .32s ease,margin-bottom .32s ease}
+  .toast{background:rgba(29,29,31,.85);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);color:#fff;border:1px solid rgba(255,255,255,.16);border-radius:14px;padding:11px 17px;font-size:12.5px;box-shadow:var(--sh-3);animation:toastin .28s var(--spring);max-width:360px;overflow:hidden;transition:opacity .32s ease,transform .32s ease,height .32s ease,padding .32s ease,margin-bottom .32s ease}
   @keyframes toastin{from{opacity:0;transform:translateY(-10px) scale(.96)}to{opacity:1;transform:none}}
   .toast.out{opacity:0;transform:translateY(-8px) scale(.96);pointer-events:none}
   .spin{width:15px;height:15px;border:2px solid rgba(0,122,255,.25);border-top-color:var(--acc);border-radius:50%;display:inline-block;animation:sp .8s linear infinite;vertical-align:-3px;margin-right:7px}
@@ -417,6 +417,425 @@
 #previewPre .mtl-sum{margin-top:10px;font-size:12.5px;color:#c9d4e3}
 #previewPre .mtl-sum .miss-c{color:#ffb224;font-weight:600}
 #previewPre .mtl-sum .ok-c{color:#55d68a;font-weight:600}
+
+/* ================================================================
+   UI 改造增量样式 (7 项): 步骤状态 / 就绪度 / 长表单 / 密码 / 套件 /
+   预览代码 / 三级提示框 / 深色模式。全部沿用 :root 变量, 浅色为默认。
+   ================================================================ */
+
+/* ---- 步骤条状态徽标 (已配置 / 就绪 / N 处问题) ---- */
+.wiz-steps .wbadge.stepstat{font-size:10px;padding:1px 7px}
+.wiz-steps .wtab.on .wbadge.stepstat{background:rgba(255,255,255,.25);color:#fff}
+.wiz-steps .wbadge.stepstat.ok{background:rgba(52,199,89,.15);color:#248a3d}
+.wiz-steps .wbadge.stepstat.bad{background:rgba(255,59,48,.15);color:#d70015}
+.wiz-steps .wtab.on .wbadge.stepstat.ok{background:rgba(52,199,89,.92);color:#fff}
+.wiz-steps .wtab.on .wbadge.stepstat.bad{background:rgba(255,59,48,.92);color:#fff}
+
+/* ---- 底部「打包就绪度」状态条 ---- */
+.actionbar .stat{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.rd-state{display:inline-flex;align-items:center;gap:5px;border-radius:999px;padding:3px 11px;font-size:12px;font-weight:650;white-space:nowrap}
+.rd-state.ok{background:rgba(52,199,89,.14);color:#248a3d}
+.rd-state.bad{background:rgba(255,59,48,.13);color:#d70015}
+.rd-chip{border:1px solid transparent;border-radius:999px;padding:3px 10px;font-size:11.5px;cursor:pointer;font-family:inherit;white-space:nowrap;transition:transform .15s var(--spring),filter .15s}
+.rd-chip:hover{transform:translateY(-1px);filter:brightness(1.04)}
+.rd-chip:focus-visible{outline:none;box-shadow:0 0 0 3px rgba(0,122,255,.3)}
+.rd-chip b{font-family:var(--f-mono);margin-left:2px}
+.rd-chip.bad{background:rgba(255,59,48,.10);color:#d70015;border-color:rgba(255,59,48,.25)}
+.rd-chip.warn{background:rgba(255,149,0,.12);color:#8f5700;border-color:rgba(255,149,0,.30)}
+.rd-sum{color:var(--txt2);font-size:12px}
+.rd-sum b{color:var(--acc)}
+/* 跳步高亮 */
+@keyframes flashhl{0%,100%{box-shadow:none}20%,80%{box-shadow:0 0 0 4px rgba(255,59,48,.38)}}
+.flash{animation:flashhl 1.4s ease;border-radius:8px}
+.flash-card{animation:flashhl 1.4s ease}
+
+/* ---- 长表单: 左侧粘性服务锚点 + 右侧表单 ---- */
+#sec-port,#sec-pwd{overflow:visible}   /* 让 .lf-nav 的 position:sticky 相对视口生效 */
+#portBox.lf,#pwdBox.lf{display:grid;grid-template-columns:206px minmax(0,1fr);gap:16px;align-items:start}
+.lf-nav{position:sticky;top:118px;max-height:calc(100vh - 138px);overflow:auto;
+  border:1px solid var(--line);border-radius:12px;background:rgba(120,120,128,.05);padding:10px}
+.lf-tools{display:flex;flex-direction:column;gap:8px;margin-bottom:10px}
+.lf-tools .lf-search{width:100%;height:30px;font-size:12px}
+.lf-mini{display:flex;gap:6px}
+.lf-mini .mini{flex:1;height:28px;font-size:11.5px;padding:0 6px}
+.lf-list{display:flex;flex-direction:column;gap:3px}
+.lf-anchor{display:flex;align-items:center;gap:7px;width:100%;text-align:left;border:0;background:transparent;
+  border-radius:8px;padding:6px 8px;font-size:12px;color:var(--txt2);cursor:pointer;font-family:inherit;
+  transition:background .15s,color .15s}
+.lf-anchor:hover{background:rgba(120,120,128,.12);color:var(--txt)}
+.lf-anchor:focus-visible{outline:none;box-shadow:0 0 0 3px rgba(0,122,255,.28)}
+.lf-anchor[aria-current="true"]{background:var(--grad-acc);color:#fff;font-weight:600}
+.lf-anchor .lf-dot{flex:none;width:7px;height:7px;border-radius:50%;background:transparent}
+.lf-anchor.has-err .lf-dot{background:var(--bad)}
+.lf-anchor .lf-n{margin-left:auto;font-family:var(--f-mono);font-size:10.5px;opacity:.7}
+.lf-empty{font-size:11.5px;color:var(--mut);padding:6px 8px}
+.lf-body{min-width:0}
+.lf .grp{scroll-margin-top:120px}
+.lf .grp>h3{cursor:pointer;user-select:none}
+.lf .grp>h3:focus-visible{outline:none;box-shadow:0 0 0 3px rgba(0,122,255,.25);border-radius:6px}
+.lf-caret{color:var(--acc);font-size:11px;display:inline-block;transition:transform .18s;margin-right:2px}
+.lf .grp.collapsed .lf-caret{transform:rotate(-90deg)}
+.lf .grp.collapsed>:not(h3){display:none}
+
+/* ---- 密码页工具条 / 规则 / 强度文字 ---- */
+.pwd-toolbar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+.pwd-rules{font-size:11.5px;line-height:1.6;color:var(--txt2);background:rgba(0,122,255,.06);
+  border:1px solid rgba(0,122,255,.18);border-radius:10px;padding:8px 12px;margin-bottom:12px}
+.str-rule{font-size:11px;color:var(--mut);margin-top:6px;line-height:1.5}
+.str-rule.bad{color:var(--bad)}
+
+/* ---- 套件: 轻量分组(标题 + 成员 chips), 服务卡仍是主选择单元 ---- */
+.suite-groups{display:flex;flex-direction:column;gap:12px;margin-bottom:18px}
+.suite-group{border-left:3px solid var(--grad-acc);padding:1px 0 1px 12px}
+.suite-h{display:flex;align-items:baseline;gap:9px;flex-wrap:wrap;margin-bottom:7px}
+.suite-name{font-size:13px;font-weight:650;color:var(--txt)}
+.suite-desc{font-size:11.5px;color:var(--mut)}
+.suite-toggle{border:0;background:transparent;color:var(--acc);font-size:11.5px;cursor:pointer;padding:0;font-family:inherit}
+.suite-toggle:hover{text-decoration:underline}
+.suite-toggle:focus-visible{outline:none;box-shadow:0 0 0 3px rgba(0,122,255,.28);border-radius:6px}
+.suite-members{display:flex;flex-wrap:wrap;gap:6px}
+.suite-chip{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;color:var(--txt2);
+  background:rgba(120,120,128,.10);border:1px solid var(--line);border-radius:999px;padding:3px 10px;
+  cursor:pointer;font-family:inherit;transition:all .18s}
+.suite-chip:hover{border-color:var(--acc);color:var(--acc)}
+.suite-chip:focus-visible{outline:none;box-shadow:0 0 0 3px rgba(0,122,255,.28)}
+.suite-chip.on{background:rgba(0,122,255,.12);border-color:rgba(0,122,255,.4);color:var(--acc);font-weight:600}
+.suite-chip img{width:13px;height:13px;object-fit:contain}
+
+/* ---- 预览代码块: 行号 / 服务折叠 / 语法高亮 / diff ---- */
+#previewPre.code-view{white-space:normal;padding:0;max-height:520px;overflow:auto}
+.code-tools{display:flex;align-items:center;gap:8px;padding:9px 14px;border-bottom:1px solid rgba(255,255,255,.09);
+  position:sticky;top:0;z-index:2;background:#0b1120}
+.code-tools .mini{color:#c9d4e3;background:rgba(255,255,255,.07);border-color:rgba(255,255,255,.14)}
+.code-tools .mini:hover{background:rgba(255,255,255,.14)}
+.code-meta{margin-left:auto;color:#8b98ab;font-size:11px}
+.code-grp{border-bottom:1px solid rgba(255,255,255,.06)}
+.code-grp-h{display:flex;align-items:center;gap:9px;padding:6px 14px;cursor:pointer;color:#9fb0c8;
+  font-size:12px;user-select:none}
+.code-grp-h:hover{background:rgba(255,255,255,.05)}
+.code-grp-h:focus-visible{outline:none;box-shadow:inset 0 0 0 2px rgba(94,160,255,.6)}
+.cg-caret{color:#5ea0ff;transition:transform .18s;display:inline-block}
+.code-grp[data-open="1"] .cg-caret{transform:rotate(90deg)}
+.cg-title{font-weight:600;color:#7ec8ff;font-family:var(--f-mono)}
+.cg-range,.cg-count{color:#6b7787;font-size:11px;font-family:var(--f-mono)}
+.cg-count{margin-left:auto}
+.code-grp-body{padding:2px 0 6px}
+.cline{display:flex;align-items:flex-start;min-height:1.55em;line-height:1.55}
+.cline:hover{background:rgba(255,255,255,.045)}
+.ln{flex:none;width:46px;text-align:right;padding-right:11px;color:#4a5a70;user-select:none;
+  font-family:var(--f-mono);font-size:11px;border-right:1px solid rgba(255,255,255,.07);margin-right:12px}
+.lc{flex:1;min-width:0;white-space:pre-wrap;word-break:break-all;color:#c9d4e3;
+  font-family:var(--f-mono);font-size:12px;padding-right:14px}
+.syn-com{color:#6a7c92;font-style:italic}
+.syn-str{color:#9ad9a0}
+.syn-num{color:#e6b980}
+.syn-key{color:#7ec8ff}
+.syn-bool{color:#c9a0ff}
+.syn-var{color:#ffb86b}
+.diff-head{padding:9px 14px;color:#9fb0c8;font-size:12px;border-bottom:1px solid rgba(255,255,255,.09);
+  position:sticky;top:0;z-index:2;background:#0b1120}
+.diff-body{padding:6px 0}
+.diff-line{display:flex;align-items:flex-start;line-height:1.55;font-family:var(--f-mono);font-size:12px}
+.diff-add{background:rgba(46,160,67,.16);color:#8ce39c}
+.diff-del{background:rgba(248,81,73,.16);color:#ff9a92}
+.diff-ctx{color:#c9d4e3}
+.dl-a,.dl-b{flex:none;width:42px;text-align:right;padding-right:8px;color:#4a5a70;user-select:none}
+.dl-s{flex:none;width:20px;text-align:center;font-weight:700}
+.dl-t{flex:1;min-width:0;white-space:pre-wrap;word-break:break-all;padding-right:14px}
+.diff-stat{padding:6px 14px;color:#8b98ab;font-size:11.5px;border-bottom:1px solid rgba(255,255,255,.07)}
+
+/* ---- 预览三级提示框: 错误 / 警告 / 信息 ---- */
+.sum-box{display:flex;flex-direction:column;gap:8px;margin-top:14px}
+.sum-grp{border-radius:12px;border:1px solid var(--line);overflow:hidden}
+.sum-grp>summary{display:flex;align-items:center;gap:8px;padding:9px 14px;cursor:pointer;list-style:none;font-size:12.5px;user-select:none}
+.sum-grp>summary::-webkit-details-marker{display:none}
+.sum-grp>summary:focus-visible{outline:none;box-shadow:inset 0 0 0 2px rgba(0,122,255,.45)}
+.sum-grp>summary b{font-size:12.5px}
+.sum-marker{font-size:13px}
+.sum-count{margin-left:4px;font-family:var(--f-mono);font-size:11px;border-radius:99px;padding:1px 8px;background:rgba(120,120,128,.16)}
+.sum-caret{margin-left:auto;transition:transform .18s}
+.sum-grp[open]>summary .sum-caret{transform:rotate(180deg)}
+.sum-list{list-style:none;padding:4px 14px 12px 34px;margin:0;font-size:12px;line-height:1.7;color:var(--txt2)}
+.sum-list li{padding:2px 0;word-break:break-word}
+.sum-link{cursor:pointer;text-decoration:underline dotted;text-underline-offset:3px}
+.sum-link:hover{color:var(--acc)}
+.sum-link:focus-visible{outline:none;box-shadow:0 0 0 3px rgba(0,122,255,.3);border-radius:6px}
+.sum-x{margin-right:6px;color:var(--bad);font-weight:700}
+.sum-none{color:var(--mut);font-style:italic}
+.sum-err{background:rgba(255,59,48,.07);border-color:rgba(255,59,48,.28)}
+.sum-err>summary{color:#d70015}
+.sum-err .sum-count{background:rgba(255,59,48,.15);color:#d70015}
+.sum-warn{background:rgba(255,149,0,.07);border-color:rgba(255,149,0,.28)}
+.sum-warn>summary{color:#8f5700}
+.sum-info{background:rgba(0,122,255,.05);border-color:rgba(0,122,255,.20)}
+.sum-info>summary{color:var(--acc)}
+
+@media (max-width:900px){
+  #portBox.lf,#pwdBox.lf{display:block}
+  .lf-nav{position:static;max-height:none;overflow:visible;margin-bottom:12px}
+  .lf-tools{flex-direction:row;flex-wrap:wrap;align-items:center}
+  .lf-tools .lf-search{flex:1;min-width:140px}
+  .lf-list{flex-direction:row;flex-wrap:wrap;max-height:none;overflow:visible}
+  .lf-anchor{width:auto;padding:5px 11px;border:1px solid var(--line);border-radius:999px;background:rgba(255,255,255,.5)}
+  .lf-anchor .lf-n{display:none}
+  .lf .grp{scroll-margin-top:16px}
+  /* 步骤条: 5 个带状态徽标的页签在窄屏放不下, 改成容器内横向滚动,
+     避免把整个页面撑出 58px 横向滚动条(浏览器视图测试实测)。
+     必须放在 .wiz-steps 主定义之后, 否则被 width:max-content 覆盖。 */
+  .wiz-steps{width:auto;max-width:calc(100% - 16px);overflow-x:auto;overflow-y:hidden;
+    justify-content:flex-start;scrollbar-width:none;-ms-overflow-style:none}
+  .wiz-steps::-webkit-scrollbar{display:none}
+  .wtab{flex:none;padding:8px 10px;font-size:12px}
+  .wbadge.stepstat{font-size:10px;padding:0 5px}
+  /* 顶部工具按钮在窄屏不要逐字换行成两行 */
+  .brand-inline b,.tbtn{white-space:nowrap}
+  .tbtn{padding:6px 9px;font-size:11.5px}
+  .topbar{gap:4px}
+}
+
+/* ================================================================
+   深色模式: 仅覆盖 :root 变量 + 主要硬编码浅色表面 (浅色仍为默认)
+   ================================================================ */
+@media (prefers-color-scheme: dark){
+  :root{
+    color-scheme:dark;
+    --txt:#f2f2f7; --txt2:#d1d1d6; --mut:#98989f;
+    --line:rgba(255,255,255,.10); --line2:rgba(255,255,255,.20);
+    --acc:#0a84ff; --acc-h:#3b9bff;
+    --ok:#30d158; --warn:#ff9f0a; --bad:#ff453a; --bad-soft:rgba(255,69,58,.14);
+    --glass:rgba(30,30,34,.62); --edge:rgba(255,255,255,.10);
+    --sh-1:0 2px 10px rgba(0,0,0,.32);
+    --sh-2:0 6px 22px rgba(0,0,0,.48);
+    --sh-3:0 18px 50px rgba(0,0,0,.62);
+    --grad:#0a84ff; --grad-acc:#0a84ff;
+  }
+  body{background:#161618;color:var(--txt)}
+  body::before{opacity:.32}
+  .topbar,.actionbar{background:rgba(30,30,34,.62);border-color:rgba(255,255,255,.08);box-shadow:0 1px 0 rgba(0,0,0,.3)}
+  .wiz-steps{background:rgba(30,30,34,.62);border-color:rgba(255,255,255,.10)}
+  .wiz-pill{box-shadow:0 2px 12px rgba(0,0,0,.4), inset 0 1px 0 rgba(255,255,255,.2)}
+  .wtab{color:var(--txt2)}
+  .wtab i{background:rgba(255,255,255,.10);color:var(--mut)}
+  .wbadge{background:rgba(255,255,255,.10);color:var(--mut)}
+  .wbadge.warn{background:rgba(255,69,58,.18);color:#ff8b83}
+  .card{background:rgba(38,38,44,.90);border-color:var(--edge);
+    box-shadow:0 10px 40px rgba(0,0,0,.48), inset 0 1px 0 rgba(255,255,255,.05)}
+  .card:hover{box-shadow:0 14px 50px rgba(0,0,0,.6), inset 0 1px 0 rgba(255,255,255,.07)}
+  .card>h2{border-bottom-color:var(--line)}
+  .card>h2 .num{box-shadow:0 1px 4px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.25)}
+  label,.card>h2{color:var(--txt)}
+  .hint{color:var(--mut)}
+  input[type=text],input:not([type]),input[type=password],select,textarea{
+    background:rgba(255,255,255,.06);color:var(--txt);border-color:rgba(255,255,255,.14);
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.25)}
+  input:hover:not(:focus):not(:disabled),select:hover:not(:focus):not(:disabled),textarea:hover:not(:focus):not(:disabled){background:rgba(255,255,255,.10);border-color:rgba(255,255,255,.24)}
+  input:focus,select:focus,textarea:focus{background:rgba(20,24,34,.9);border-color:#4a9bff;box-shadow:0 0 0 3.5px rgba(10,132,255,.24)}
+  input:disabled,select:disabled{background:rgba(255,255,255,.05);color:var(--mut)}
+  input.bad{border-color:var(--bad);box-shadow:0 0 0 3.5px rgba(255,69,58,.2)}
+  ::placeholder{color:#7d7d85}
+  /* 上面的 background 简写会重置 repeat/position, 必须补回, 否则下拉箭头在深色模式平铺成一排 */
+  select{background-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23a0a0aa' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat:no-repeat;background-position:right 10px center;background-size:14px}
+  .tbtn,.mini,.btn.ghost,.chip-f{background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.14);color:var(--txt);
+    box-shadow:var(--sh-1), inset 0 1px 0 rgba(255,255,255,.06)}
+  .tbtn:hover,.mini:hover,.btn.ghost:hover,.chip-f:hover{background:rgba(255,255,255,.16)}
+  .tbtn.warn{color:#ff8b83;border-color:rgba(255,69,58,.4)}
+  .chip-f.on,.chip-f.on:hover{background:var(--grad-acc);color:#fff;border-color:transparent}
+  .chip-f.clear{color:#ff8b83;border-color:rgba(255,69,58,.35)}
+  .fgroup,.segs{background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.12)}
+  .fgroup button.on,.segs label:has(input:checked){background:rgba(255,255,255,.16);color:var(--txt)}
+  .cat-h,.cat-h i{color:var(--txt)}
+  .cat-h i{background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.12)}
+  .svc,.suite{background:rgba(255,255,255,.05);border-color:rgba(255,255,255,.12);
+    box-shadow:var(--sh-1), inset 0 1px 0 rgba(255,255,255,.05)}
+  .svc:hover{box-shadow:var(--sh-2)}
+  .svc.on,.suite.on{background:linear-gradient(rgba(20,24,34,.9),rgba(20,24,34,.85)) padding-box, var(--grad) border-box}
+  .svc b,.suite .s-head{color:var(--txt)}
+  .svc .tick,.suite .s-head .tick{background:rgba(255,255,255,.1);border-color:rgba(255,255,255,.25)}
+  .svc .ver,.svc .foot{color:var(--mut)}
+  .svc .size{background:rgba(10,132,255,.14);border-color:rgba(10,132,255,.3);color:#6cb6ff}
+  .svc .warnline{background:rgba(255,159,10,.14);border-color:rgba(255,159,10,.3);color:#ffc060}
+  .avatar{background:rgba(255,255,255,.06);border-color:rgba(255,255,255,.12)}
+  .ctn{background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.12);color:var(--txt2)}
+  .map-cols,.arrow{color:var(--mut)}
+  .map-row .mlabel{color:var(--txt2)}
+  .grp>h3{color:var(--txt)}
+  .pxexample{background:rgba(255,255,255,.07);border-color:rgba(255,255,255,.12);color:var(--txt2)}
+  .pxsub{background:rgba(255,255,255,.05);border-color:rgba(255,255,255,.12)}
+  .delrow{background:rgba(255,255,255,.06);border-color:rgba(255,255,255,.14);color:#ff8b83}
+  .addport{background:rgba(255,255,255,.05);border-color:rgba(255,255,255,.2)}
+  .dbbox{background:rgba(255,255,255,.05);border-color:rgba(255,255,255,.12)}
+  .segs label{color:var(--txt2)}
+  table th{background:rgba(255,255,255,.07);color:var(--mut)}
+  th,td{border-bottom-color:var(--line)}
+  tbody tr:hover td{background:rgba(255,255,255,.05)}
+  .tabs{border-bottom-color:var(--line)}
+  .tabs button.tab{color:var(--mut)}
+  .tabs button.tab.on{color:var(--acc)}
+  .modal{background:rgba(38,38,44,.92);border-color:rgba(255,255,255,.12)}
+  .modal h3,.mrow.big{color:var(--txt)}
+  .bar{background:rgba(255,255,255,.14)}
+  .dw{background:rgba(32,32,38,.94);border-color:rgba(255,255,255,.10)}
+  .dw-head,.dw-x{border-color:var(--line)}
+  .dw-x{background:rgba(255,255,255,.08);color:var(--txt2)}
+  .msg.ok{background:rgba(48,209,88,.12);color:#7ee09a;border-color:rgba(48,209,88,.3)}
+  .msg.err{background:rgba(255,69,58,.12);color:#ff9a92;border-color:rgba(255,69,58,.3)}
+  .msg.warn{background:rgba(255,159,10,.12);color:#ffc060;border-color:rgba(255,159,10,.3)}
+  .strength i{background:rgba(255,255,255,.14)}
+  #javaBox .jdetails,#topoInfraBox details,#topoInfraBox .kform .ksec{border-color:rgba(255,255,255,.12);background:rgba(255,255,255,.04)}
+  #topoInfraBox .kform input[type=text],#topoInfraBox .kform select,#topoInfraBox .kform textarea,
+  #javaBox .kform input[type=text],#javaBox .kform select{background:rgba(255,255,255,.06);border-color:rgba(255,255,255,.16);color:var(--txt)}
+  #topoInfraBox .kform .krow>label,#topoInfraBox .kform .krow2>label,
+  #topoInfraBox .kform .khint,#javaBox .kform .krow>label,#javaBox .kform .khint{color:var(--txt2)}
+  .jbadge{background:rgba(255,255,255,.1);color:var(--txt2)}
+  .jbadge.on{background:rgba(10,132,255,.18);color:#6cb6ff;border-color:rgba(10,132,255,.3)}
+  /* 增量组件 */
+  .rd-state.ok{background:rgba(48,209,88,.16);color:#7ee09a}
+  .rd-state.bad{background:rgba(255,69,58,.16);color:#ff9a92}
+  .rd-chip.bad{background:rgba(255,69,58,.14);color:#ff9a92;border-color:rgba(255,69,58,.3)}
+  .rd-chip.warn{background:rgba(255,159,10,.14);color:#ffc060;border-color:rgba(255,159,10,.3)}
+  .rd-sum{color:var(--txt2)}
+  .wiz-steps .wbadge.stepstat.ok{background:rgba(48,209,88,.18);color:#7ee09a}
+  .wiz-steps .wbadge.stepstat.bad{background:rgba(255,69,58,.18);color:#ff9a92}
+  .lf-nav{background:rgba(255,255,255,.04);border-color:var(--line)}
+  .lf-anchor:hover,.lf-mini .mini:hover{background:rgba(255,255,255,.12)}
+  .pwd-rules{background:rgba(10,132,255,.10);border-color:rgba(10,132,255,.25);color:var(--txt2)}
+  .str-rule{color:var(--mut)}
+  .suite-chip{background:rgba(255,255,255,.06);border-color:var(--line);color:var(--txt2)}
+  .suite-chip.on{background:rgba(10,132,255,.16);border-color:rgba(10,132,255,.4);color:#6cb6ff}
+  .sum-err{background:rgba(255,69,58,.10);border-color:rgba(255,69,58,.3)}
+  .sum-err>summary{color:#ff9a92}
+  .sum-err .sum-count{background:rgba(255,69,58,.18);color:#ff9a92}
+  .sum-warn{background:rgba(255,159,10,.10);border-color:rgba(255,159,10,.3)}
+  .sum-warn>summary{color:#ffc060}
+  .sum-info{background:rgba(10,132,255,.08);border-color:rgba(10,132,255,.25)}
+  .sum-info>summary{color:#6cb6ff}
+}
+
+/* ================================================================
+   就绪度明细 / 缺料信息级
+   - 缺料在打包阶段自动下载, 不算「问题」: 中性蓝信息色, 不进步骤计数
+   - 点击 chip / 步骤徽标展开明细, 每条可定位到具体元素
+   ================================================================ */
+.chip-f.clear.is-empty{opacity:.5;cursor:not-allowed;color:var(--mut);border-color:var(--line2)}
+.chip-f.clear.is-empty:hover{transform:none;background:rgba(255,255,255,.55)}
+.wiz-steps .wbadge.stepstat.notice{background:rgba(255,149,0,.18);color:#8f5700}
+.wiz-steps .wtab.on .wbadge.stepstat.notice{background:rgba(255,159,10,.92);color:#fff}
+.wbadge.stepstat[data-rd-step]{cursor:help}
+
+.mat-badge{display:inline-block;margin-left:8px;padding:2px 9px;border-radius:9px;font-size:11.5px;
+  vertical-align:middle;line-height:1.5;white-space:normal;font-weight:600}
+.mat-badge.ready{background:#e6f7e9;color:#1a7f37;border:1px solid rgba(26,127,55,.18)}
+.mat-badge.info{background:rgba(0,122,255,.09);color:#0066d6;border:1px solid rgba(0,122,255,.24)}
+.mat-badge.rd-target{box-shadow:0 0 0 4px rgba(0,122,255,.26)}
+
+.rd-chip.info{background:rgba(0,122,255,.09);color:#0066d6;border-color:rgba(0,122,255,.24)}
+.rd-panel{position:absolute;right:28px;bottom:calc(100% + 8px);width:min(470px,calc(100vw - 40px));
+  max-height:min(46vh,360px);overflow:auto;z-index:40;
+  background:rgba(255,255,255,.97);border:1px solid var(--line2);border-radius:14px;
+  box-shadow:var(--sh-3);padding:12px 14px;backdrop-filter:blur(16px)}
+.rd-panel[hidden]{display:none}
+.rd-panel-h{display:flex;align-items:center;justify-content:space-between;gap:10px;
+  font-size:12.5px;color:var(--txt);padding-bottom:9px;border-bottom:1px solid var(--line)}
+.rd-panel-x{border:0;background:transparent;color:var(--mut);font-size:14px;cursor:pointer;padding:2px 6px;border-radius:6px}
+.rd-panel-x:hover{background:var(--bad-soft);color:var(--bad)}
+.rd-panel-empty{padding:12px 2px 4px;color:var(--mut);font-size:12px}
+.rd-list{list-style:none;display:flex;flex-direction:column;gap:6px;margin-top:9px}
+.rd-item{width:100%;display:flex;align-items:center;gap:9px;text-align:left;cursor:pointer;
+  border:1px solid var(--line);background:rgba(255,255,255,.55);border-radius:9px;
+  padding:8px 10px;font:inherit;color:var(--txt)}
+.rd-item:hover{border-color:var(--acc);background:rgba(0,122,255,.05)}
+.rd-item:focus-visible{outline:none;box-shadow:0 0 0 3px rgba(0,122,255,.3)}
+.rd-dot{width:8px;height:8px;border-radius:50%;flex:none}
+.rd-dot.bad{background:var(--bad)} .rd-dot.warn{background:#ff9f0a} .rd-dot.info{background:var(--acc)}
+.rd-txt{flex:1;font-size:12px;line-height:1.45;word-break:break-word}
+.rd-tag{flex:none;font-size:10.5px;border-radius:99px;padding:1px 7px;font-family:var(--f-mono)}
+.rd-tag.bad{background:rgba(255,59,48,.12);color:#d70015}
+.rd-tag.warn{background:rgba(255,149,0,.15);color:#8f5700}
+.rd-tag.info{background:rgba(0,122,255,.11);color:#0066d6}
+.rd-go{flex:none;font-size:11px;color:var(--acc)}
+
+@media (prefers-color-scheme: dark){
+  .chip-f.clear.is-empty:hover{background:rgba(255,255,255,.06)}
+  .wiz-steps .wbadge.stepstat.notice{background:rgba(255,159,10,.18);color:#ffc060}
+  .wiz-steps .wtab.on .wbadge.stepstat.notice{background:rgba(255,159,10,.92);color:#1d1d1f}
+  .mat-badge.ready{background:rgba(48,209,88,.15);color:#7ee09a;border-color:rgba(48,209,88,.3)}
+  .mat-badge.info{background:rgba(10,132,255,.14);color:#6cb6ff;border-color:rgba(10,132,255,.35)}
+  .rd-chip.info{background:rgba(10,132,255,.14);color:#6cb6ff;border-color:rgba(10,132,255,.32)}
+  .rd-panel{background:rgba(30,30,34,.97);border-color:var(--line2)}
+  .rd-item{background:rgba(255,255,255,.04);border-color:var(--line)}
+  .rd-item:hover{background:rgba(10,132,255,.10)}
+  .rd-tag.bad{background:rgba(255,69,58,.18);color:#ff9a92}
+  .rd-tag.warn{background:rgba(255,159,10,.18);color:#ffc060}
+  .rd-tag.info{background:rgba(10,132,255,.18);color:#6cb6ff}
+  .rd-go{color:#6cb6ff}
+}
+@media (max-width:900px){
+  .rd-panel{right:14px;left:14px;width:auto}
+}
+
+/* ================================================================
+   方案 A: 本机 Docker 引导弹窗 (只检测 + 给命令/链接, 绝不安装)
+   ================================================================ */
+.docker-help{border:1px solid var(--line2);border-radius:16px;background:rgba(255,255,255,.97);
+  color:var(--txt);width:min(620px,calc(100vw - 32px));max-height:min(88vh,780px);
+  margin:auto;padding:0;box-shadow:var(--sh-3);font-family:var(--f-body)}
+.docker-help::backdrop{background:rgba(29,29,31,.42);backdrop-filter:blur(4px)}
+.dh-head{display:flex;align-items:center;justify-content:space-between;gap:12px;
+  padding:16px 20px;border-bottom:1px solid var(--line)}
+.dh-head h3{font-size:15px;font-weight:650;margin:0;color:var(--txt)}
+.dh-x{border:0;background:transparent;color:var(--mut);font-size:16px;cursor:pointer;padding:4px 9px;border-radius:8px}
+.dh-x:hover{background:var(--bad-soft);color:var(--bad)}
+.dh-body{padding:16px 20px 12px}
+.dh-body>p{font-size:13px;line-height:1.65;color:var(--txt2);margin:0 0 12px}
+.dh-detect{background:rgba(255,159,10,.08);border:1px solid rgba(255,159,10,.25);border-radius:10px;
+  padding:10px 12px;font-size:12px;display:flex;flex-direction:column;gap:4px;margin-bottom:14px;color:var(--txt2)}
+.dh-detect b{font-weight:650}
+.dh-bad{color:#c0392b} .dh-warn{color:#8f5700} .dh-ok{color:#1a7f37}
+.dh-body h4{font-size:13px;font-weight:650;margin:0 0 8px;color:var(--txt)}
+/* 只让平台列表滚动, 「不安装」声明与「本次不再提示」固定可见 */
+#dhPlatforms{max-height:min(38vh,340px);overflow:auto;scrollbar-width:thin;padding-right:6px}
+.dh-foot{padding:0 20px 4px}
+.dh-plat{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:10px}
+.dh-plat-h{display:flex;align-items:center;gap:6px;width:100%;border:0;background:transparent;
+  padding:0;cursor:pointer;font:inherit;font-size:12.5px;font-weight:650;margin-bottom:6px;
+  color:var(--txt);text-align:left}
+.dh-chev{margin-left:auto;color:var(--mut);font-size:14px;transition:transform .2s}
+.dh-plat.folded .dh-chev{transform:rotate(-90deg)}
+.dh-plat.folded .dh-cmd,.dh-plat.folded .dh-plat-a,.dh-plat.folded .dh-note{display:none}
+.dh-plat.folded .dh-plat-h{margin-bottom:0}
+.dh-cur{font-size:10.5px;font-weight:500;color:var(--acc);border:1px solid rgba(0,122,255,.3);
+  border-radius:99px;padding:1px 7px;margin-left:6px}
+.dh-cmd{font-family:var(--f-mono);font-size:11.5px;background:rgba(29,29,31,.05);border-radius:8px;
+  padding:8px 10px;white-space:pre-wrap;word-break:break-all;margin:0 0 8px;color:var(--txt)}
+.dh-plat-a{display:flex;align-items:center;gap:12px;font-size:12px}
+.dh-plat-a a{color:var(--acc);text-decoration:none}
+.dh-plat-a a:hover{text-decoration:underline}
+.dh-note{font-size:11.5px;color:var(--mut);line-height:1.55;margin:6px 0 0}
+.dh-mute{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--txt2);margin-top:12px;cursor:pointer}
+.dh-actions{display:flex;align-items:center;gap:8px;padding:14px 20px;border-top:1px solid var(--line)}
+.dh-actions .sp{flex:1}
+.dh-hint{margin-top:10px;background:rgba(0,122,255,.07);border:1px solid rgba(0,122,255,.22);
+  border-radius:10px;padding:9px 12px;font-size:12px;color:var(--txt2);
+  display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.dh-hint[hidden]{display:none}
+@media (prefers-color-scheme: dark){
+  .docker-help{background:rgba(30,30,34,.97);border-color:var(--line2)}
+  .dh-detect{background:rgba(255,159,10,.10);border-color:rgba(255,159,10,.3);color:var(--txt)}
+  .dh-bad{color:#ff9a92} .dh-warn{color:#ffc060} .dh-ok{color:#6ede8a}
+  .dh-cmd{background:rgba(255,255,255,.06)}
+  .docker-help .dh-body>p{color:var(--txt)}
+  .docker-help .dh-note,.docker-help .dh-mute{color:var(--txt2)}
+  .dh-hint{background:rgba(10,132,255,.10);border-color:rgba(10,132,255,.3)}
+}
+@media (max-width:900px){
+  .dh-actions{flex-wrap:wrap}
+  .dh-actions .sp{display:none}
+}
+@media (max-height:720px){
+  #dhPlatforms{max-height:24vh}
+  .dh-body{padding-top:12px}
+}
 </style>
 </head>
 <body>
@@ -440,11 +859,11 @@
     </div>
     <div class="wiz-steps" id="wizSteps">
       <span class="wiz-pill" id="wizPill"></span>
-      <button class="wtab on" data-v="1"><i>1</i>基础设施</button>
+      <button class="wtab on" data-v="1"><i>1</i>基础设施<b class="wbadge stepstat" id="stb1"></b></button>
       <button class="wtab" data-v="2"><i>2</i>选择中间件<b class="wbadge" id="badge2"></b></button>
       <button class="wtab" data-v="3"><i>3</i>端口与反代<b class="wbadge" id="badge3"></b></button>
       <button class="wtab" data-v="4"><i>4</i>账号与数据<b class="wbadge warn" id="badge4"></b></button>
-      <button class="wtab" data-v="5"><i>5</i>预览打包</button>
+      <button class="wtab" data-v="5"><i>5</i>预览打包<b class="wbadge stepstat" id="stb5"></b></button>
     </div>
     <div class="dw-wrap hidden" id="dw-wh">
       <div class="dw-mask" data-dwclose></div>
@@ -498,7 +917,7 @@
 
     <div class="content">
 
-      <div class="wstep on" data-step="1">
+      <div class="wstep on" data-step="1" tabindex="-1">
       <!-- 部署服务器池: 最底层的节点清单, 置顶 -->
       <div class="card" id="sec-pool">
         <h2><span class="num">1</span>部署服务器池 <span class="hint">所有部署的节点清单 — K8s 集群与中间件多机部署从这里选择</span></h2>
@@ -545,55 +964,63 @@
 
       </div>
 
-      <div class="wstep" data-step="2">
+      <div class="wstep" data-step="2" tabindex="-1">
       <div class="card" id="sec-svc">
         <h2><span class="num">1</span>选择中间件 <span class="hint">只打包勾选项, 也可接入 plugins/ 插件扩展</span></h2>
         <div class="body">
-          <div id="suiteBox"></div>
-          <div id="catChips"></div>
-          <div id="svcCats"></div>
+          <div id="suiteBox" aria-live="polite"></div>
+          <div id="catChips" aria-live="polite"></div>
+          <div id="svcCats" aria-live="polite"></div>
           <div id="topoBox" style="margin-top:16px"></div>
         </div>
       </div>
 
       </div>
 
-      <div class="wstep" data-step="3">
+      <div class="wstep" data-step="3" tabindex="-1">
       <div class="card" id="step3Empty"><div class="body hint">请先在「选择中间件」步骤勾选组件, 这里会出现端口与反代配置。</div></div>
       <div class="card" id="sec-port" style="display:none">
         <h2><span class="num">1</span>端口映射 <span class="hint">左侧宿主机端口, 箭头后为容器内端口; 支持追加自定义映射</span></h2>
-        <div class="body" id="portBox"></div>
+        <div class="body" id="portBox" aria-live="polite"></div>
       </div>
 
       <div class="card" id="sec-proxy" style="display:none">
         <h2><span class="num">2</span>反向代理向导 <span class="hint">域名 / 前后端转发 / 真实IP / WebSocket, 自动生成 nginx 站点配置</span></h2>
-        <div class="body" id="proxyBox"></div>
+        <div class="body" id="proxyBox" aria-live="polite"></div>
       </div>
 
       </div>
 
-      <div class="wstep" data-step="4">
+      <div class="wstep" data-step="4" tabindex="-1">
       <div class="card" id="step4Empty"><div class="body hint">当前选择不需要账号密码 / 数据库配置。</div></div>
       <div class="card" id="sec-pwd" style="display:none">
         <h2><span class="num">1</span>账号密码 <span class="hint">禁止空格与 $ ` " ' \ ; | ; 部署后存于 .env (600)</span></h2>
         <div class="body">
-          <div id="pwdBox"></div>
+          <div class="pwd-toolbar">
+            <button class="mini" id="btnGenAll" data-i18n="btnGenAll">全部随机生成</button>
+            <button class="mini" id="btnExportCreds" data-i18n="btnExportCreds">导出凭据</button>
+          </div>
+          <div class="pwd-rules" data-i18n="pwdRules">密码规则: 长度至少 6 位(建议 12 位以上并混合大小写/数字/符号); 允许字母、数字及 @ # % * + = _ . : / ~ -; 禁止空格、$、反引号、单双引号、反斜杠、分号、竖线等字符; 部署后以 600 权限存于 .env。</div>
+          <div id="pwdBox" aria-live="polite"></div>
         </div>
       </div>
 
       <div class="card" id="sec-db" style="display:none">
         <h2><span class="num">2</span>数据库来源 <span class="hint">Nacos / XXL-Job 的建库连库方式</span></h2>
-        <div class="body" id="dbBox"></div>
+        <div class="body" id="dbBox" aria-live="polite"></div>
       </div>
 
       <div class="card" id="sec-backup" style="display:none">
         <h2><span class="num">3</span>数据库备份 <span class="hint">crontab + 容器内原生工具导出, 按库分文件压缩|crontab + in-container native dump, per-DB compressed</span></h2>
-        <div class="body" id="backupBox"></div>
+        <div class="body" id="backupBox" aria-live="polite"></div>
       </div>
 
       </div>
-      <div class="wstep" data-step="5">
-      <div class="card" id="step5Empty"><div class="body hint">勾选组件后, 点击下方「生成预览」查看 docker-compose / .env / manifest 最终内容; 确认无误后「开始打包」。</div></div>
+      <div class="wstep" data-step="5" tabindex="-1">
+      <div class="card" id="step5Empty">
+        <div class="body hint" id="step5EmptyText">勾选组件后, 点击下方「生成预览」查看 docker-compose / .env / manifest 最终内容; 确认无误后「开始打包」。</div>
+        <div class="body" style="padding-top:0"><button type="button" class="mini" id="step5Fix" style="display:none"></button></div>
+      </div>
       <div class="card" id="previewCard" style="display:none">
         <div class="tabs">
           <button class="tab on" data-t="compose">docker-compose.yml</button>
@@ -604,18 +1031,20 @@
           <button class="tab" data-t="clusterCfg" id="tabClusterCfg" style="display:none">集群 config</button>
           <button class="tab" data-t="materials" id="tabMaterials" style="display:none">待下载物料</button>
           <span style="flex:1"></span>
+          <button class="mini" id="btnDiff" data-i18n="btnDiff" style="align-self:center;margin-bottom:9px">与上次预览 diff</button>
           <button class="mini" id="btnCopy" style="align-self:center;margin-bottom:9px">复制当前内容</button>
         </div>
-        <pre id="previewPre"></pre>
+        <pre id="previewPre" aria-live="polite"></pre>
       </div>
 
-      <div id="msg"></div>
+      <div id="msg" aria-live="polite"></div>
+      <div id="dockerHint" class="dh-hint" aria-live="polite" hidden></div>
       </div>
 
     </div>
 
     <div class="actionbar">
-      <span class="stat" id="statLine">未选择组件</span>
+      <span class="stat" id="statLine" role="status" aria-live="polite">未选择组件</span>
       <span class="sp"></span>
       <button class="btn ghost" id="btnPrev">上一步</button>
       <button class="btn ghost" id="btnNext">下一步</button>
@@ -640,8 +1069,32 @@
   </div>
 </div>
 
-<div id="toast"></div>
+<dialog id="dockerHelp" class="docker-help" aria-labelledby="dhTitle">
+  <div class="dh-head">
+    <h3 id="dhTitle">本机 Docker 未就绪</h3>
+    <button type="button" class="dh-x" id="dhClose" aria-label="关闭">✕</button>
+  </div>
+  <div class="dh-body">
+    <p id="dhWhy"></p>
+    <div class="dh-detect" id="dhDetect" aria-live="polite"></div>
+    <h4 id="dhPlatformTitle"></h4>
+    <div id="dhPlatforms"></div>
+  </div>
+  <div class="dh-foot">
+    <p class="dh-note" id="dhNote"></p>
+    <label class="dh-mute"><input type="checkbox" id="dhMute"> <span id="dhMuteLabel"></span></label>
+  </div>
+  <div class="dh-actions">
+    <button type="button" class="btn ghost" id="dhRecheck">重新检测</button>
+    <span class="sp"></span>
+    <button type="button" class="btn ghost" id="dhCancel">取消</button>
+    <button type="button" class="btn" id="dhSkip">跳过并继续</button>
+  </div>
+</dialog>
 
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script src="versions.js"></script>
 <script src="logos.js"></script>
 <script>
 let CATALOG = null;
@@ -917,7 +1370,8 @@ const EN_DICT = {
   "部署时自动把广播地址改写为服务器 IP; 镜像改用 bitnami/kafka 3.7.0 (双架构": "advertised host rewritten to the server IP on deploy; image switched to bitnami/kafka 3.7.0 (dual-arch",
   "点击下方": "Click ", "步骤勾选组件": " to select components in the steps",
   /* -- 动态拼接提示的子串片段(整词替换按最长优先) -- */
-  "当前是 GitHub Pages ": "This is the GitHub Pages ",
+  "当前是 ": "This is the ",
+  "(GitHub Pages / 本地双击)": "(GitHub Pages / local double-click)",
   ": 界面与配置流程可完整体验; 打包/预览/物料检查需要后端, 完整使用请克隆本仓库后本地运行 ": ": the UI and config flow are fully usable; packing/preview/warehouse checks need the backend — clone this repo and run ",
   "。": ".",
   "K8s 物料: ": "K8s materials: ",
@@ -1007,6 +1461,110 @@ const EN_DICT = {
   "容器内端口": "container port",
   "* XXL-Job 控制台初始账号 admin, 初始密码即上面登记的 XXL-Job admin 密码(打包时按该值初始化 SQL), 登录后请修改": "* XXL-Job console initial user admin; initial password is the XXL-Job admin password above (SQL initialized with it); change it after first login",
 };
+/* ================= 增量 UI 文案 (data-i18n / t()) =================
+   值一律写成 "中文|English" 整行(两半各自完整, 半边内不出现竖线), 由 t(key) 取半边。
+   同步并入 EN_DICT 作为 TreeWalker / MutationObserver 的兜底: 只并入 >=4 字的整词,
+   避免 "无/行/组" 这类单字被当子串替换而破坏既有长词(如 "无缺失")。 */
+const I18N = {
+  stepReady:'就绪|Ready', stepConfigured:'已配置|Configured',
+  stepProblems:'{n} 处问题|{n} issues', stepWarnings:'{n} 处提醒|{n} notices',
+  rdPanelTitle:'本次检查明细 · 点击条目可定位|Readiness details · click an item to locate',
+  rdPanelClose:'关闭|Close', rdBlocking:'阻断|Blocking', rdNotice:'提醒|Notice', rdAuto:'自动补齐|Auto',
+  rdLocate:'定位|Locate', rdPanelEmpty:'这一步没有待处理项|Nothing to fix on this step',
+  rd_info:'打包时自动补齐|Auto-collected on pack',
+  k8sMatAuto:'K8s 物料将在打包时自动补齐: {a}|K8s materials auto-collected during packing: {a}',
+  k8sMatReady:'✓ 物料就绪|✓ Materials ready',
+  k8sMatMissing:'⟳ 打包时自动补齐: {a}|⟳ Auto-collected on pack: {a}',
+  k8sMatTip:'打包时会自动下载这些物料, 不用管|Downloaded automatically when packing; nothing to do here',
+  k8sArmBlock:'ARM64 暂未开放, 请切回 x86_64 打集群包|ARM64 not available yet; switch back to x86_64 for cluster bundles',
+  statReady:'可以打包|Ready to pack', statBlocked:'打包受阻 · {n} 处|Blocked · {n} issues',
+  statEmpty:'未选择组件|No components selected',
+  rd_materials:'物料缺失|Materials missing', rd_ports:'端口冲突/非法|Port conflicts / invalid',
+  rd_passwords:'弱密码/必填未填|Weak or empty passwords', rd_k8s:'K8s/多机告警|K8s / multi-host warnings',
+  mtlDocker:'Docker 安装包 ({a})|Docker package ({a})',
+  mtlCompose:'docker-compose 插件 ({a})|docker-compose plugin ({a})',
+  mtlImage:'{a} 镜像|{a} image',
+  k8sMatNotReady:'K8s 物料未就绪: {a}|K8s materials not ready: {a}',
+  k8sNoCp:'K8s 未分配控制面节点|K8s: no control-plane node assigned',
+  k8sNoNodes:'集群/多机部署缺少服务器池节点|Cluster/multi-host deploy needs server-pool nodes',
+  dbNacos:'Nacos 数据库来源|Nacos database source',
+  dbXxljob:'XXL-Job 数据库来源|XXL-Job database source',
+  pwdHide:'隐藏|Hide',
+  lfSearch:'搜索服务…|Search services…', lfExpand:'展开全部|Expand all',
+  lfCollapse:'折叠全部|Collapse all', lfNoMatch:'无匹配服务|No matching service',
+  lfNavLabel:'服务导航|Services',
+  btnGenAll:'全部随机生成|Generate all', btnExportCreds:'导出凭据|Export credentials',
+  pwdRules:'密码规则: 长度至少 6 位(建议 12 位以上并混合大小写/数字/符号); 允许字母、数字及 @ # % * + = _ . : / ~ -; 禁止空格、$、反引号、单双引号、反斜杠、分号、竖线等字符; 部署后以 600 权限存于 .env。|Password rules: at least 6 chars (12+ recommended, mixing upper/lowercase, digits and symbols); allowed: letters, digits and @ # % * + = _ . : / ~ -; forbidden: spaces, $, backticks, quotes, backslash, semicolon, pipe; stored in .env (mode 600) after deploy.',
+  genAllDone:'已为全部账号生成随机密码/令牌|Random secrets generated for all accounts',
+  exportCredsDone:'凭据已导出为 JSON 文件(未回显到页面)|Credentials exported to a JSON file (not shown on page)',
+  strRule1:'≥8 位, 建议 12 位以上并混合大小写/数字/符号|8+ chars; 12+ with mixed case, digits and symbols recommended',
+  strRule2:'再加长度或字符类别即可更强|add length or more character classes to strengthen',
+  strRule3:'接近推荐强度|close to recommended strength',
+  strRule4:'符合推荐强度|meets recommended strength',
+  suiteTitle:'套件|Suites', suiteHint:'按场景挑好的一组, 下面的服务卡片可以随时加减|Common combos; add or remove individual services with the cards below',
+  suiteSelectAll:'全选|Select all', suiteDeselect:'取消全选|Clear',
+  btnDiff:'与上次预览 diff|Diff with last preview', diffBack:'返回预览|Back to preview',
+  diffFirst:'首次预览, 暂无上次内容可对比|First preview; nothing to compare yet',
+  diffNoMaterials:'物料清单不支持文本 diff|Materials list has no text diff',
+  diffTitle:'与上次预览的行级差异 (当前 vs 上次)|Line diff vs last preview (current vs previous)',
+  diffAdd:'新增|added', diffDel:'删除|removed',
+  codeExpandAll:'展开全部服务|Expand all services', codeCollapseAll:'折叠全部服务|Collapse all services',
+  codeLines:'行|lines', codeGroups:'组|groups', codeHeader:'文件头|Preamble',
+  sumErrTitle:'错误 · 阻断|Errors · Blocking', sumWarnTitle:'警告 · 可继续|Warnings · Can continue',
+  sumInfoTitle:'信息|Info', sumImages:'将打包镜像:|Images to pack:',
+  sumBackup:'备份计划 (crontab):|Backup plan (crontab):',
+  sumDeploy:'服务器部署: 解压后进入目录执行 ./deploy.sh (root)|Server deploy: extract, enter the dir and run ./deploy.sh (root)',
+  sumNone:'无|None',
+  sumPwdWeak:'弱密码|weak', sumPwdEmpty:'必填未填|empty', sumPwdIllegal:'含非法字符|illegal chars',
+  jumpMaterials:'到「基础设施」查看物料仓库|Go to Infrastructure / Warehouse',
+  step5NoSel:'请先到「选择中间件」步骤勾选组件, 再回来生成预览。|Select components in step 2 first, then come back to generate a preview.',
+  step5Ready:'已选 {n} 项; 点击下方「生成预览」核对 docker-compose / .env / manifest, 确认无误后再「开始打包」。|{n} components selected. Click "Generate Preview" below to inspect the final docker-compose / .env / manifest, then "Start Packing" once confirmed.',
+  step5Fail:'上次预览未通过: 请按上方红色提示修正配置, 再点「生成预览」重试。|Last preview failed. Fix the issue shown in the red notice above, then click "Generate Preview" again.',
+  step5FixBtn:'去修正配置 ›|Go fix it ›',
+  previewFailedPrefix:'预览未通过|Preview failed',
+  dhTitle:'本机 Docker 未就绪|Docker is not ready on this machine',
+  dhWhy:'本次打包有缺失镜像需要自动拉取并保存为离线 tar, 这一步要用到打包机上的 Docker。目标服务器的 Docker 已由离线包自动安装, 与本机无关。|This pack must pull missing images and save them as offline tars, which needs Docker on this machine. Docker on the target server is installed automatically from the bundle and is unrelated.',
+  dhWhyShort:'本次打包会用到本机 Docker 补齐缺失镜像。|This pack needs local Docker to top up missing images.',
+  dhHint:'查看安装指引|View setup guide',
+  dhDetectLabel:'检测结果|Detection',
+  dhNotFound:'未找到 docker 命令|docker command not found',
+  dhNoDaemon:'已找到 Docker 命令, 但守护进程未运行|Docker CLI found, but the daemon is not reachable',
+  dhDaemonOk:'守护进程已就绪|Daemon is reachable',
+  dhNoCompose:'未检测到 compose 插件(仅影响可选校验)|compose plugin not detected (optional validation only)',
+  dhVersion:'版本: {a}|Version: {a}', dhPath:'路径: {a}|Path: {a}',
+  dhCurrent:'当前系统|This machine',
+  dhPlatformTitle:'按你的系统选择安装方式|Install for your platform',
+  dhCopy:'复制命令|Copy command', dhCopied:'已复制到剪贴板|Copied to clipboard',
+  dhCopyFail:'复制失败, 请手动选择|Copy failed, select manually',
+  dhDocs:'官方文档|Official docs',
+  dhNote:'这里只给命令, 工具不会替你安装 Docker, 也不改系统设置。装完点「重新检测」; 跳过也能继续打包, 只是缺镜像自动补齐可能失败, 可以改用预置物料或补料脚本(crane 兜底, 不用 Docker)。|Commands only: this tool never installs Docker and does not change system settings. Click Recheck once installed. Skipping still packs, but missing images may not be fetched automatically; use pre-staged materials or the pull script (crane fallback) instead.',
+  dhMute:'本次不再提示|Do not show again this session',
+  dhRecheck:'重新检测|Recheck', dhCancel:'取消|Cancel',
+  dhSkip:'跳过并继续|Skip and continue', dhClose:'关闭|Close',
+  dhReady:'Docker 已就绪, 继续打包|Docker is ready, continuing',
+  dhStillMissing:'Docker 仍未就绪|Docker is still not ready',
+};
+function t(key, vars){
+  let v = I18N[key];
+  if (v == null) return key;
+  v = trLabel(v);
+  if (vars) for (const k in vars) v = v.split('{' + k + '}').join(vars[k]);
+  return v;
+}
+for (const k in I18N){
+  const i = I18N[k].indexOf('|');
+  if (i < 0) continue;
+  const zh = I18N[k].slice(0, i).trim(), en = I18N[k].slice(i + 1).trim();
+  if (zh.length >= 4 && !(zh in EN_DICT)) EN_DICT[zh] = en;
+}
+function applyStaticI18n(root){
+  const scope = root || document;
+  if (!scope.querySelectorAll) return;
+  scope.querySelectorAll('[data-i18n]').forEach(el => {
+    const key = el.getAttribute('data-i18n');
+    if (key) el.textContent = t(key);
+  });
+}
 const EN_KEYS = Object.keys(EN_DICT).sort((a, b) => b.length - a.length);
 const EN_RE = new RegExp(EN_KEYS.map(k => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|'), 'g');
 // 目录数据(zh|en)取半边; 后端消息(带|)取半边
@@ -1076,7 +1634,7 @@ function toast(text){
     d.style.height = '0px';
     d.style.paddingTop = d.style.paddingBottom = '0px';
     d.style.marginBottom = '-8px';            // 抵消 flex gap 残留的空隙
-    setTimeout(() => d.remove(), 400);
+    setTimeout(() => d.remove(), 320);       // .out 过渡 320ms 落定后再 remove
   }, 2600);
 }
 function fmtGB(mb){ return mb >= 1024 ? (mb/1024).toFixed(2) + ' GB' : mb + ' MB'; }
@@ -1137,31 +1695,66 @@ async function api(path, body){
 }
 
 /* ================= 初始化 ================= */
-let STATIC_MODE = false;   // 静态托管(GitHub Pages)演示模式: 无本地打包器后端
+let STATIC_MODE = false;   // 静态托管(GitHub Pages / 本地双击)演示模式: 无本地打包器后端
+function applyStaticCatalog(v){
+  CATALOG = { services: (v && v.services) || {}, secrets: (v && v.secrets) || [],
+              defaults: (v && v.defaults) || {}, cluster: (v && v.cluster) || {},
+              suites: (v && v.suites) || [], java: (v && v.java) || {},
+              files_present: {}, sizes: {docker:{},compose:{},images:{}} };
+  STATIC_MODE = true;
+}
 async function loadCatalog(){
   try {
     CATALOG = await api('/api/catalog');
-  } catch(e) {
-    // 静态托管场景: 退化为仓库内的 versions.json, 关闭需要后端的功能
-    const v = await (await fetch('versions.json')).json();
-    CATALOG = { services: v.services || {}, secrets: v.secrets || [],
-                defaults: v.defaults || {}, cluster: v.cluster || {},
-                files_present: {}, sizes: {docker:{},compose:{},images:{}} };
-    STATIC_MODE = true;
+    return;
+  } catch(e) { /* 无后端: 退化为静态目录 */ }
+  try {
+    // 静态 HTTP 托管(Pages / 本地 server): 同目录 versions.json 可 fetch
+    applyStaticCatalog(await (await fetch('versions.json')).json());
+    return;
+  } catch(e) { /* file:// 双击直开: fetch 同目录文件被浏览器拦截 */ }
+  if (window.PACKER_VERSIONS){
+    // file:// 兜底: build 随包生成的 versions.js 经 <script> 加载(经典 script 不受 fetch CORS 限制)
+    applyStaticCatalog(window.PACKER_VERSIONS);
+    return;
   }
+  applyStaticCatalog(null);   // 孤立拷贝(连 versions.js 都不在): 空目录兜底, 页面/胶囊/事件照常初始化
 }
 async function init(){
+  applyStaticI18n(document);   // 新增: data-i18n 静态文案用 t(key) 显式渲染
   await loadCatalog();
   renderSvcGrid(); renderClusterCard(); renderWarehouse(); setupWhFilter(); loadBundles(); restoreLocal();
   if (STATIC_MODE){
     document.querySelector('.content').insertAdjacentHTML('afterbegin',
-      '<div class="msg warn" style="margin:0 0 18px">当前是 GitHub Pages <b>静态演示版</b>: 界面与配置流程可完整体验; 打包/预览/物料检查需要后端, 完整使用请克隆本仓库后本地运行 <b>python packer.py</b>。</div>');
+      '<div class="msg warn" style="margin:0 0 18px">当前是 <b>静态演示版</b>(GitHub Pages / 本地双击): 界面与配置流程可完整体验; 打包/预览/物料检查需要后端, 完整使用请克隆本仓库后本地运行 <b>python packer.py</b>。</div>');
     toast('静态演示模式: 打包功能需本地运行 packer.py');
   }
   $('#mirrorNote').textContent = CATALOG.defaults.registry_mirrors_note || '';
   $('#arch').onchange = onArchChange;
   $('#btnPreview').onclick = doPreview;
   $('#btnPack').onclick = doPack;
+  // 方案 A: Docker 引导弹窗(只给命令/链接, 不安装不配置)
+  $('#dhSkip').onclick = () => closeDockerHelp(true);
+  $('#dhCancel').onclick = () => closeDockerHelp(false);
+  $('#dhClose').onclick = () => closeDockerHelp(false);
+  $('#dhMute').onchange = e => {
+    try {
+      if (e.target.checked) sessionStorage.setItem('packer-docker-help-muted', '1');
+      else sessionStorage.removeItem('packer-docker-help-muted');
+    } catch(err){}
+  };
+  $('#dhRecheck').onclick = async () => {
+    const env = await fetchDockerEnv();
+    if (env && env.docker && env.docker.daemon){ toast(t('dhReady')); closeDockerHelp(true); return; }
+    renderDockerDialog(env); toast(t('dhStillMissing'));
+  };
+  $('#dockerHelp').addEventListener('cancel', e => { e.preventDefault(); closeDockerHelp(false); });
+  $('#step5Fix').onclick = () => {
+    const r = collectReadiness();
+    const kinds = ['ports','passwords','materials','k8s','info'].filter(k => (r[k]||[]).length);
+    if (kinds.length) jumpToReadiness(kinds[0]);   // 明细常驻 + 直接定位到阻塞字段
+    else gotoView('3');                            // 后端其它校验错误: 回到最常见的端口页
+  };
   $('#btnRecheck').onclick = async () => { if (STATIC_MODE){ toast('演示模式: 物料检查需本地运行 packer.py'); return; } CATALOG = await api('/api/catalog'); renderSvcGridSync(); renderWarehouse(); toast('物料状态已刷新'); };
   $('#btnPullScript').onclick = async () => {
     if (STATIC_MODE){ toast('演示模式: 补料脚本需本地运行 packer.py 生成'); return; }
@@ -1213,6 +1806,44 @@ async function init(){
   window.addEventListener('load', () => movePill(curStep));
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => movePill(curStep));
   $$('#previewCard .tabs button[data-t]').forEach(b => b.onclick = () => switchTab(b.dataset.t));
+  $('#btnDiff').onclick = toggleDiff;
+  $('#btnGenAll').onclick = genAllSecrets;
+  $('#btnExportCreds').onclick = exportCredentials;
+  // 打包就绪度状态条: 点击阻塞项跳到对应步骤并高亮字段(事件委托, 状态条会重建)
+  $('#statLine').addEventListener('click', e => {
+    const b = e.target.closest('[data-rd]');
+    if (b) jumpToReadiness(b.dataset.rd);
+  });
+  // 步骤条上的「N 处问题/提醒」也可点开明细; hover 的 title 已列出具体条目
+  $('#wizSteps').addEventListener('click', e => {
+    const badge = e.target.closest('.wbadge.stepstat[data-rd-step]');
+    if (!badge) return;
+    const kinds = readinessKindsOfStep(badge.dataset.rdStep);
+    if (kinds.length) showReadinessPanel(kinds, collectReadiness());
+  });
+  // 输入后节流刷新就绪度(端口/密码/数据库等直接改 input 时不触发 renderDynamic)
+  let rdTimer = 0;
+  document.addEventListener('input', () => {
+    clearTimeout(rdTimer);
+    rdTimer = setTimeout(() => refreshReadiness(), 120);
+  });
+  // 预览代码块: 服务分组折叠 / 展开 + 键盘可达
+  const preEl = $('#previewPre');
+  preEl.addEventListener('click', e => {
+    const h = e.target.closest('.code-grp-h');
+    if (h){ toggleCodeGroup(h.closest('.code-grp')); return; }
+    const f = e.target.closest('[data-code-fold]');
+    if (f) setAllCodeGroups(f.dataset.codeFold === 'open');
+  });
+  preEl.addEventListener('keydown', e => {
+    if ((e.key === 'Enter' || e.key === ' ') && e.target.classList.contains('code-grp-h')){
+      e.preventDefault(); toggleCodeGroup(e.target.closest('.code-grp'));
+    }
+  });
+  // 长表单: 滚动时联动当前锚点 aria-current
+  window.addEventListener('scroll', () => {
+    if (!anchorTick) anchorTick = requestAnimationFrame(() => { anchorTick = 0; refreshAnchors(); });
+  }, { passive: true });
   $('#mCancel').onclick = async () => { try{ await api('/api/cancel', {}); }catch(e){} toast('已请求取消'); };
   $('#mClose').onclick = () => { $('#modal').classList.add('hidden'); loadBundles(); };
   // 中英切换: 记忆选择后整页重载(状态已在 localStorage 持久化)
@@ -1264,10 +1895,14 @@ function renderSvcChips(){
     if (!counts[cat]) continue;
     html += '<button class="chip-f'+(state.svcFilter===cat?' on':'')+'" data-cat="'+cat+'">'+label+' <i>'+counts[cat]+'</i></button>';
   }
-  if (selected.size) html += '<button class="chip-f clear" data-clear="1">✕ 清空选择 <i>'+selected.size+'</i></button>';
+  // 始终占据一个位置: 未选中时禁用而非隐藏, 避免工具栏随选择状态跳变
+  html += '<button class="chip-f clear'+(selected.size?'':' is-empty')+'" data-clear="1"'+
+          (selected.size?'':' disabled aria-disabled="true"')+
+          '>✕ 清空选择 <i>'+selected.size+'</i></button>';
   bar.innerHTML = html;
   bar.querySelectorAll('.chip-f[data-cat]').forEach(b => b.onclick = () => { state.svcFilter = b.dataset.cat; renderSvcGrid(); });
   bar.querySelectorAll('.chip-f[data-clear]').forEach(b => b.onclick = () => {
+    if (!selected.size) return;
     selected.clear(); renderSvcGridSync(); toast('已清空全部选择');
   });
 }
@@ -1301,26 +1936,34 @@ function renderSuites(){
   const box = $('#suiteBox'); if (!box) return;
   const suites = CATALOG.suites || [];
   if (!suites.length){ box.innerHTML = ''; return; }
-  let html = '<h3 class="cat-h">套件 <span class="hint" style="font-weight:400">一键勾选一组配套组件, 也可在下方单独增删</span></h3><div class="suite-row">';
+  // 套件是「轻量分组」而非可勾选卡片: 分组标题 + 成员 chips; 服务卡(#svcCats)仍是主选择单元。
+  let html = '<h3 class="cat-h">' + esc(t('suiteTitle')) +
+    ' <span class="hint" style="font-weight:400">' + esc(t('suiteHint')) + '</span></h3>' +
+    '<div class="suite-groups">';
   for (const s of suites){
-    const names = (s.members || []).map(m => (CATALOG.services[m] || {}).label || m);
     const on = suiteAllOn(s);
-    html += '<div class="suite'+(on?' on':'')+'" data-suite="'+esc(s.key)+'" title="包含: '+esc(names.join('、'))+'">'+
-      '<div class="s-head"><span class="tick"></span><b>'+esc(trLabel(s.label))+'</b></div>'+
-      '<div class="s-desc">'+esc(trLabel(s.desc || ''))+'</div>'+
-      '<div class="s-members">'+(s.members || []).map(m => {
+    html += '<div class="suite-group">' +
+      '<div class="suite-h"><span class="suite-name">' + esc(trLabel(s.label)) + '</span>' +
+      (s.desc ? '<span class="suite-desc">' + esc(trLabel(s.desc)) + '</span>' : '') +
+      '<button type="button" class="suite-toggle' + (on ? ' on' : '') + '" data-suite-toggle="' + esc(s.key) + '">' +
+        esc(on ? t('suiteDeselect') : t('suiteSelectAll')) + '</button></div>' +
+      '<div class="suite-members">' + (s.members || []).map(m => {
         const mm = CATALOG.services[m] || {};
-        return '<span class="chip">'+(typeof LOGOS !== 'undefined' && LOGOS[m] ? '<img src="'+LOGOS[m]+'" alt="">' : '')+esc(trLabel(mm.label) || m)+'</span>';
-      }).join('')+'</div></div>';
+        return '<button type="button" class="suite-chip' + (selected.has(m) ? ' on' : '') +
+          '" data-suite-chip="' + esc(m) + '">' +
+          (typeof LOGOS !== 'undefined' && LOGOS[m] ? '<img src="' + LOGOS[m] + '" alt="">' : '') +
+          esc(trLabel(mm.label) || m) + '</button>';
+      }).join('') + '</div></div>';
   }
   html += '</div>';
   box.innerHTML = html;
-  box.querySelectorAll('.suite').forEach(el => el.onclick = () => {
-    const s = suites.find(x => x.key === el.dataset.suite); if (!s) return;
+  box.querySelectorAll('[data-suite-toggle]').forEach(b => b.onclick = () => {
+    const s = suites.find(x => x.key === b.dataset.suiteToggle); if (!s) return;
     if (suiteAllOn(s)) (s.members || []).forEach(m => selected.delete(m));
     else (s.members || []).forEach(m => selected.add(m));
     renderSvcGridSync();
   });
+  box.querySelectorAll('[data-suite-chip]').forEach(b => b.onclick = () => toggleSvc(b.dataset.suiteChip));
 }
 
 function renderSvcGridSync(){
@@ -1373,17 +2016,21 @@ function renderClusterCard(){
   const on = state.cluster.enabled && !armBlock;
   const mat = clusterMaterialStatus();
   const matBadge = armBlock ? '' :
-    (mat.ok ? '<span style="display:inline-block;margin-left:8px;padding:1px 8px;border-radius:9px;background:#e6f7e9;color:#1a7f37;font-size:11px;vertical-align:middle">物料就绪</span>'
-            : '<span style="display:inline-block;margin-left:8px;padding:1px 8px;border-radius:9px;background:#fde8e8;color:#c0392b;font-size:11px;vertical-align:middle" title="运行 python prepare_cluster.py --download 补齐">缺料: '+esc(mat.missing)+'</span>');
+    (mat.ok ? '<span class="mat-badge ready">'+esc(t('k8sMatReady'))+'</span>'
+            : '<span id="k8sMatBadge" class="mat-badge info" title="'+esc(t('k8sMatTip'))+'">'+
+              esc(t('k8sMatMissing', {a:mat.missing}))+'</span>');
+  // 缺料说明只出现一次: 版本行徽章写「缺什么」+ 下方 hint 写「怎么补」+ 明细面板给细节。
+  // warnline 仅保留 ARM64 这类需要人改配置的阻断, 不再与徽章重复刷同一句话。
+  const warnText = armBlock ? t('k8sArmBlock') : '';
   box.innerHTML = '<h3 class="cat-h">基础平台 <i>1</i></h3><div class="svc-grid">'+
-    '<div class="svc'+(on?' on':'')+(armBlock?' dis':'')+'" id="k8sSvcCard" style="min-height:96px">'+
+    '<div class="svc'+(on?' on':'')+(armBlock?' dis':'')+(warnText?' showwarn':'')+'" id="k8sSvcCard" style="min-height:96px">'+
     '<span class="tick"></span>'+
     '<div class="head"><div class="avatar" style="background:#326CE5;overflow:hidden">'+
     '<img src="'+K8S_LOGO+'" alt="" style="width:82%;height:82%;object-fit:contain"></div>'+
     '<div><b>Kubernetes 集群</b><span class="ver">'+esc(state.cluster.kube_version)+matBadge+'</span></div></div>'+
     '<div class="foot"><span class="size" style="white-space:nowrap;text-align:center;line-height:1.5">'+(arch==='amd64'?'x86':'ARM')+'<br>'+fmtGB(size)+'</span>'+
     '<span>使用开源应用 kubekey 部署, 支持信创环境, 独立于中间件以外</span></div>'+
-    '<div class="warnline">'+(armBlock?'ARM64 暂未开放, 请切回 x86_64 打集群包':'')+'</div></div></div>'+
+    '<div class="warnline">'+esc(warnText)+'</div></div></div>'+
     '<div class="hint" style="margin-top:6px">物料缺失时打包自动补齐: 二进制走国内源下载, 离线镜像包用 Docker Desktop 收集(或 python prepare_cluster.py --images flannel), chart 走 GitHub 镜像源</div>';
   $('#k8sSvcCard').onclick = () => {
     if (armBlock){ toast('K8s 集群暂仅支持 x86_64, ARM64 后续开放|K8s cluster is x86_64-only for now'); return; }
@@ -1419,10 +2066,10 @@ function renderJavaCard(){
   const box = $('#javaBox'); if (!box) return;
   const ja = state.java;
   const jmajors = jmajorsOrder();
-  const jnodeLabel = i => { const sv = state.servers[i] || {}; return (sv.name || ('node'+(i+1))) + ' · ' + (sv.ip || 'IP未填'); };
+  const jnodeLabel = i => { const sv = state.servers[i] || {}; return (sv.name || ('node'+(i+1))) + ' · ' + (sv.ip || trLabel('IP未填|IP not set')); };
   const jadvOpen = !!(box.querySelector('.jdetails') || {}).open;
-  let jhtml = '<details class="jdetails"'+(jadvOpen?' open':'')+'><summary><h3 class="cat-h" style="margin:0">Java 运行时 '+
-    '<span class="hint">(Eclipse Temurin JDK 8 / 17 / 21 · amd64+aarch64 · 按台分发)</span> '+
+  let jhtml = '<details class="jdetails"'+(jadvOpen?' open':'')+'><summary><h3 class="cat-h" style="margin:0">'+esc(trLabel('Java 运行时|Java runtime'))+' '+
+    '<span class="hint">'+esc(trLabel('(Eclipse Temurin JDK 8 / 17 / 21 · amd64+aarch64 · 按台分发)|(Eclipse Temurin JDK 8 / 17 / 21 · amd64+aarch64 · distributed per host)'))+'</span> '+
     '<span class="jbadge'+(ja.enabled?' on':'')+'">'+esc(trText(ja.enabled ? ('已启用: Java '+ja.versions.join(', ')) : '未启用'))+'</span></h3></summary>'+
     '<div class="kform" style="margin-top:10px">';
   if (ja.enabled){
@@ -2111,31 +2758,26 @@ function gotoView(v){
   v = String(v);
   curStep = v;
   $$('.wstep').forEach(w => w.classList.toggle('on', w.dataset.step === v));
-  $$('#wizSteps .wtab').forEach(b => b.classList.toggle('on', b.dataset.v === v));
+  $$('#wizSteps .wtab').forEach(b => {
+    const on = b.dataset.v === v;
+    b.classList.toggle('on', on);
+    if (on) b.setAttribute('aria-current', 'step'); else b.removeAttribute('aria-current');
+  });
   $('#btnPrev').disabled = (v === '1');
   $('#btnNext').disabled = (v === '5');
   $('#btnPreview').style.display = $('#btnPack').style.display = (v === '5') ? '' : 'none';
   movePill(v);
   setTimeout(() => movePill(v), 350);   // 过渡/词条替换落定后按最终页签宽度再校一次
   window.scrollTo(0, 0);
+  // 无障碍: 切步后把焦点移到新步骤容器(不滚动), 便于键盘/读屏从新步骤开头继续
+  const stepEl = document.querySelector('.wstep[data-step="' + v + '"]');
+  if (stepEl){
+    if (!stepEl.hasAttribute('tabindex')) stepEl.setAttribute('tabindex', '-1');
+    try { stepEl.focus({ preventScroll: true }); } catch(e){ try { stepEl.focus(); } catch(e2){} }
+  }
 }
 const gotoStep = gotoView;
-function updateStepBadges(){
-  const svcs = [...selected];
-  $('#badge2').textContent = svcs.length ? (svcs.length + ' 项') : '';
-  // 步骤4: 需要填写的账号/数据库是否齐备(按实际勾选的应用逐项判断, 未勾选的不计入;
-  // secret 只统计必填项 — webhook 类(如告警 Webhook)后端校验允许留空)
-  let pending = 0;
-  if (selected.has('nacos') && !state.db.nacos) pending++;
-  if (selected.has('xxljob') && !state.db.xxljob) pending++;
-  const needSecrets = CATALOG.secrets.filter(it => it.type !== 'webhook' && it.services.some(s => selected.has(s)));
-  if (needSecrets.some(it => !String(state.secrets[it.key] ?? '').trim())) pending++;
-  const b4 = $('#badge4');
-  if (pending){ b4.textContent = pending + ' 项待配置'; b4.className = 'wbadge warn'; }
-  else { b4.textContent = needSecrets.length ? '已配置' : ''; b4.className = 'wbadge'; }
-  // badge 文本变化会改变步骤 tab 宽度, 胶囊需同步(修复: 勾选组件后胶囊宽度不更新的问题)
-  movePill(curStep);
-}
+function updateStepBadges(){ refreshReadiness(); }
 // 分区序号动态重排: 隐藏的分区不占号, 避免 1→3 跳号
 function renumberSections(){
   for (const step of document.querySelectorAll('.wstep')){
@@ -2147,6 +2789,21 @@ function renumberSections(){
       num.textContent = ++n;
     }
   }
+}
+let previewFailed = false;
+function refreshStep5Empty(mode){
+  const box = $('#step5Empty'); if (!box) return;
+  const card = $('#previewCard');
+  const hasPreview = card && card.style.display !== 'none';
+  box.style.display = hasPreview ? 'none' : '';
+  if (hasPreview) return;
+  const el = $('#step5EmptyText'); if (!el) return;
+  const n = (typeof selected !== 'undefined' && selected.size) || 0;
+  const failed = mode === 'error' || previewFailed;
+  const key = failed ? 'step5Fail' : (n ? 'step5Ready' : 'step5NoSel');
+  el.textContent = t(key, {n:n});
+  const fix = $('#step5Fix');
+  if (fix){ fix.style.display = failed ? '' : 'none'; fix.textContent = t('step5FixBtn'); }
 }
 function renderDynamic(){
   const svcs = [...selected];
@@ -2161,7 +2818,7 @@ function renderDynamic(){
   $('#step3Empty').style.display = (vis('sec-port') || vis('sec-proxy')) ? 'none' : '';
   $('#step4Empty').style.display = (vis('sec-pwd') || vis('sec-db') || vis('sec-backup')) ? 'none' : '';
   renumberSections();
-  $('#step5Empty').style.display = vis('previewCard') ? 'none' : '';
+  refreshStep5Empty();
   renderTopology();
   renderPool();
   renderInfraTopology();
@@ -2278,10 +2935,12 @@ function renderDynamic(){
   renderProxy();
   renderDb();
   renderBackup();
-  // 徽标放在 renderDb 之后: state.db 在 renderDb 里才初始化, 先算会误报"待配置"
-  updateStepBadges();
-  validatePorts();
-  updateStat();
+  // 徽标/就绪度放在 renderDb 之后: state.db 在 renderDb 里才初始化, 先算会误报"待配置"。
+  // 先搭长表单锚点导航(要移动 .grp 节点), 再统一算就绪度并刷新当前锚点。
+  setupLongForm($('#portBox'), 'port');
+  setupLongForm($('#pwdBox'), 'pwd');
+  refreshReadiness();
+  refreshAnchors();
 }
 
 /* ---- Nginx 反向代理向导 ---- */
@@ -2545,6 +3204,10 @@ function renderPwds(){
       showBtn + genBtn +
       '</div>'+
       st + '</div>';
+    if (isPwd){
+      const s0 = pwStrength(state.secrets[item.key]);
+      html += '<div class="str-rule'+(s0 < 3 ? ' bad' : '')+'" data-str-rule="'+item.key+'">'+esc(strRule(s0))+'</div>';
+    }
     html += '</div>';
     wb.insertAdjacentHTML('beforeend', html);
   }
@@ -2575,12 +3238,17 @@ function renderPwds(){
 function strLabel(s){
   return ['','弱','一般','良好','强'][s] || '';
 }
+function strRule(s){
+  return [t('strRule1'), t('strRule2'), t('strRule3'), t('strRule4')][s] || t('strRule1');
+}
 function syncStrength(key){
   const bar = document.querySelector('.strength[data-str="'+key+'"]');
   if (!bar) return;
   const s = pwStrength(state.secrets[key] || '');
   bar.className = 'strength s' + s;
   bar.querySelector('em').textContent = strLabel(s);
+  const rule = document.querySelector('.str-rule[data-str-rule="'+key+'"]');
+  if (rule){ rule.textContent = strRule(s); rule.classList.toggle('bad', s < 3); }
 }
 
 /* ---- 数据库 ---- */
@@ -2678,26 +3346,24 @@ function validatePorts(){
   });
 }
 
-/* ---- 底部统计 ---- */
-function updateStat(){
-  const svcs = [...selected];
-  const clOn = state.cluster && state.cluster.enabled;
-  if (!svcs.length && !clOn){ $('#statLine').innerHTML = '未选择组件'; $('#btnPack').disabled = $('#btnPreview').disabled = true; return; }
-  $('#btnPack').disabled = $('#btnPreview').disabled = false;
-  const arch = $('#arch').value;
-  let mb = (CATALOG.sizes.docker[arch] || 0) + (CATALOG.sizes.compose[arch] || 0);
-  for (const s of svcs) mb += (CATALOG.sizes.images[s] || {})[arch] || 0;
-  const parts = [];
-  if (svcs.length) parts.push('中间件 <b>'+svcs.length+'</b> 项');
-  if (clOn) parts.push('K8s 集群 <b>'+state.cluster.kube_version+'</b>');
-  if (clOn) mb += (CATALOG.sizes.cluster_k8s || {})[arch] || 0;
-  $('#statLine').innerHTML = '已选 '+parts.join(' + ')+' · 目标 '+
-    (arch==='amd64'?'x86_64':'ARM')+' · 原始物料 <b>'+fmtGB(mb)+'</b> · 打包后约为其 35%~45%';
-}
+function updateStat(){ refreshReadiness(); }
 
 /* ================= 配置 导入/导出/恢复 ================= */
+// 点「+ 添加自定义端口」会先落一条空白占位行; 生成配置时丢掉两列都为空的行,
+// 避免用户还没填就被后端判为非法端口(只填一半仍保留, 由后端提示补全)。
+function cleanExtraPorts(src){
+  const out = {};
+  Object.keys(src || {}).forEach(k => {
+    const rows = (src[k] || []).filter(r =>
+      String(r.host == null ? '' : r.host).trim() !== '' ||
+      String(r.container == null ? '' : r.container).trim() !== '');
+    if (rows.length) out[k] = rows;
+  });
+  return out;
+}
 function buildConfig(){
   return {
+    schema_version: 1,
     project: $('#project').value.trim(),
     arch: $('#arch').value,
     lang: LANG,
@@ -2707,7 +3373,7 @@ function buildConfig(){
     deploy_dir: $('#deploy_dir').value.trim(),
     docker_data_root: $('#data_root').value.trim(),
     registry_mirrors: $('#mirrors').value.split('\n').map(s=>s.trim()).filter(Boolean),
-    extra_ports: JSON.parse(JSON.stringify(state.extra)),
+    extra_ports: JSON.parse(JSON.stringify(cleanExtraPorts(state.extra))),
     backup: JSON.parse(JSON.stringify(normBackup(state.backup))),
     db: JSON.parse(JSON.stringify(state.db)),
     topology: JSON.parse(JSON.stringify(state.topology || {})),
@@ -2811,7 +3477,9 @@ function restoreLocal(){
     if (k !== 'mysql57'){ selected.add(k); document.querySelector('.svc[data-key="'+k+'"]').classList.add('on'); }
   }
   $('#mirrors').value = (CATALOG.defaults.registry_mirrors || []).join('\n');
-  renderDynamic();
+  // 首次使用默认全选后必须同步分类 chips: 否则「清空选择」仍按 selected=0 渲染,
+  // 要等用户点一下中间件触发重渲染才出现(用户报的「按钮默认没了」根因)。
+  renderSvcChips(); renderDynamic();
 }
 function doExport(){
   const blob = new Blob([JSON.stringify(buildConfig(), null, 2)], {type:'application/json'});
@@ -2910,12 +3578,41 @@ function renderMaterialsBox(s){
   if (mtlRefs.chipC) mtlRefs.chipC.textContent = mtlRefs.chipCLabel + ' ' + cached.n + '/' + cached.total;
   if (mtlRefs.chipD) mtlRefs.chipD.textContent = mtlRefs.chipDLabel + ' ' + downloaded.n;
 }
+let lastPreview = null;        // 上一次预览文本(内存), 供「与上次预览 diff」行级对比
+let hasLastPreview = false;
+let previewCount = 0;
+let diffMode = false;
 function switchTab(t){
   curTab = t;
   $$('#previewCard .tabs button[data-t]').forEach(b => b.classList.toggle('on', b.dataset.t === t));
+  const diffBtn = $('#btnDiff');
+  if (diffBtn) diffBtn.style.display = (t === 'materials') ? 'none' : '';
+  if (t === 'materials' && diffMode){ diffMode = false; updateDiffButton(); }
+  renderPreviewTab();
+}
+function renderPreviewTab(){
   const pre = $('#previewPre');
-  if (t === 'materials'){ pre.innerHTML = previewData.materialsHtml || ''; bindMaterialEditor(); }
-  else pre.textContent = previewData[t] || '';
+  if (curTab === 'materials'){
+    pre.classList.remove('code-view');
+    pre.innerHTML = previewData.materialsHtml || '';
+    bindMaterialEditor();
+    return;
+  }
+  const text = previewData[curTab] || '';
+  pre.classList.add('code-view');
+  pre.innerHTML = diffMode ? renderDiff((lastPreview && lastPreview[curTab]) || '', text) : renderCode(text, curTab);
+}
+function updateDiffButton(){
+  const b = $('#btnDiff'); if (!b) return;
+  b.classList.toggle('on', diffMode);
+  b.textContent = diffMode ? t('diffBack') : t('btnDiff');
+}
+function toggleDiff(){
+  if (!hasLastPreview){ toast(t('diffFirst')); return; }
+  if (curTab === 'materials'){ toast(t('diffNoMaterials')); return; }
+  diffMode = !diffMode;
+  updateDiffButton();
+  renderPreviewTab();
 }
 function bindMaterialEditor(){
   if (mtlBound) return;
@@ -2952,9 +3649,10 @@ async function doCopy(){
   catch(e){ toast('复制失败, 请手动选择复制'); }
 }
 async function doPreview(){
-  msg(''); $('#btnPreview').disabled = true;
+  msg(''); previewFailed = false; $('#btnPreview').disabled = true;
   try {
     const d = await api('/api/preview', buildConfig());
+    const prev = Object.assign({}, previewData);   // 快照「上一次预览」, 供行级 diff
     previewData = d;
     if (d.nodes && d.nodes.length){
       previewData.nodes = d.nodes.map(n =>
@@ -3022,21 +3720,157 @@ async function doPreview(){
       previewData.materialsHtml = h;
     }
     $('#tabMaterials').style.display = mrows.length ? '' : 'none';
-    $('#previewCard').style.display = ''; switchTab(d.compose ? 'compose' : (d.cluster_inventory ? 'clusterInv' : 'compose'));
-    let extra = '';
-    if (d.backup_crons && d.backup_crons.length){
-      extra += '\n' + d.backup_crons.map(c => trLabel('备份计划|backup plan') + '(crontab): ' + c).join('\n');
-    }
-    if (d.warnings.length) extra += '\n' + trLabel('提示|Notes') + ':\n- ' + d.warnings.map(w => trMsg(w)).join('\n- ');
-    msg('预览已生成, 将打包镜像: ' + d.images.join(', ') + extra, d.warnings.length ? 'warn' : 'ok');
+    // 更新「上次预览」快照: 第 2 次起才有可对比的历史; diff 视图复位
+    lastPreview = prev; previewCount++; hasLastPreview = previewCount >= 2;
+    diffMode = false; updateDiffButton();
+    $('#previewCard').style.display = '';
+    $('#step5Empty').style.display = 'none';   // 预览已生成, 收起「请先勾选组件」的空状态提示
+    switchTab(d.compose ? 'compose' : (d.cluster_inventory ? 'clusterInv' : 'compose'));
+    renderPreviewNotice(d);
+    renderDockerHint(d);   // 预览页只给静态入口, 不自动弹窗打扰
     $('#previewCard').scrollIntoView({behavior:'smooth'});
-  } catch(e){ msg(e.message, 'err'); }
+  } catch(e){
+    previewFailed = true;
+    msg(t('previewFailedPrefix') + ': ' + trMsg(e.message), 'err');
+    refreshStep5Empty('error');   // 失败时给出「修正后重试」引导, 而不是留一屏空白
+  }
   $('#btnPreview').disabled = false;
+}
+/* ================================================================
+   方案 A: 本机 Docker「只检测 + 引导」, 绝不自动安装
+   - 仅「开始打包」且预览结果明确需要 Docker 补镜像时自动弹
+   - 预览页只给可点的静态入口, 不主动打扰
+   - Docker 可用 / 会话内静音 / 静态演示模式: 完全无感
+   ================================================================ */
+const DOCKER_HELP = {
+  Windows: {
+    title: 'Windows · Docker Desktop|Windows · Docker Desktop',
+    cmd: 'winget install -e --id Docker.DockerDesktop',
+    note: '需要 WSL2 或 Hyper-V 与管理员权限; 安装完成后手动启动 Docker Desktop 并等守护进程就绪|Requires WSL2 or Hyper-V and admin rights; start Docker Desktop manually and wait for the daemon',
+    url: 'https://docs.docker.com/desktop/setup/install/windows-install/'
+  },
+  Linux: {
+    title: 'Linux · Docker Engine|Linux · Docker Engine',
+    cmd: 'curl -fsSL https://get.docker.com -o get-docker.sh\nsudo sh get-docker.sh\nsudo systemctl enable --now docker',
+    note: '先审阅脚本再执行; 内网/信创环境请改用发行版官方仓库, 或复用项目包内 packages/<arch>/docker-*.tgz 的静态二进制|Review the script first; on air-gapped networks use the distro repo or the static binaries in packages/<arch>/docker-*.tgz',
+    url: 'https://docs.docker.com/engine/install/'
+  },
+  Darwin: {
+    title: 'macOS · Docker Desktop|macOS · Docker Desktop',
+    cmd: 'brew install --cask docker',
+    note: '安装后手动启动 Docker Desktop 并等守护进程就绪|Start Docker Desktop manually and wait for the daemon',
+    url: 'https://docs.docker.com/desktop/setup/install/mac-install/'
+  }
+};
+function dockerNeedsFromPreview(d){
+  if (!d) return false;
+  const warns = (d.warnings || []).map(w => trMsg(w) || w);
+  if (warns.some(w => /需打包机 Docker|Docker required|docker pull/i.test(String(w)))) return true;
+  const rows = ((d.materials || {}).rows || []);
+  return rows.some(r => !r.cached && (r.sources || []).some(s => /docker pull/i.test(String(s))));
+}
+async function fetchDockerEnv(){
+  try { return await api('/api/env'); }
+  catch(e){ return {platform:'', docker:{found:false, path:'', version:'', compose:false, daemon:false}}; }
+}
+function dockerDetectHtml(env){
+  const dc = (env && env.docker) || {};
+  if (!dc.found) return '<span class="dh-bad">'+esc(t('dhNotFound'))+'</span>';
+  const bits = [dc.daemon ? '<span class="dh-ok">'+esc(t('dhDaemonOk'))+'</span>'
+                          : '<span class="dh-warn">'+esc(t('dhNoDaemon'))+'</span>'];
+  if (dc.version) bits.push('<span>'+esc(t('dhVersion', {a:dc.version}))+'</span>');
+  if (dc.path) bits.push('<span>'+esc(t('dhPath', {a:dc.path}))+'</span>');
+  if (!dc.compose) bits.push('<span>'+esc(t('dhNoCompose'))+'</span>');
+  return bits.join('');
+}
+function dockerPlatformHtml(env){
+  const p = (env && env.platform) || '';
+  const order = [p, 'Windows', 'Linux', 'Darwin'].filter((v, i, a) => v && a.indexOf(v) === i);
+  return order.map(k => {
+    const h = DOCKER_HELP[k]; if (!h) return '';
+    const cur = k === p;   // 当前平台默认展开, 其余折叠成可点标题, 三个平台一屏可见
+    return '<div class="dh-plat'+(cur ? '' : ' folded')+'" data-dh-plat="'+esc(k)+'">'+
+      '<button type="button" class="dh-plat-h" data-dh-fold="'+esc(k)+'" aria-expanded="'+cur+'">'+
+      esc(trLabel(h.title)) + (cur ? ' <span class="dh-cur">'+esc(t('dhCurrent'))+'</span>' : '')+
+      '<span class="dh-chev">⌄</span></button>'+
+      '<pre class="dh-cmd">'+esc(h.cmd)+'</pre>'+
+      '<div class="dh-plat-a"><button type="button" class="mini" data-dh-copy="'+esc(k)+'">'+esc(t('dhCopy'))+'</button>'+
+      '<a href="'+esc(h.url)+'" target="_blank" rel="noopener noreferrer">'+esc(t('dhDocs'))+' ↗</a></div>'+
+      '<div class="dh-note">'+esc(trLabel(h.note))+'</div></div>';
+  }).join('');
+}
+function renderDockerDialog(env){
+  $('#dhTitle').textContent = t('dhTitle');
+  $('#dhWhy').textContent = t('dhWhy');
+  $('#dhDetect').innerHTML = '<b>'+esc(t('dhDetectLabel'))+'</b> ' + dockerDetectHtml(env);
+  $('#dhPlatformTitle').textContent = t('dhPlatformTitle');
+  $('#dhPlatforms').innerHTML = dockerPlatformHtml(env);
+  $('#dhNote').textContent = t('dhNote');
+  $('#dhMuteLabel').textContent = t('dhMute');
+  $('#dhRecheck').textContent = t('dhRecheck');
+  $('#dhCancel').textContent = t('dhCancel');
+  $('#dhSkip').textContent = t('dhSkip');
+  $('#dhClose').setAttribute('aria-label', t('dhClose'));
+  try { $('#dhMute').checked = sessionStorage.getItem('packer-docker-help-muted') === '1'; } catch(e){}
+  $('#dockerHelp').querySelectorAll('[data-dh-copy]').forEach(b => b.onclick = () => {
+    const h = DOCKER_HELP[b.dataset.dhCopy]; if (!h) return;
+    if (navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(h.cmd).then(() => toast(t('dhCopied'))).catch(() => toast(t('dhCopyFail')));
+    } else toast(t('dhCopyFail'));
+  });
+  $('#dockerHelp').querySelectorAll('[data-dh-fold]').forEach(b => b.onclick = () => {
+    const box = b.closest('.dh-plat'); if (!box) return;
+    const folded = box.classList.toggle('folded');
+    b.setAttribute('aria-expanded', String(!folded));
+  });
+}
+let dockerHelpResolve = null, dockerHelpFocus = null;
+function showDockerHelp(env){
+  const dlg = $('#dockerHelp');
+  dockerHelpFocus = document.activeElement;
+  renderDockerDialog(env);
+  if (!dlg.open) dlg.showModal();
+  return new Promise(resolve => { dockerHelpResolve = resolve; });
+}
+function closeDockerHelp(v){
+  const dlg = $('#dockerHelp');
+  if (dlg.open) dlg.close();
+  if (dockerHelpFocus && dockerHelpFocus.focus){
+    try { dockerHelpFocus.focus({preventScroll:true}); } catch(e){}
+  }
+  dockerHelpFocus = null;
+  const r = dockerHelpResolve; dockerHelpResolve = null;
+  if (r) r(!!v);
+}
+async function ensureDockerReady(preview){
+  if (STATIC_MODE || !dockerNeedsFromPreview(preview)) return true;
+  try { if (sessionStorage.getItem('packer-docker-help-muted') === '1') return true; } catch(e){}
+  const env = await fetchDockerEnv();
+  if (env && env.docker && env.docker.daemon) return true;
+  return showDockerHelp(env);
+}
+function renderDockerHint(preview){
+  const box = $('#dockerHint'); if (!box) return;
+  if (STATIC_MODE || !dockerNeedsFromPreview(preview)){ box.hidden = true; box.innerHTML = ''; return; }
+  fetchDockerEnv().then(env => {
+    if (env && env.docker && env.docker.daemon){ box.hidden = true; return; }
+    box.hidden = false;
+    box.innerHTML = '<span>'+esc(t('dhWhyShort'))+'</span> <button type="button" class="mini" id="dhOpen">'+esc(t('dhHint'))+'</button>';
+    const b = $('#dhOpen');
+    if (b) b.onclick = async () => { await showDockerHelp(await fetchDockerEnv()); };
+  });
 }
 async function doPack(){
   msg('');
-  try { await api('/api/preview', buildConfig()); }
-  catch(e){ msg(e.message, 'err'); return; }
+  let d;
+  try { d = await api('/api/preview', buildConfig()); }
+  catch(e){
+    previewFailed = true;
+    msg(t('previewFailedPrefix') + ': ' + trMsg(e.message), 'err');
+    refreshStep5Empty('error');
+    return;
+  }
+  if (!(await ensureDockerReady(d))) return;   // 方案 A: 仅当本次真的要用到本机 Docker
   try { await api('/api/pack', buildConfig()); }
   catch(e){ msg(e.message, 'err'); return; }
   openProgress();
@@ -3134,7 +3968,7 @@ function renderWarehouse(){
   for (const v of ((CATALOG.java||{}).majors || ['8','17','21'])){
     for (const arch of ['amd64','arm64']){
       const ok = p['java_'+v+'_'+arch] === true;
-      rows += '<tr data-kind="pkg" data-arch="'+arch+'"><td class="mono">Java 运行时包 (Temurin JDK '+v+')</td><td>'+(arch==='amd64'?'x86_64':'aarch64')+'</td>'+
+      rows += '<tr data-kind="pkg" data-arch="'+arch+'"><td class="mono">'+esc(trLabel('Java 运行时包 (Temurin JDK '+v+')|Java runtime bundle (Temurin JDK '+v+')'))+'</td><td>'+(arch==='amd64'?'x86_64':'aarch64')+'</td>'+
         '<td><span class="dot '+(ok?'ok':'no')+'"></span>'+(ok?'就绪':'打包时下载')+'</td>'+
         '<td>-</td><td class="hint">'+(LANG==='en'?'python prepare_java.py --download to pre-fetch (auto-fetched at pack time otherwise)'
                                           :'python prepare_java.py --download 可预下载 (打包时也会自动补齐)')+'</td></tr>';
@@ -3231,6 +4065,542 @@ async function loadBundles(){
           (b.sha256 ? esc(b.sha256.slice(0,16)) + '…' : '—')+'</td></tr>').join('')
       : '<tr><td colspan="4" class="hint">暂无产物</td></tr>';
   } catch(e){}
+}
+
+/* ================================================================
+   UI 改造增量逻辑 (7 项)
+   - 打包就绪度: collectReadiness / renderReadinessBar / renderStepStatus / refreshReadiness
+   - 长表单: setupLongForm / decorateLongForms / refreshAnchors
+   - 密码页: genAllSecrets / exportCredentials
+   - 预览: renderCode / hlLine / 折叠 / renderDiff / renderPreviewNotice
+   复用既有 validatePorts() / pwStrength() / CATALOG.files_present / clusterMaterialStatus(),
+   不重复实现校验逻辑; 保留 EN_DICT / MutationObserver 作兜底。
+   ================================================================ */
+
+/* ---------- 打包就绪度 ---------- */
+function pwProblem(v, it){
+  const raw = String(v == null ? '' : v);
+  if (!raw.trim()) return 'empty';
+  if (it.type === 'nacos_token') return '';      // 结构校验交给后端
+  if (it.secret === false) return '';            // 用户名: 仅检查必填
+  if (!/^[A-Za-z0-9@#%*+=_.:/~-]+$/.test(raw)) return 'illegal';  // 与 PASSWORD_RE 同口径
+  if (pwStrength(raw) < 3) return 'weak';
+  return '';
+}
+function collectReadiness(){
+  const res = { byStep: {1:0,2:0,3:0,4:0,5:0}, byStepWarn: {1:0,2:0,3:0,4:0,5:0},
+                materials: [], ports: [], passwords: [], k8s: [], info: [], summary: '' };
+  if (!CATALOG) return res;
+  const svcs = [...selected];
+  const clOn = !!(state.cluster && state.cluster.enabled);
+  const arch = ($('#arch') && $('#arch').value) || 'amd64';
+
+  // 简短汇总(沿用原 updateStat 计算; 中文由 EN_DICT/observer 兜底翻译)
+  let mb = (CATALOG.sizes.docker[arch] || 0) + (CATALOG.sizes.compose[arch] || 0);
+  for (const s of svcs) mb += (CATALOG.sizes.images[s] || {})[arch] || 0;
+  const parts = [];
+  if (svcs.length) parts.push('中间件 <b>' + svcs.length + '</b> 项');
+  if (clOn) parts.push('K8s 集群 <b>' + esc(state.cluster.kube_version) + '</b>');
+  if (clOn) mb += (CATALOG.sizes.cluster_k8s || {})[arch] || 0;
+  res.summary = '已选 ' + parts.join(' + ') + ' · 目标 ' +
+    (arch === 'amd64' ? 'x86_64' : 'ARM') + ' · 原始物料 <b>' + fmtGB(mb) + '</b> · 打包后约为其 35%~45%';
+
+  // 端口冲突/非法: 直接复用 validatePorts() 打上的 .bad 标记
+  validatePorts();
+  $$('#portBox input.bad').forEach(el => {
+    const grp = el.closest('.grp');
+    const h3 = grp && grp.querySelector('h3');
+    res.ports.push({ label: (h3 ? h3.textContent.trim() : (el.dataset.port || el.dataset.eh || '')), el: el, step: 3 });
+  });
+
+  // 弱密码 / 必填未填: 复用 pwStrength() 与既有必填口径(webhook 可留空)
+  const done = new Set();
+  const pwdInputs = [...document.querySelectorAll('#pwdBox input[data-sec]')];
+  for (const it of (CATALOG.secrets || [])){
+    if (it.type === 'webhook') continue;
+    if (!it.services.some(s => selected.has(s)) || done.has(it.key)) continue;
+    done.add(it.key);
+    const problem = pwProblem(state.secrets[it.key], it);
+    if (problem) res.passwords.push({ label: trLabel(it.label),
+      el: pwdInputs.find(i => i.dataset.sec === it.key) || null, step: 4, problem: problem });
+  }
+  if (selected.has('nacos') && !state.db.nacos) res.passwords.push({ label: t('dbNacos'), el: null, step: 4, problem: 'empty' });
+  if (selected.has('xxljob') && !state.db.xxljob) res.passwords.push({ label: t('dbXxljob'), el: null, step: 4, problem: 'empty' });
+
+  // 物料缺失: 复用 CATALOG.files_present; 静态演示无后端数据时不误报
+  if (!STATIC_MODE){
+    const fp = CATALOG.files_present || {};
+    if (!fp['docker_' + arch]) res.materials.push({ label: t('mtlDocker', {a:arch}), step: 1 });
+    if (!fp['compose_' + arch]) res.materials.push({ label: t('mtlCompose', {a:arch}), step: 1 });
+    for (const s of svcs){
+      const meta = CATALOG.services[s] || {};
+      if (!fp['img_' + s + '_' + arch]) res.materials.push({ label: t('mtlImage', {a:trLabel(meta.label)}), step: 1 });
+    }
+  }
+
+  // K8s / 多机: 只把「需要人改配置」的算提醒; 物料缺失在打包阶段会自动下载补齐,
+  // 属于信息项, 不进步骤计数、不染红也不染黄(用户反馈: 单纯缺料不是问题)。
+  if (clOn){
+    const mat = clusterMaterialStatus();
+    if (!mat.ok) res.info.push({ label: t('k8sMatAuto', {a:mat.missing}), step: 1 });
+    const hasCp = v => (Array.isArray(v) ? v : String(v || '').split(',')).some(x => String(x).trim() === 'control-plane');
+    if (!Object.values(state.cluster.roles || {}).some(hasCp)) res.k8s.push({ label: t('k8sNoCp'), step: 1 });
+    if (!state.servers.length) res.k8s.push({ label: t('k8sNoNodes'), step: 1 });
+  }
+
+  res.byStep[1] = res.materials.length + res.k8s.length;
+  res.byStepWarn[1] = res.k8s.length;   // 配置类提醒(黄色), 不含自动补齐的信息项
+  res.byStep[2] = (!svcs.length && !clOn) ? 1 : 0;
+  res.byStep[3] = res.ports.length;
+  res.byStep[4] = res.passwords.length;
+  return res;
+}
+function renderReadinessBar(r){
+  const el = $('#statLine'); if (!el) return;
+  const svcs = [...selected];
+  const nothing = !svcs.length && !(state.cluster && state.cluster.enabled);
+  $('#btnPack').disabled = $('#btnPreview').disabled = nothing;
+  if (nothing){ el.innerHTML = esc(t('statEmpty')); return; }
+  const errs = r.materials.length + r.ports.length + r.passwords.length;
+  let html = errs === 0
+    ? '<span class="rd-state ok">✓ ' + esc(t('statReady')) + '</span>'
+    : '<span class="rd-state bad">⛔ ' + esc(t('statBlocked', {n: errs})) + '</span>';
+  const chip = (kind, n, key) => n > 0
+    ? '<button type="button" class="rd-chip ' + kind + '" data-rd="' + key + '">' + esc(t('rd_' + key)) + ' <b>' + n + '</b></button>'
+    : '';
+  html += chip('bad', r.materials.length, 'materials');
+  html += chip('bad', r.ports.length, 'ports');
+  html += chip('bad', r.passwords.length, 'passwords');
+  html += chip('warn', r.k8s.length, 'k8s');
+  html += chip('info', (r.info || []).length, 'info');   // 仅告知, 不阻断、不算问题
+  html += '<span class="rd-sum">' + r.summary + '</span>';
+  el.innerHTML = html;
+}
+function renderStepStatus(r){
+  const vis = id => { const e = document.getElementById(id); return !!e && e.style.display !== 'none'; };
+  const configured = { 1:false, 2:selected.size > 0, 3:vis('sec-port'), 4:vis('sec-pwd'), 5:false };
+  const ids = { 1:'stb1', 2:'badge2', 3:'badge3', 4:'badge4', 5:'stb5' };
+  for (const s of [1,2,3,4,5]){
+    const el = document.getElementById(ids[s]); if (!el) continue;
+    const n = r.byStep[s] || 0, w = (r.byStepWarn && r.byStepWarn[s]) || 0;
+    const blocking = n - w;
+    const details = [...r.materials, ...r.ports, ...r.passwords, ...r.k8s, ...(r.info || [])]
+      .filter(x => x.step === s).map(x => x.label);
+    if (s === 2 && n > 0 && !details.length) details.push(t('statEmpty'));
+    el.title = details.join('\n');
+    el.dataset.rdStep = String(s);
+    if (blocking > 0){ el.textContent = t('stepProblems', {n:blocking}); el.className = 'wbadge stepstat bad'; }
+    else if (w > 0){ el.textContent = t('stepWarnings', {n:w}); el.className = 'wbadge stepstat notice'; }
+    else if (configured[s]){ el.textContent = t('stepConfigured'); el.className = 'wbadge stepstat ok'; }
+    else { el.textContent = t('stepReady'); el.className = 'wbadge stepstat'; }
+  }
+  movePill(curStep);
+}
+function refreshReadiness(){
+  const r = collectReadiness();
+  renderReadinessBar(r);
+  renderStepStatus(r);
+  decorateLongForms();
+}
+function flashField(el){
+  if (!el) return;
+  el.classList.remove('flash', 'flash-card');
+  void el.offsetWidth;
+  el.classList.add(/^(INPUT|SELECT|TEXTAREA)$/.test(el.tagName) ? 'flash' : 'flash-card');
+  setTimeout(() => el.classList.remove('flash', 'flash-card'), 1500);
+}
+function expandGroupOf(el){
+  const grp = el && el.closest('.grp');
+  if (!grp || !grp.classList.contains('collapsed')) return;
+  grp.classList.remove('collapsed');
+  const h3 = grp.querySelector('h3');
+  if (h3) h3.setAttribute('aria-expanded', 'true');
+}
+/* 点击就绪度 chip / 步骤徽标: 先展开「具体哪一条、是否阻断」的明细, 再精准定位到元素。
+   旧实现只把整个 #sec-cluster 大分区闪 1.5 秒, 用户根本看不出 K8s 缺的是哪一项。 */
+function readinessKindsOfStep(s){
+  return ({1:['materials','k8s','info'], 2:[], 3:['ports'], 4:['passwords'], 5:[]})[s] || [];
+}
+function showReadinessPanel(kinds, r){
+  const bar = document.querySelector('.actionbar'); if (!bar) return;
+  let p = document.getElementById('rdPanel');
+  if (!p){
+    p = document.createElement('div');
+    p.id = 'rdPanel'; p.className = 'rd-panel'; p.hidden = true;
+    p.setAttribute('role', 'region'); p.setAttribute('aria-live', 'polite');
+    bar.appendChild(p);
+  }
+  const items = [];
+  (kinds || []).forEach(k => (r[k] || []).forEach((it, i) => items.push({ kind:k, idx:i, it:it })));
+  const head = '<div class="rd-panel-h"><b>'+esc(t('rdPanelTitle'))+'</b>'+
+    '<button type="button" class="rd-panel-x" aria-label="'+esc(t('rdPanelClose'))+'">✕</button></div>';
+  if (!items.length){
+    p.innerHTML = head + '<div class="rd-panel-empty">'+esc(t('rdPanelEmpty'))+'</div>';
+  } else {
+    p.innerHTML = head + '<ul class="rd-list">' + items.map(x => {
+      const sev = x.kind === 'info' ? 'info' : (x.kind === 'k8s' ? 'warn' : 'bad');
+      const tag = x.kind === 'info' ? t('rdAuto') : (x.kind === 'k8s' ? t('rdNotice') : t('rdBlocking'));
+      return '<li><button type="button" class="rd-item" data-rd-kind="'+x.kind+'" data-rd-idx="'+x.idx+'">'+
+        '<span class="rd-dot '+sev+'"></span>'+
+        '<span class="rd-txt">'+esc(x.it.label)+'</span>'+
+        '<span class="rd-tag '+sev+'">'+esc(tag)+'</span>'+
+        '<span class="rd-go">'+esc(t('rdLocate'))+' ›</span></button></li>';
+    }).join('') + '</ul>';
+    p.querySelectorAll('.rd-item').forEach(b => b.onclick = () =>
+      locateReadiness(b.dataset.rdKind, Number(b.dataset.rdIdx), r));
+  }
+  p.hidden = false;
+  p.querySelector('.rd-panel-x').onclick = () => { p.hidden = true; };
+}
+function locateReadiness(kind, idx, r){
+  const list = r[kind] || [], item = list[idx] || list[0];
+  if (kind === 'materials'){
+    gotoView('1'); openDrawer('wh'); flashField($('#btnWh')); return;
+  }
+  if (kind === 'k8s' || kind === 'info'){
+    gotoView('1');
+    setTimeout(() => {
+      const card = $('#k8sSvcCard'), badge = $('#k8sMatBadge');
+      const target = badge || card;
+      if (!target) return;
+      target.scrollIntoView({ behavior:'smooth', block:'center' });
+      // 信息项用蓝色环, 不要套 flashField 的红色告警动画
+      if (badge){
+        badge.classList.remove('flash', 'flash-card');
+        badge.classList.add('rd-target');
+        setTimeout(() => badge.classList.remove('rd-target'), 4500);
+      } else flashField(card);
+    }, 90);
+    return;
+  }
+  const el = item && item.el;
+  gotoView(String((item && item.step) || (kind === 'ports' ? 3 : kind === 'passwords' ? 4 : 1)));
+  if (!el) return;
+  setTimeout(() => {
+    expandGroupOf(el);
+    el.scrollIntoView({ behavior:'smooth', block:'center' });
+    flashField(el);
+    try { el.focus({ preventScroll:true }); } catch(e){}
+  }, 80);
+}
+function jumpToReadiness(kind){
+  const r = collectReadiness();
+  showReadinessPanel([kind], r);   // 明细常驻可见, 不再只闪一下大分区
+  locateReadiness(kind, 0, r);
+}
+
+/* ---------- 长表单: 粘性锚点 + 搜索 + 分组折叠 ---------- */
+let anchorTick = 0;
+function setupLongForm(box, key){
+  if (!box) return;
+  if (box.firstElementChild && box.firstElementChild.classList.contains('lf-nav')) return;
+  const children = [...box.children];
+  const grps = children.filter(c => c.classList.contains('grp'));
+  if (!grps.length) return;
+
+  grps.forEach((g, i) => {
+    if (!g.id) g.id = key + '-grp-' + i;
+    const h3 = g.querySelector('h3');
+    if (h3){
+      h3.setAttribute('role', 'button');
+      h3.setAttribute('tabindex', '0');
+      h3.setAttribute('aria-expanded', 'true');
+      h3.insertAdjacentHTML('afterbegin', '<span class="lf-caret" aria-hidden="true">▾</span> ');
+      const toggle = () => {
+        const collapsed = g.classList.toggle('collapsed');
+        h3.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+      };
+      h3.onclick = toggle;
+      h3.onkeydown = e => { if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); toggle(); } };
+    }
+  });
+
+  const nav = document.createElement('div');
+  nav.className = 'lf-nav';
+  nav.setAttribute('role', 'navigation');
+  nav.setAttribute('aria-label', t('lfNavLabel'));
+  const anchors = grps.map((g, i) => {
+    const h3 = g.querySelector('h3');
+    const label = (h3 ? h3.textContent : (key + ' ' + (i+1))).replace(/^▾\s*/, '').trim() || (key + ' ' + (i+1));
+    const searchable = LANG === 'en' ? (label + ' ' + trText(label)) : label;
+    return '<button type="button" class="lf-anchor" data-lf-target="' + g.id + '"' +
+      ' aria-current="false" data-lf-label="' + esc(searchable) + '">' +
+      '<span class="lf-dot" aria-hidden="true"></span><span>' + esc(label) + '</span>' +
+      '<span class="lf-n">' + (i+1) + '</span></button>';
+  }).join('');
+  nav.innerHTML = '<div class="lf-tools">' +
+      '<input type="text" class="lf-search" data-lf-search placeholder="' + esc(t('lfSearch')) + '" aria-label="' + esc(t('lfSearch')) + '">' +
+      '<div class="lf-mini">' +
+        '<button type="button" class="mini" data-lf-all="open">' + esc(t('lfExpand')) + '</button>' +
+        '<button type="button" class="mini" data-lf-all="close">' + esc(t('lfCollapse')) + '</button>' +
+      '</div></div><div class="lf-list">' + anchors + '</div>' +
+      '<div class="lf-empty hidden" data-lf-empty>' + esc(t('lfNoMatch')) + '</div>';
+
+  const body = document.createElement('div');
+  body.className = 'lf-body';
+  children.forEach(c => body.appendChild(c));   // 移动节点, 保留其上已绑定的事件
+  box.innerHTML = '';
+  box.classList.add('lf');
+  box.appendChild(nav);
+  box.appendChild(body);
+
+  nav.querySelectorAll('[data-lf-target]').forEach(b => b.onclick = () => {
+    const g = document.getElementById(b.dataset.lfTarget);
+    if (!g) return;
+    expandGroupOf(g);
+    g.scrollIntoView({ behavior:'smooth', block:'start' });
+    nav.querySelectorAll('[data-lf-target]').forEach(x => x.setAttribute('aria-current', x === b ? 'true' : 'false'));
+  });
+  const search = nav.querySelector('[data-lf-search]');
+  search.oninput = () => {
+    const q = search.value.trim().toLowerCase();
+    let shown = 0;
+    nav.querySelectorAll('[data-lf-target]').forEach(b => {
+      const hit = !q || (b.dataset.lfLabel || '').toLowerCase().includes(q);
+      b.style.display = hit ? '' : 'none';
+      const g = document.getElementById(b.dataset.lfTarget);
+      if (g) g.style.display = hit ? '' : 'none';
+      if (hit) shown++;
+    });
+    const empty = nav.querySelector('[data-lf-empty]');
+    if (empty) empty.classList.toggle('hidden', shown > 0);
+  };
+  nav.querySelectorAll('[data-lf-all]').forEach(b => b.onclick = () => {
+    const collapse = b.dataset.lfAll === 'close';
+    grps.forEach(g => {
+      g.classList.toggle('collapsed', collapse);
+      const h3 = g.querySelector('h3');
+      if (h3) h3.setAttribute('aria-expanded', collapse ? 'false' : 'true');
+    });
+  });
+}
+function decorateLongForms(){
+  $$('.lf-nav [data-lf-target]').forEach(b => {
+    const g = document.getElementById(b.dataset.lfTarget);
+    if (!g) return;
+    const st = g.querySelector('.strength');
+    const weak = st && /\bs[12]\b/.test(st.className);
+    const hasBad = !!g.querySelector('input.bad') || !!g.querySelector('.str-rule.bad') || !!weak;
+    b.classList.toggle('has-err', hasBad);
+  });
+}
+function refreshAnchors(){
+  $$('.lf').forEach(lf => {
+    const nav = lf.querySelector('.lf-nav'), body = lf.querySelector('.lf-body');
+    if (!nav || !body) return;
+    const grps = [...body.querySelectorAll('.grp')];
+    if (!grps.length) return;
+    let active = grps[0];
+    for (const g of grps){ if (g.getBoundingClientRect().top <= 150) active = g; }
+    nav.querySelectorAll('[data-lf-target]').forEach(b =>
+      b.setAttribute('aria-current', b.dataset.lfTarget === active.id ? 'true' : 'false'));
+  });
+}
+
+/* ---------- 密码页: 批量生成 / 导出凭据 ---------- */
+function genAllSecrets(){
+  const done = new Set();
+  const inputs = [...document.querySelectorAll('#pwdBox input[data-sec]')];
+  for (const it of (CATALOG.secrets || [])){
+    if (it.type === 'webhook' || it.secret === false) continue;   // 用户名不随机
+    if (!it.services.some(s => selected.has(s)) || done.has(it.key)) continue;
+    done.add(it.key);
+    const v = it.type === 'nacos_token' ? randToken() : randPwd(16);
+    state.secrets[it.key] = v;
+    const inp = inputs.find(i => i.dataset.sec === it.key);
+    if (inp){ inp.value = v; inp.type = 'text'; }
+    const sb = document.querySelector('#pwdBox [data-show="' + it.key + '"]');
+    if (sb) sb.textContent = t('pwdHide');
+    syncStrength(it.key);
+  }
+  saveLocal(); refreshReadiness();
+  toast(t('genAllDone'));
+}
+function exportCredentials(){
+  const project = ($('#project') && $('#project').value.trim()) || 'project';
+  const creds = [], done = new Set();
+  for (const it of (CATALOG.secrets || [])){
+    if (!it.services.some(s => selected.has(s)) || done.has(it.key)) continue;
+    done.add(it.key);
+    creds.push({ key: it.key, label: trLabel(it.label),
+      type: it.secret === false ? 'username' : 'secret',
+      value: String(state.secrets[it.key] ?? '') });
+  }
+  const data = { project: project, generated_at: new Date().toISOString(), credentials: creds };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = project + '-credentials.json';
+  a.click(); URL.revokeObjectURL(a.href);
+  toast(t('exportCredsDone'));   // 只下载文件, 不把密码回显到页面文本
+}
+
+/* ---------- 预览: 行号 / 服务折叠 / 纯 JS 语法高亮 ---------- */
+function hlLine(line){
+  const re = /(#.*$)|("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')|\b(\d+(?:\.\d+)?)\b|(^\s*-?\s*[A-Za-z_][\w.\-]*(?=\s*:))|(\b(?:true|false|null|yes|no|on|off)\b)|(\$\{?[A-Za-z_][A-Za-z0-9_]*\}?)/g;
+  let out = '', last = 0, m;
+  while ((m = re.exec(line))){
+    out += esc(line.slice(last, m.index));
+    let cls = '';
+    if (m[1]) cls = 'syn-com';
+    else if (m[2]) cls = 'syn-str';
+    else if (m[3]) cls = 'syn-num';
+    else if (m[4]) cls = 'syn-key';
+    else if (m[5]) cls = 'syn-bool';
+    else if (m[6]) cls = 'syn-var';
+    out += '<span class="' + cls + '">' + esc(m[0]) + '</span>';
+    last = m.index + m[0].length;
+    if (m[0].length === 0) re.lastIndex++;
+  }
+  return out + esc(line.slice(last));
+}
+function codeSectionStarts(lines){
+  const out = [];
+  for (let i = 0; i < lines.length; i++){
+    const L = lines[i]; let m;
+    if ((m = L.match(/^\s*#\s*[-=]{3,}\s*(.*?)\s*[-=]{3,}\s*$/))){ out.push({i:i, title:(m[1]||'').trim() || L.trim()}); continue; }
+    if ((m = L.match(/^\s*#\s*-{3,}\s*(.+)$/))){ out.push({i:i, title:m[1].replace(/-{2,}\s*$/, '').trim() || L.trim()}); continue; }
+    if ((m = L.match(/^( {0,2})([A-Za-z_][\w.\-]*):\s*(#.*)?$/))){ out.push({i:i, title:m[2]}); continue; }
+    if ((m = L.match(/^\s*(?:function\s+)?([A-Za-z_][\w-]*)\s*\(\)\s*\{/))){ out.push({i:i, title:m[1] + '()'}); }
+  }
+  return out;
+}
+function splitCodeSections(lines, starts){
+  if (!starts.length) return [{ title:t('codeHeader'), start:0, end:lines.length - 1 }];
+  const secs = [];
+  if (starts[0].i > 0) secs.push({ title:t('codeHeader'), start:0, end:starts[0].i - 1 });
+  for (let s = 0; s < starts.length; s++){
+    const st = starts[s].i;
+    const en = (s + 1 < starts.length ? starts[s + 1].i : lines.length) - 1;
+    secs.push({ title:starts[s].title, start:st, end:Math.max(st, en) });
+  }
+  return secs;
+}
+function renderCode(text){
+  const lines = String(text || '').split('\n');
+  const secs = splitCodeSections(lines, codeSectionStarts(lines));
+  const foldable = secs.length > 1;   // 单组(如 .env)不折叠, 避免整页被收起
+  let h = '';
+  if (foldable){
+    h += '<div class="code-tools">' +
+      '<button type="button" class="mini" data-code-fold="open">' + esc(t('codeExpandAll')) + '</button>' +
+      '<button type="button" class="mini" data-code-fold="close">' + esc(t('codeCollapseAll')) + '</button>' +
+      '<span class="code-meta">' + lines.length + ' ' + esc(t('codeLines')) + ' · ' + secs.length + ' ' + esc(t('codeGroups')) + '</span></div>';
+  }
+  secs.forEach(sec => {
+    const open = !foldable;   // 默认折叠到服务级
+    h += '<div class="code-grp" data-open="' + (open ? 1 : 0) + '">' +
+      '<div class="code-grp-h" role="button" tabindex="0" aria-expanded="' + open + '">' +
+        '<span class="cg-caret" aria-hidden="true">▸</span>' +
+        '<span class="cg-title">' + esc(sec.title) + '</span>' +
+        '<span class="cg-range">L' + (sec.start + 1) + '–L' + (sec.end + 1) + '</span>' +
+        '<span class="cg-count">' + (sec.end - sec.start + 1) + ' ' + esc(t('codeLines')) + '</span></div>' +
+      '<div class="code-grp-body"' + (open ? '' : ' hidden') + '>';
+    for (let i = sec.start; i <= sec.end; i++){
+      h += '<div class="cline"><span class="ln">' + (i + 1) + '</span><span class="lc">' + hlLine(lines[i]) + '</span></div>';
+    }
+    h += '</div></div>';
+  });
+  return h;
+}
+function toggleCodeGroup(grp){
+  if (!grp) return;
+  const open = grp.getAttribute('data-open') !== '1';
+  grp.setAttribute('data-open', open ? '1' : '0');
+  const body = grp.querySelector('.code-grp-body'); if (body) body.hidden = !open;
+  const h = grp.querySelector('.code-grp-h'); if (h) h.setAttribute('aria-expanded', String(open));
+}
+function setAllCodeGroups(open){
+  $$('#previewPre .code-grp').forEach(g => {
+    g.setAttribute('data-open', open ? '1' : '0');
+    const body = g.querySelector('.code-grp-body'); if (body) body.hidden = !open;
+    const h = g.querySelector('.code-grp-h'); if (h) h.setAttribute('aria-expanded', String(open));
+  });
+}
+/* ---------- 预览: 行级 diff (内存保存上一次预览文本) ---------- */
+function lcsDiff(a, b){
+  const n = a.length, m = b.length;
+  if (n * m > 400000){   // 超大文本退化为逐行对齐, 避免 O(n*m) 卡顿
+    const ops = [], L = Math.max(n, m);
+    for (let i = 0; i < L; i++){
+      const x = i < n ? a[i] : null, y = i < m ? b[i] : null;
+      if (x === y) ops.push(['=', x, i + 1, i + 1]);
+      else { if (x !== null) ops.push(['-', x, i + 1, null]); if (y !== null) ops.push(['+', y, null, i + 1]); }
+    }
+    return ops;
+  }
+  const dp = [];
+  for (let i = 0; i <= n; i++) dp.push(new Uint32Array(m + 1));
+  for (let i = n - 1; i >= 0; i--)
+    for (let j = m - 1; j >= 0; j--)
+      dp[i][j] = a[i] === b[j] ? dp[i+1][j+1] + 1 : Math.max(dp[i+1][j], dp[i][j+1]);
+  const ops = []; let i = 0, j = 0;
+  while (i < n && j < m){
+    if (a[i] === b[j]){ ops.push(['=', a[i], i + 1, j + 1]); i++; j++; }
+    else if (dp[i+1][j] >= dp[i][j+1]){ ops.push(['-', a[i], i + 1, null]); i++; }
+    else { ops.push(['+', b[j], null, j + 1]); j++; }
+  }
+  while (i < n){ ops.push(['-', a[i], i + 1, null]); i++; }
+  while (j < m){ ops.push(['+', b[j], null, j + 1]); j++; }
+  return ops;
+}
+function renderDiff(oldT, newT){
+  const ops = lcsDiff(String(oldT || '').split('\n'), String(newT || '').split('\n'));
+  let added = 0, removed = 0;
+  for (const o of ops){ if (o[0] === '+') added++; else if (o[0] === '-') removed++; }
+  let h = '<div class="diff-head">' + esc(t('diffTitle')) + '</div>' +
+    '<div class="diff-stat">+' + added + ' ' + esc(t('diffAdd')) + ' / -' + removed + ' ' + esc(t('diffDel')) + '</div>' +
+    '<div class="diff-body">';
+  for (const o of ops){
+    const k = o[0], cls = k === '+' ? 'diff-add' : k === '-' ? 'diff-del' : 'diff-ctx';
+    const sign = k === '+' ? '+' : k === '-' ? '-' : ' ';
+    h += '<div class="diff-line ' + cls + '">' +
+      '<span class="dl-a">' + (o[2] == null ? '' : o[2]) + '</span>' +
+      '<span class="dl-b">' + (o[3] == null ? '' : o[3]) + '</span>' +
+      '<span class="dl-s">' + sign + '</span>' +
+      '<span class="dl-t">' + hlLine(String(o[1])) + '</span></div>';
+  }
+  return h + '</div>';
+}
+/* ---------- 预览三级提示框: 错误(阻断) / 警告(可继续) / 信息 ---------- */
+function sumGroup(kind, title, items, open, mark){
+  const marker = kind === 'err' ? '⛔' : kind === 'warn' ? '⚠' : 'ℹ';
+  let h = '<details class="sum-grp sum-' + kind + '"' + (open ? ' open' : '') + '>' +
+    '<summary><span class="sum-marker" aria-hidden="true">' + marker + '</span><b>' + esc(title) + '</b>' +
+    '<span class="sum-count">' + items.length + '</span><span class="sum-caret" aria-hidden="true">▾</span></summary>' +
+    '<ul class="sum-list">';
+  for (const it of items){
+    const text = typeof it === 'string' ? it : it.text;
+    const rd = typeof it === 'string' ? '' : (it.rd || '');
+    h += '<li' + (rd ? ' class="sum-link" data-rd="' + esc(rd) + '" tabindex="0"' : '') + '>' +
+      (mark ? '<span class="sum-x" aria-hidden="true">⛔</span>' : '') + esc(text) + '</li>';
+  }
+  if (!items.length) h += '<li class="sum-none">' + esc(t('sumNone')) + '</li>';
+  return h + '</ul></details>';
+}
+function renderPreviewNotice(d){
+  const r = collectReadiness();
+  const errItems = [];
+  r.materials.forEach(x => errItems.push({ text:x.label, rd:'materials' }));
+  r.ports.forEach(x => errItems.push({ text:x.label, rd:'ports' }));
+  r.passwords.forEach(x => {
+    const tag = x.problem === 'weak' ? t('sumPwdWeak') : x.problem === 'illegal' ? t('sumPwdIllegal') : t('sumPwdEmpty');
+    errItems.push({ text:x.label + ' · ' + tag, rd:'passwords' });
+  });
+  const warnItems = (d.warnings || []).map(w => String(trMsg(w)));
+  r.k8s.forEach(x => warnItems.push(x.label));
+  const infoItems = [];
+  if ((d.images || []).length) infoItems.push(t('sumImages') + ' ' + (d.images || []).join(', '));
+  if (d.backup_crons && d.backup_crons.length) infoItems.push(t('sumBackup') + ' ' + d.backup_crons.join('; '));
+  infoItems.push(t('sumDeploy'));
+  $('#msg').innerHTML = '<div class="sum-box">' +
+    sumGroup('err', t('sumErrTitle'), errItems, true, true) +
+    sumGroup('warn', t('sumWarnTitle'), warnItems, false, false) +
+    sumGroup('info', t('sumInfoTitle'), infoItems, false, false) + '</div>';
+  $('#msg').querySelectorAll('[data-rd]').forEach(li => {
+    li.onclick = () => jumpToReadiness(li.dataset.rd);
+    li.onkeydown = e => { if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); jumpToReadiness(li.dataset.rd); } };
+  });
 }
 
 init().then(() => {

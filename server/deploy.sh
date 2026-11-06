@@ -82,6 +82,131 @@ verify_bundle_integrity() {
 log "服务器架构: ${ARCH_RAW} (${ARCH}) | 项目: ${PROJECT:-middleware}"
 hr
 
+#------------------------------- 包内契约消费 -------------------------------
+# CONTRACT_LINES / CONF_POLICY / CONTRACT_CONFIG_SHA256 由 manifest.sh 末尾提供
+# (打包器从 packerlib/contract.py 的同一份数据投影而来)。老包没有这些变量时
+# 全部降级为原有行为, 保证向后兼容。
+CONTRACT_DIFF_LINES=()
+DRY_RUN=0
+
+contract_enabled() { [ -n "${CONTRACT_LINES+x}" ] && [ "${#CONTRACT_LINES[@]}" -gt 0 ]; }
+
+# 查契约里某个配置文件的策略(三态: overwrite / preserve / material), 查不到回显空
+conf_policy_for() {
+  local e p rest want="$1"
+  [ -n "${CONF_POLICY+x}" ] || return 0
+  for e in "${CONF_POLICY[@]}"; do
+    p="${e%%|*}"; rest="${e#*|}"
+    [ "$p" = "$want" ] && { printf '%s' "${rest%%|*}"; return 0; }
+  done
+  return 0
+}
+
+contract_diff() {
+  CONTRACT_DIFF_LINES=()
+  contract_enabled || { log "$(T '本包无契约数据(旧包), 跳过配置变更检测' 'No contract in this bundle (legacy), skipping change detection')"; return 0; }
+  local new_file="$TMP/contract-new.txt" old_file="$DEPLOY_DIR/.contract-lines.txt" line
+  : > "$new_file"
+  for line in "${CONTRACT_LINES[@]}"; do printf '%s\n' "$line" >> "$new_file"; done
+  if [ ! -f "$old_file" ]; then
+    log "$(T '首次部署: 记录契约基线, 下次重部署会显示变更' 'First deployment: baseline recorded; future runs will show diffs')"
+    return 0
+  fi
+  if diff -q "$old_file" "$new_file" >/dev/null 2>&1; then
+    log "$(T '契约一致: 服务/端口/密码指纹/镜像/配置策略均无变化' 'Contract unchanged: services, ports, secret fingerprints, images and conf policies')"
+    return 0
+  fi
+  local diff_file="$TMP/contract.diff" l
+  diff -u "$old_file" "$new_file" > "$diff_file" 2>/dev/null || true
+  hr; log "$(T '检测到本次将变更 (与上次部署契约对比)' 'Changes detected vs last deployment contract')"
+  while IFS= read -r l; do
+    case "$l" in
+      +[^+]*) CONTRACT_DIFF_LINES+=("+ ${l#+}"); log "  + ${l#+}" ;;
+      -[^-]*) CONTRACT_DIFF_LINES+=("- ${l#-}"); log "  - ${l#-}" ;;
+    esac
+  done < "$diff_file"
+  return 0
+}
+
+contract_save_baseline() {
+  contract_enabled || return 0
+  [ "$DRY_RUN" -eq 1 ] && return 0
+  mkdir -p "$DEPLOY_DIR"
+  printf '%s\n' "${CONTRACT_LINES[@]}" > "$DEPLOY_DIR/.contract-lines.txt"
+  chmod 600 "$DEPLOY_DIR/.contract-lines.txt" 2>/dev/null || true
+}
+
+# 只读预检: 磁盘/内存/SELinux/防火墙/时钟, 不改动任何东西
+preflight() {
+  hr; log "$(T '部署预检 (只读)' 'Preflight (read-only)')"
+  local probe="$DEPLOY_DIR" avail_gb mem_gb fw sel
+  [ -d "$probe" ] || probe="/"
+  avail_gb="$(df -Pm "$probe" 2>/dev/null | awk 'NR==2{printf "%.1f", $4/1024}')"
+  mem_gb="$(awk '/MemTotal/{printf "%.1f", $2/1048576}' /proc/meminfo 2>/dev/null || echo 0)"
+  [ -n "$avail_gb" ] || avail_gb="0"
+  log "$(T '磁盘可用' 'disk free'): ${avail_gb} GB  $(T '内存' 'RAM'): ${mem_gb} GB"
+  sel="$(getenforce 2>/dev/null || echo unknown)"
+  fw="$(systemctl is-active firewalld 2>/dev/null || echo inactive)"
+  log "SELinux: $sel  firewalld: $fw"
+  if [ "$fw" = "active" ]; then
+    warn "$(T '防火墙处于开启状态, 跨主机访问端口可能不通, 请按需放行' 'firewalld is active; open the service ports if cross-host access is needed')"
+  fi
+  if command -v chronyc >/dev/null 2>&1; then
+    chronyc tracking 2>/dev/null | head -3 || true
+  elif command -v ntpq >/dev/null 2>&1; then
+    ntpq -p 2>/dev/null | head -3 || true
+  else
+    log "$(T '未检测到 chrony/ntp, 多机与证书场景请确认时钟同步' 'No chrony/ntp found; verify clock sync for multi-host and TLS')"
+  fi
+  return 0
+}
+
+# 机器可读报告: 供 CMDB / 监控 / 发布流水线消费(不含任何密码明文)
+json_escape() {
+  local s="$1"
+  s="${s//\\/\\\\}"; s="${s//\"/\\\"}"
+  s="${s//$'\n'/\\n}"; s="${s//$'\r'/}"; s="${s//$'\t'/\\t}"
+  printf '%s' "$s"
+}
+json_array() {
+  local out="[" first=1 x
+  for x in "$@"; do
+    [ "$first" -eq 1 ] || out+=","
+    first=0
+    out+="\"$(json_escape "$x")\""
+  done
+  printf '%s]' "$out"
+}
+write_report_json() { # $1=本机IP
+  local ip="$1" f="$DEPLOY_DIR/部署报告.json" line svc_csv="" svc_arr=() health=() hl st txt
+  for line in "${CONTRACT_LINES[@]+"${CONTRACT_LINES[@]}"}"; do
+    case "$line" in services=*) svc_csv="${line#services=}" ;; esac
+  done
+  IFS=',' read -r -a svc_arr <<< "$svc_csv"
+  for hl in "${HEALTH_LINES[@]+"${HEALTH_LINES[@]}"}"; do
+    st="${hl%%|*}"; txt="${hl#*|}"; health+=("$st: $txt")
+  done
+  {
+    printf '{\n'
+    printf '  "schema_version": 1,\n'
+    printf '  "generated_at": "%s",\n' "$(json_escape "$(date '+%Y-%m-%d %H:%M:%S')")"
+    printf '  "project": "%s",\n' "$(json_escape "${PROJECT:-}")"
+    printf '  "host": "%s",\n' "$(json_escape "$(hostname 2>/dev/null || uname -n)")"
+    printf '  "ip": "%s",\n' "$(json_escape "$ip")"
+    printf '  "deploy_dir": "%s",\n' "$(json_escape "$DEPLOY_DIR")"
+    printf '  "bundle": "%s",\n' "$(json_escape "${BUNDLE_NAME:-}")"
+    printf '  "config_sha256": "%s",\n' "$(json_escape "${CONTRACT_CONFIG_SHA256:-}")"
+    printf '  "contract_schema_version": %s,\n' "${CONTRACT_SCHEMA_VERSION:-0}"
+    printf '  "services": %s,\n' "$(json_array "${svc_arr[@]}")"
+    printf '  "health_ok": %s,\n' "$([ "${HEALTH_BAD:-0}" -eq 0 ] && echo true || echo false)"
+    printf '  "health": %s,\n' "$(json_array "${health[@]}")"
+    printf '  "changes": %s,\n' "$(json_array "${CONTRACT_DIFF_LINES[@]}")"
+    printf '  "report_text": "部署报告.txt"\n'
+    printf '}\n'
+  } > "$f"
+  chmod 644 "$f" 2>/dev/null || true
+}
+
 #------------------------------- 工具函数 -------------------------------
 # 架构键映射: 本包内部统一用 amd64/arm64(与 docker inspect 一致)
 arch_name() { echo "$ARCH"; }
@@ -516,31 +641,49 @@ prepare_deploy_dir() {
     fi
   done
 
-  # 服务配置文件(nginx/redis 等): 打包器生成的文件(带"由打包器生成"标记)随重新部署覆盖,
-  # 其余只补齐缺失, 不覆盖人工修改; 子目录(如 nginx/ssl/wizard 证书)为打包器生成, 整体覆盖
+  # 服务配置文件: 覆盖策略来自包内契约(manifest.sh 末尾 CONF_POLICY, 由
+  # packerlib/contract.py 按文件头标记 + 所在层级预先算好), 不再靠运行时 grep 猜测。
+  #   overwrite 目标仍带生成标记才随包更新 / preserve 保留并另存 .packer-new / material 无条件覆盖
+  # 老包没有契约时用文件头标记现算同样三态, 行为与旧版一致。
   if [ -d "$BASE_DIR/conf" ]; then
-    local svc_dir name src dest
-    for svc_dir in "$BASE_DIR"/conf/*/; do
-      [ -d "$svc_dir" ] || continue
-      name="$(basename "$svc_dir")"
-      mkdir -p "$DEPLOY_DIR/$name"
-      for src in "$svc_dir"*; do
-        [ -e "$src" ] || continue
-        dest="$DEPLOY_DIR/$name/$(basename "$src")"
-        if [ -d "$src" ]; then
-          mkdir -p "$dest"
-          cp -a "$src/." "$dest/"
-        elif [ -f "$dest" ] && head -c 200 "$dest" 2>/dev/null | grep -q "由打包器生成"; then
-          cp -f "$src" "$dest"
+    local src dest rel policy src_head dst_head
+    while IFS= read -r -d '' src; do
+      rel="${src#"$BASE_DIR"/}"
+      dest="$DEPLOY_DIR/${rel#conf/}"
+      mkdir -p "$(dirname "$dest")"
+      if [ ! -f "$dest" ]; then
+        cp -an "$src" "$dest" 2>/dev/null || true
+        case "$dest" in *.cnf) chmod 644 "$dest" 2>/dev/null || true ;; esac
+        continue
+      fi
+      policy="$(conf_policy_for "$rel")"
+      if [ -z "$policy" ]; then
+        src_head="$(head -c 200 "$src" 2>/dev/null || true)"
+        if printf '%s' "$src_head" | grep -q "只补齐"; then
+          policy="preserve"
+        elif printf '%s' "$src_head" | grep -q "由打包器生成"; then
+          policy="overwrite"
         else
-          cp -an "$src" "$dest" 2>/dev/null || true
+          case "$rel" in conf/*/*/*) policy="material" ;; *) policy="preserve" ;; esac
         fi
-        # MySQL 会静默忽略"全局可写"的配置文件, 落盘后强制收紧权限
-        case "$dest" in
-          *.cnf) chmod 644 "$dest" 2>/dev/null || true ;;
-        esac
-      done
-    done
+      fi
+      if [ "$policy" = "overwrite" ]; then
+        dst_head="$(head -c 200 "$dest" 2>/dev/null || true)"
+        if ! printf '%s' "$dst_head" | grep -q "由打包器生成"; then
+          policy="preserve"
+        fi
+      fi
+      if [ "$policy" = "material" ] || [ "$policy" = "overwrite" ]; then
+        cp -f "$src" "$dest"
+      elif ! cmp -s "$src" "$dest"; then
+        cp -f "$src" "$dest.packer-new" 2>/dev/null || true
+        warn "$(T '保留现有配置' 'Kept existing config'): $dest ($(T '新包默认配置另存为' 'new default saved as') $(basename "$dest").packer-new)"
+      fi
+      # MySQL 会静默忽略"全局可写"的配置文件, 落盘后强制收紧权限
+      case "$dest" in
+        *.cnf) chmod 644 "$dest" 2>/dev/null || true ;;
+      esac
+    done < <(find "$BASE_DIR/conf" -type f -print0 2>/dev/null)
   fi
 
   # 备份恢复脚本(部署了本地 MySQL/PostgreSQL/MongoDB 才有恢复对象)
@@ -1093,7 +1236,7 @@ rpt() { printf '%s\n' "$*" >> "$REPORT_FILE"; }
 
 # 生成部署报告(纯文本, 每次执行 deploy.sh 自动覆盖重写; 语言随打包选择 DEPLOY_LANG)
 write_report() { # $1=本机IP
-  local ip="$1" hl st txt s
+  local ip="$1" hl st txt s line
   REPORT_FILE="$DEPLOY_DIR/部署报告.txt"
   local now os_pretty docker_ver compose_ver
   now="$(date '+%Y-%m-%d %H:%M:%S')"
@@ -1123,7 +1266,9 @@ write_report() { # $1=本机IP
   rpt "----------------------------------------------------------------"
   for s in "${SUMMARY_LINES[@]+"${SUMMARY_LINES[@]}"}"; do
     [ -z "$s" ] && continue
-    rpt "  ${s//__IP__/$ip}"
+    s="${s//__IP__/$ip}"
+    s="${s//__NODE_IP__/$ip}"   # 兼容旧包/第三方插件遗留的 __NODE_IP__ 占位符
+    rpt "  $s"
   done
   rpt ""
   rpt "----------------------------------------------------------------"
@@ -1175,8 +1320,20 @@ write_report() { # $1=本机IP
     rpt "  $(T '未启用 (如需, 在本地打包器配置后重新打包部署)' 'not enabled (configure in the local packer and re-pack to enable)')"
   fi
   rpt ""
+  rpt "----------------------------------------------------------------"
+  rpt "$(T '六、本次配置变更 (与上次部署契约对比)' '6. Changes vs last deployment contract')"
+  rpt "----------------------------------------------------------------"
+  if [ "${#CONTRACT_DIFF_LINES[@]}" -gt 0 ]; then
+    for line in "${CONTRACT_DIFF_LINES[@]}"; do rpt "  $line"; done
+  else
+    rpt "  $(T '无变更或首次部署 (契约一致)' 'No changes or first deployment (contract matches)')"
+  fi
+  rpt "  $(T '契约基线' 'Contract baseline'): $DEPLOY_DIR/.contract-lines.txt"
+  rpt ""
   rpt "$(T '本报告由 deploy.sh 在部署完成时自动生成, 每次执行会覆盖重写' 'Generated automatically by deploy.sh on each deployment run')"
+  rpt "$(T '机器可读报告' 'Machine-readable report'): $DEPLOY_DIR/部署报告.json"
   chmod 644 "$REPORT_FILE" 2>/dev/null || true
+  write_report_json "$ip"
 }
 
 summary() {
@@ -1186,7 +1343,9 @@ summary() {
   echo
   for line in "${SUMMARY_LINES[@]+"${SUMMARY_LINES[@]}"}"; do
     [ -z "$line" ] && continue
-    echo "  ${line//__IP__/$ip}"
+    line="${line//__IP__/$ip}"
+    line="${line//__NODE_IP__/$ip}"
+    echo "  $line"
   done
   if [ -n "${HEALTH_LINES+x}" ]; then
     echo
@@ -1276,7 +1435,22 @@ deploy_cluster() {
 }
 
 main() {
+  local _a
+  for _a in "$@"; do
+    case "$_a" in
+      --dry-run) DRY_RUN=1 ;;
+      -h|--help) echo "用法: ./deploy.sh [--dry-run]   # --dry-run 只预检并显示契约变更, 不部署|Usage: ./deploy.sh [--dry-run]  # preflight + contract diff only"; return 0 ;;
+      *) die "未知参数: $_a (仅支持 --dry-run / --help)|Unknown option: $_a (only --dry-run / --help)" ;;
+    esac
+  done
   verify_bundle_integrity
+  preflight
+  contract_diff
+  if [ "$DRY_RUN" -eq 1 ]; then
+    check_ports
+    hr; log "$(T 'dry-run 完成: 未做任何变更, 去掉 --dry-run 即正式部署' 'Dry run complete: no changes made; remove --dry-run to deploy')"
+    return 0
+  fi
   install_java
   deploy_cluster
   install_docker
@@ -1294,5 +1468,6 @@ main() {
   setup_mysql_replication
   health_check
   summary
+  contract_save_baseline
 }
 main "$@"

@@ -2,7 +2,9 @@
 """本地 Web 界面: HTTP 服务 / 打包任务管理 / 配置预览接口"""
 import json
 import os
+import platform
 import re
+import shutil
 import subprocess
 import tarfile
 import tempfile
@@ -29,6 +31,32 @@ from .validate import check_warehouse, validate_config
 # ---------------------------------------------------------------- Web 界面
 
 PACK_STATE = {"prog": None}   # 当前打包进度对象
+
+
+def env_probe():
+    """只读探测本机 Docker，给前端引导框用。
+
+    只跑 --version / compose version / info，每条带超时；失败一律当成「不可用」，
+    不阻断打包。目标服务器的 Docker 由 deploy.sh 从离线包安装，跟这里无关。
+    """
+    exe = shutil.which("docker")
+    dc = {"found": bool(exe), "path": exe or "", "version": "",
+          "compose": False, "daemon": False}
+
+    def _read(args, timeout=4):
+        try:
+            r = subprocess.run([exe] + args, capture_output=True, text=True,
+                               timeout=timeout, encoding="utf-8", errors="replace")
+            return (r.stdout or "").strip() if r.returncode == 0 else ""
+        except Exception:
+            return ""
+
+    if exe:
+        ver = _read(["--version"])
+        dc["version"] = ver.splitlines()[0] if ver else ""
+        dc["compose"] = bool(_read(["compose", "version"]))
+        dc["daemon"] = bool(_read(["info", "--format", "{{.ServerVersion}}"], timeout=5))
+    return {"platform": platform.system(), "docker": dc}
 
 
 def proxysql_preview(cfg):
@@ -165,8 +193,10 @@ def catalog_response(catalog):
                 meta = prepare_java.resolved_of(catalog, str(major), arch)
                 present["java_%s_%s" % (major, arch)] = bool(meta) and (
                     prepare_java.java_dir(arch) / meta["filename"]).is_file()
+    # java 字段必须随响应下发: 前端 Java 版本选择读 CATALOG.java.majors, 缺失时永远走
+    # 硬编码 ['8','17','21'] 兜底, versions.json 增删 majors 后本地 UI 不反映(静态演示站反而对)
     return {"services": services, "secrets": catalog["secrets"],
-            "cluster": ccat,
+            "cluster": ccat, "java": catalog.get("java") or {},
             "defaults": catalog["defaults"], "files_present": present, "sizes": sizes,
             "suites": catalog.get("suites", [])}
 
@@ -232,8 +262,20 @@ def make_handler(catalog, token="", port=8765):
                 self.wfile.write(html)
             elif self.path == "/api/catalog":
                 self._send_json(catalog_response(catalog))
+            elif self.path == "/api/env":
+                self._send_json(env_probe())
             elif self.path == "/logos.js":
                 data = LOGOS_JS.read_bytes() if LOGOS_JS.is_file() else b"const LOGOS={};"
+                self.send_response(200)
+                self.send_header("Content-Type", "application/javascript; charset=utf-8")
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+            elif self.path == "/versions.js":
+                # build_webui.py 生成的静态演示目录(页面在 file:// 下打开时的兜底数据源)
+                vjs = BASE_DIR / "versions.js"
+                data = vjs.read_bytes() if vjs.is_file() else b"window.PACKER_VERSIONS={};\n"
                 self.send_response(200)
                 self.send_header("Content-Type", "application/javascript; charset=utf-8")
                 self.send_header("Cache-Control", "no-store")

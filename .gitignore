@@ -18,6 +18,13 @@ tools/bin/
 # 本地手工备份(重构/发布前快照; git 历史即远端备份)
 backups/
 
+# 本机生成的 kk 构建脚本(含机器绝对路径, 由 prepare_cluster.py --kk-build 生成)
+build-kk.bat
+
+# 本地部署测试解包目录(含数 GB 物料)与工具缓存
+dist_deploy_test/
+.zcode/
+
 # 打包器生成的样例配置(个人本地文件)
 example-config.json
 /kkstage/

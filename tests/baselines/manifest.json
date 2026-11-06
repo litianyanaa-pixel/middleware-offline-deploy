@@ -1,0 +1,109 @@
+{
+  "schema": 1,
+  "generated_by": "tests/test_generated_baseline.py --update",
+  "note": "sha256 清单: 仅存 hash + 名称 + 说明 + 对应 .txt 文件名, 不存大段文本; 完整产物文本见同目录 *.txt, 供 git diff 审阅。测试比对 sha256。",
+  "baselines": [
+    {
+      "name": "single.compose",
+      "sha256": "d003b2c31ebe615e5635aab030f6e8e1c922733ad5cdc4b3396b19452c886260",
+      "desc": "A 单机 nginx+mysql8+redis / packer.gen_compose",
+      "file": "single.compose.txt"
+    },
+    {
+      "name": "single.env",
+      "sha256": "3932b4778b9e31fcb5c920252ee027ec1bfa89135ddbd3bedbc98b37e06bbdb0",
+      "desc": "A 单机 / packer.gen_env",
+      "file": "single.env.txt"
+    },
+    {
+      "name": "single.backup_conf",
+      "sha256": "91c28f1cfe61319cd5f4cc3a3ea2b2b7849e43b190429eb100431354a25adc9d",
+      "desc": "A 单机 / packer.gen_backup_conf",
+      "file": "single.backup_conf.txt"
+    },
+    {
+      "name": "single.manifest_sh",
+      "sha256": "26daabf8fc84b2946e318c296fe20b7650b1fca09d22e70686087a2c47ec21fd",
+      "desc": "A 单机 / packer.gen_manifest_sh (固定 bundle_name/client_img)",
+      "file": "single.manifest_sh.txt"
+    },
+    {
+      "name": "single.images_txt",
+      "sha256": "a6fa09aaef9ab35fa6818f4363c333da33857c82f2824a7fd7a3bbc7712decf3",
+      "desc": "A 单机 / packer.gen_images_txt (序列化为 JSON 文本)",
+      "file": "single.images_txt.txt"
+    },
+    {
+      "name": "multi.compose",
+      "sha256": "412cbb052cb79d68332b550bb752c9d056a71d400ed2cbaa4a2fe1e3af5154ac",
+      "desc": "B 多机 mysql8 主从 / packer.gen_compose (主部署机骨架)",
+      "file": "multi.compose.txt"
+    },
+    {
+      "name": "multi.env",
+      "sha256": "c28726990adce41f55d9f1b3fc070d0bc079173335a58cf943e481bdb1f055ef",
+      "desc": "B 多机 / packer.gen_env",
+      "file": "multi.env.txt"
+    },
+    {
+      "name": "multi.backup_conf",
+      "sha256": "91c28f1cfe61319cd5f4cc3a3ea2b2b7849e43b190429eb100431354a25adc9d",
+      "desc": "B 多机 / packer.gen_backup_conf",
+      "file": "multi.backup_conf.txt"
+    },
+    {
+      "name": "multi.manifest_sh",
+      "sha256": "d497218182c73c5a2bbf41c9fb17ff5f9442011a7408cb221b082929ab790c9c",
+      "desc": "B 多机 / packer.gen_manifest_sh (NODES_COUNT 来自 gen_nodes)",
+      "file": "multi.manifest_sh.txt"
+    },
+    {
+      "name": "multi.images_txt",
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "desc": "B 多机 / packer.gen_images_txt (镜像随节点分发)",
+      "file": "multi.images_txt.txt"
+    },
+    {
+      "name": "multi.node_install.db-master",
+      "sha256": "309b9b905996f8511c80d5f3503e06d726376694060c0e9feada08fb6ac77fd2",
+      "desc": "B 多机 节点 db-master / packer.gen_node_install_sh",
+      "file": "multi.node_install.db-master.txt"
+    },
+    {
+      "name": "multi.node_install.db-replica",
+      "sha256": "df75e6043acf48beae73ee783c3ae172179deb95778d1bedea8277e68081ce56",
+      "desc": "B 多机 节点 db-replica / packer.gen_node_install_sh",
+      "file": "multi.node_install.db-replica.txt"
+    },
+    {
+      "name": "multi.distribute_sh",
+      "sha256": "e9ab836ee4b94f18737fc866d124d434ae6f921443d07f6fd67fdc7d136b2da3",
+      "desc": "B 多机 / packer.gen_distribute_sh (含固定 SSH 密码)",
+      "file": "multi.distribute_sh.txt"
+    },
+    {
+      "name": "java.compose",
+      "sha256": "cbae3308bcfdecedbff6d5c20168c0dc963051e63766bb5bd0066a43708401cd",
+      "desc": "C 纯 Java 节点 / packer.gen_compose (主部署机 nginx)",
+      "file": "java.compose.txt"
+    },
+    {
+      "name": "java.manifest_sh",
+      "sha256": "be16bc4571bfd2effd5156ccec8b9d87be39d44783e7d4eba14196a0a42afe75",
+      "desc": "C 纯 Java 节点 / packer.gen_manifest_sh (JAVA_ENABLED/NODES_COUNT)",
+      "file": "java.manifest_sh.txt"
+    },
+    {
+      "name": "java.node_install.java-only",
+      "sha256": "4a5cbb9cf1e5c58113bdae0b629c8c0b444dd662637eb0f5cb4811a160008d19",
+      "desc": "C 纯 Java 节点 java-only / packer.gen_node_install_sh (_java_only 分支)",
+      "file": "java.node_install.java-only.txt"
+    },
+    {
+      "name": "java.distribute_sh",
+      "sha256": "057b255d3608f14313fa205ada875ea3812ff4df1e4b2a4018d88bbd4e2a7db7",
+      "desc": "C 纯 Java 节点 / packer.gen_distribute_sh",
+      "file": "java.distribute_sh.txt"
+    }
+  ]
+}

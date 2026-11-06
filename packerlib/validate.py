@@ -3,11 +3,12 @@
 import base64
 import os
 import re
-import yaml
 
 from .catalog import PLUGINS, PROXYSQL_META
 from .compose import backupable_services
+from .contract import SCHEMA_VERSION
 from .paths import BASE_DIR, WAREHOUSE
+from .yamlcompat import safe_load as yaml_safe_load
 from .util import (LINUX_PATH_RE, MIRROR_RE, PASSWORD_RE, PROJECT_RE, USERNAME_RE,
                    WEBHOOK_RE, PackError, is_multihost, master_server_ip, tr, valid_ipv4)
 
@@ -25,9 +26,27 @@ _ETCD_ENV_ORDER = ("heartbeat_interval", "election_timeout", "compaction_retenti
                    "quota_backend_bytes", "max_request_bytes", "max_snapshots", "max_wals", "log_level")
 
 
+def migrate_config(cfg):
+    """配置 schema 迁移: 旧配置(无 schema_version)视为 v0, 静默升级到当前版本。
+
+    目前 v0 -> v1 无字段变动, 只补版本号; 未来加字段时在此按版本逐级迁移。
+    高于当前版本的配置直接拒绝, 避免用旧打包器读新配置产生静默错配。
+    """
+    try:
+        v = int(cfg.get("schema_version") or 0)
+    except (TypeError, ValueError):
+        v = 0
+    if v > SCHEMA_VERSION:
+        raise PackError("配置 schema_version=%d 高于本打包器支持的 %d, 请升级打包器|"
+                        "Config schema_version=%d is newer than supported %d; upgrade the packer"
+                        % (v, SCHEMA_VERSION, v, SCHEMA_VERSION))
+    return SCHEMA_VERSION
+
+
 def validate_config(cfg, catalog):
     """校验+规范化配置, 返回 (norm_cfg, warnings)"""
     warns = []
+    cfg["schema_version"] = migrate_config(cfg)
 
     project = str(cfg.get("project", "")).strip().lower()
     if not PROJECT_RE.match(project):
@@ -66,9 +85,9 @@ def validate_config(cfg, catalog):
             try:
                 v = int(raw)
             except (TypeError, ValueError):
-                raise PackError("端口 %s 不合法: %s|Invalid port for %s: %s" % (tr(p["label"], "zh"), raw, tr(p["label"], "en"), raw))
+                raise PackError("%s 不是合法端口: %s|%s is not a valid port: %s" % (tr(p["label"], "zh"), raw, tr(p["label"], "en"), raw))
             if not (1 <= v <= 65535):
-                raise PackError("端口 %s 超出范围 1-65535: %s|Port %s out of range 1-65535: %s" % (tr(p["label"], "zh"), v, tr(p["label"], "en"), v))
+                raise PackError("%s 超出允许端口范围 1-65535: %s|%s is outside the allowed port range 1-65535: %s" % (tr(p["label"], "zh"), v, tr(p["label"], "en"), v))
             # 多机部署的服务跑在不同服务器上, 同端口合法(如多机主从同端口), 不参与查重
             mh_on = str((cfg.get("topology") or {}).get(s, "single")) in ("master-slave", "sentinel", "cluster")                     and ((cfg.get("multihost") or {}).get(s) or {}).get("enabled")
             if v in seen and not mh_on:
@@ -409,7 +428,7 @@ def validate_config(cfg, catalog):
             _effective = [ln for ln in _v.splitlines() if ln.strip() and not ln.lstrip().startswith("#")]
             if _effective:
                 try:
-                    parsed = yaml.safe_load(_v)
+                    parsed = yaml_safe_load(_v)
                     if not isinstance(parsed, dict):
                         raise ValueError("not a mapping")
                 except Exception as e:
@@ -658,9 +677,9 @@ def validate_config(cfg, catalog):
         try:
             v = int(raw)
         except (TypeError, ValueError):
-            raise PackError("端口 %s 不合法: %s|Invalid port for %s: %s" % (tr(label, "zh"), raw, tr(label, "en"), raw))
+            raise PackError("%s 不是合法端口: %s|%s is not a valid port: %s" % (tr(label, "zh"), raw, tr(label, "en"), raw))
         if not (1 <= v <= 65535):
-            raise PackError("端口 %s 超出范围 1-65535: %d|Port %s out of range 1-65535: %d" % (tr(label, "zh"), v, tr(label, "en"), v))
+            raise PackError("%s 超出允许端口范围 1-65535: %d|%s is outside the allowed port range 1-65535: %d" % (tr(label, "zh"), v, tr(label, "en"), v))
         if key not in mh_node_keys and not key.startswith("kafka_mh_"):
             if v in seen_topo:
                 raise PackError("端口冲突: %s 与其他端口都用了 %d|Port conflict: %s conflicts on %d" % (tr(label, "zh"), v, tr(label, "en"), v))
@@ -738,10 +757,18 @@ def validate_config(cfg, catalog):
         norm_rows = []
         seen_ctn = set()
         for r in rows:
+            raw_h, raw_c = r.get("host"), r.get("container")
+            # UI 点「+ 添加自定义端口」会先落一条空白占位行; 两列都空视为未填写, 直接忽略,
+            # 不能因为用户还没来得及填就阻断预览/打包。只填了一半仍要报错提示补全。
+            def _blank(v):
+                return v is None or str(v).strip() == ""
+            if _blank(raw_h) and _blank(raw_c):
+                continue
             try:
-                h, c = int(r.get("host")), int(r.get("container"))
+                h, c = int(raw_h), int(raw_c)
             except (TypeError, ValueError):
-                raise PackError("%s 自定义端口必须是数字: %s|%s custom ports must be numbers: %s" % (svc, r, svc, r))
+                raise PackError("%s 自定义端口须填数字(宿主机 → 容器): %s → %s|%s custom ports must be numbers (host -> container): %s -> %s"
+                                % (svc, raw_h, raw_c, svc, raw_h, raw_c))
             if not (1 <= h <= 65535 and 1 <= c <= 65535):
                 raise PackError("%s 自定义端口超出范围 1-65535: %d:%d|%s custom ports out of range 1-65535: %d:%d" % (svc, h, c, svc, h, c))
             if h in used_hosts:

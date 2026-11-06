@@ -1,0 +1,10 @@
+# 由 packer.py 自动生成, 项目: golden-baseline
+# 手工修改后请自行承担与 .env/manifest.sh 不一致的风险
+name: golden-baseline
+
+services:
+
+networks:
+  app-network:
+    driver: bridge
+

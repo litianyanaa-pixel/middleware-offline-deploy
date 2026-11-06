@@ -1,0 +1,21 @@
+# 由 packer.py 自动生成 — backup.sh 的配置(每种数据库独立开关/保留份数)
+BACKUP_DIR='/data/backup/db'
+
+# MySQL (mysqldump 按库导出)
+MYSQL_ENABLED=0
+MYSQL_SERVICES=(mysql8)
+MYSQL_KEEP=7
+MYSQL_ROOT_PASSWORD='G0lden#Root2026'
+
+# PostgreSQL (pg_dump 按库导出, 容器内自带客户端)
+PG_ENABLED=0
+PG_SERVICES=()
+PG_KEEP=7
+POSTGRES_PASSWORD=''
+
+# MongoDB (mongodump 按库导出, 容器内自带客户端)
+MONGO_ENABLED=0
+MONGO_SERVICES=()
+MONGO_KEEP=7
+MONGO_USER='root'
+MONGO_PASSWORD=''

@@ -1,0 +1,17 @@
+[
+  [
+    "nginx-amd64.tar",
+    "warehouse/images/nginx/1.31.5/amd64.tar",
+    "nginx:1.31.5"
+  ],
+  [
+    "mysql8-amd64.tar",
+    "warehouse/images/mysql/8.0.46/amd64.tar",
+    "mysql:8.0.46"
+  ],
+  [
+    "redis-amd64.tar",
+    "warehouse/images/redis/8.8.2/amd64.tar",
+    "redis:8.8.2"
+  ]
+]

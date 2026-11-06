@@ -1,0 +1,132 @@
+#!/usr/bin/env bash
+# 由 packer.py 自动生成 — 多机节点分发安装 (在主部署机上执行)
+# 用法: ./distribute.sh            分发全部节点 (按主节点优先顺序)
+#       ./distribute.sh node2 ...  只分发指定节点 (重装/补发)
+# 认证: 优先 SSH 免密 (BatchMode, 需先 ssh-copy-id) — 推荐;
+#       密码登录: 在控制面 export MW_SSH_PASSWORD='...' 后再运行(需本机装 sshpass)。
+#       密码不随包分发(包内 NODES 第 5 段恒为空), 避免凭据随离线包扩散。
+set -uo pipefail
+cd "$(dirname "$0")"
+NODES=(@@NODES@@)
+DEPLOY_DIR=@@DEPLOY_DIR@@
+COMPOSE_BIN="packages/@@PKG_SUB@@/docker-compose-linux-@@PKG_SUB@@"
+FAILED=()
+
+# 目标 IP 是否为本机地址(本机节点免 ssh/tar 管道: 环回传输边读边写同一目录, tar 报 "file changed")
+is_local_ip() {
+  [ "$1" = "127.0.0.1" ] && return 0
+  ip -o addr show 2>/dev/null | awk '{print $4}' | grep -q "^$1/" && return 0
+  hostname -I 2>/dev/null | grep -qw "$1" && return 0
+  return 1
+}
+
+log(){ printf '\033[32m[distribute]\033[0m %s\n' "$*"; }
+warn(){ printf '\033[33m[distribute]\033[0m %s\n' "$*"; }
+
+[ ${#NODES[@]} -gt 0 ] || { echo "无多机节点, 无需分发"; exit 0; }
+
+ONLY=("$@")
+for NODE in "${NODES[@]}"; do
+  IFS='|' read -r NAME RUSER RIP RSSH RPASS <<< "$NODE"
+  # 控制面统一注入密码: export MW_SSH_PASSWORD='...' && ./distribute.sh
+  [ -n "${MW_SSH_PASSWORD:-}" ] && RPASS="$MW_SSH_PASSWORD"
+  if [ ${#ONLY[@]} -gt 0 ]; then
+    keep=0; for o in "${ONLY[@]}"; do [ "$o" = "$NAME" ] && keep=1; done
+    [ $keep -eq 0 ] && continue
+  fi
+  if [ -n "$RPASS" ] && command -v sshpass >/dev/null 2>&1; then
+    export SSHPASS="$RPASS"
+    SSHC=(sshpass -e ssh -p "$RSSH" -o StrictHostKeyChecking=no)
+    SCPC=(sshpass -e scp -P "$RSSH" -o StrictHostKeyChecking=no -q)
+    log "[$NAME] 使用密码登录 (sshpass)"
+  else
+    [ -n "$RPASS" ] && warn "[$NAME] 已填写密码但本机未安装 sshpass, 回退免密模式 (可 apt/yum install sshpass)"
+    SSHC=(ssh -p "$RSSH" -o BatchMode=yes)
+    SCPC=(scp -P "$RSSH" -q)
+  fi
+  log "[$NAME] 预检 $RUSER@$RIP:$RSSH ..."
+  HAS_JAVA=0; HAS_SVCS=0
+  [ -d "nodes/$NAME/java" ] && [ -n "$(ls "nodes/$NAME/java" 2>/dev/null)" ] && HAS_JAVA=1
+  [ -f "nodes/$NAME/docker-compose.yml" ] && HAS_SVCS=1
+  PRECHECK="true"; [ "$HAS_SVCS" = 1 ] && PRECHECK="command -v docker >/dev/null 2>&1"
+  # 本机节点不走 SSH 预检: 部署机 root 未给自己发免密时 ssh 自连会失败,
+  # 曾导致本机节点被"SSH 连接失败或未安装 Docker"的误导性提示跳过 (真机首测踩坑)
+  if is_local_ip "$RIP"; then
+    if [ "$HAS_SVCS" = 1 ] && ! command -v docker >/dev/null 2>&1; then
+      warn "[$NAME] 本机节点未安装 Docker, 已跳过"
+      FAILED+=("$NAME"); continue
+    fi
+  elif ! "${SSHC[@]}" -o ConnectTimeout=8 "$RUSER@$RIP" "$PRECHECK" 2>/dev/null; then
+    warn "[$NAME] SSH 连接失败或未安装 Docker, 已跳过 (密码模式请确认 sshpass 已安装; 免密模式请先 ssh-copy-id)"
+    FAILED+=("$NAME"); continue
+  fi
+  # compose 检查/补装: 本机节点不走 SSH(与上面预检同因, 未给自己发免密时 ssh 自连必败,
+  # 会误报缺 compose 且包内二进制装不上), 就地检查并拷到 ~/.local/bin
+  if [ "$HAS_SVCS" = 1 ]; then
+    if is_local_ip "$RIP"; then
+      if ! docker compose version >/dev/null 2>&1 && ! docker-compose version >/dev/null 2>&1; then
+        log "[$NAME] 本机缺少 compose, 从包内安装二进制到 ~/.local/bin..."
+        mkdir -p "$HOME/.local/bin" && cp "$COMPOSE_BIN" "$HOME/.local/bin/docker-compose" \
+          && chmod +x "$HOME/.local/bin/docker-compose" \
+          || warn "[$NAME] compose 二进制放置失败, 安装脚本可能因缺 compose 中止"
+      fi
+    elif ! "${SSHC[@]}" "$RUSER@$RIP" \
+        "docker compose version >/dev/null 2>&1 || docker-compose version >/dev/null 2>&1" 2>/dev/null; then
+      log "[$NAME] 节点缺少 compose, 从包内安装二进制..."
+      if "${SCPC[@]}" "$COMPOSE_BIN" "$RUSER@$RIP:/tmp/mw-compose" \
+          && "${SSHC[@]}" "$RUSER@$RIP" "mkdir -p ~/.local/bin && mv /tmp/mw-compose ~/.local/bin/docker-compose && chmod +x ~/.local/bin/docker-compose"; then
+        "${SSHC[@]}" "$RUSER@$RIP" "export PATH=\$HOME/.local/bin:\$PATH; docker-compose version >/dev/null 2>&1" \
+          || warn "[$NAME] compose 二进制已放置于 ~/.local/bin, 若 PATH 未包含请手动处理"
+      else
+        warn "[$NAME] compose 传输失败, 继续尝试安装"
+      fi
+    fi
+  fi
+  ND_SRC="$(pwd)/nodes/$NAME"
+  ND_DST="$DEPLOY_DIR/nodes/$NAME"
+  if is_local_ip "$RIP"; then
+    # 本机节点: 包已解压在本机, 就地安装; 源==目标时原地用, 否则拷到部署目录子节点
+    log "[$NAME] 本机节点($RIP), 就地安装 (免传输)"
+    if [ ! "$ND_SRC" -ef "$ND_DST" ]; then
+      mkdir -p "$ND_DST" && cp -a "$ND_SRC/." "$ND_DST/" || { warn "[$NAME] 节点目录准备失败"; FAILED+=("$NAME"); continue; }
+    fi
+    # Java 物料在包根 java/ (共享单份), 节点安装脚本按 ./java/ 取用
+    if [ "$HAS_JAVA" = 1 ] && [ ! -d "$ND_DST/java" ]; then
+      mkdir -p "$ND_DST" && cp -a java "$ND_DST/java" || { warn "[$NAME] Java 物料准备失败"; FAILED+=("$NAME"); continue; }
+    fi
+    if (cd "$ND_DST" && PATH="$HOME/.local/bin:$PATH" bash install-node.sh); then
+      log "[$NAME] 完成"
+    else
+      warn "[$NAME] 安装脚本执行失败, 请登录节点查看日志"
+      FAILED+=("$NAME")
+    fi
+    continue
+  fi
+  log "[$NAME] 传输节点包 -> $ND_DST ..."
+  "${SSHC[@]}" "$RUSER@$RIP" "mkdir -p '$ND_DST'" || { FAILED+=("$NAME"); continue; }
+  # 每节点独立子目录: 解到 $DEPLOY_DIR 根会覆盖主包 compose/.env
+  if ! tar czf - -C "nodes/$NAME" . | "${SSHC[@]}" "$RUSER@$RIP" "tar xzf - -C '$ND_DST'"; then
+    warn "[$NAME] 传输失败"; FAILED+=("$NAME"); continue
+  fi
+  if [ "$HAS_JAVA" = 1 ]; then
+    log "[$NAME] 传输 Java 运行时物料 ..."
+    if ! tar czf - -C java . | "${SSHC[@]}" "$RUSER@$RIP" "mkdir -p '$ND_DST/java' && tar xzf - -C '$ND_DST/java'"; then
+      warn "[$NAME] Java 物料传输失败"; FAILED+=("$NAME"); continue
+    fi
+  fi
+  log "[$NAME] 执行节点安装..."
+  if "${SSHC[@]}" "$RUSER@$RIP" "cd '$ND_DST' && PATH=\$HOME/.local/bin:\$PATH bash install-node.sh"; then
+    log "[$NAME] 完成"
+  else
+    warn "[$NAME] 安装脚本执行失败, 请登录节点查看日志"
+    FAILED+=("$NAME")
+  fi
+done
+
+echo ""
+if [ ${#FAILED[@]} -gt 0 ]; then
+  warn "以下节点未成功安装: ${FAILED[*]}"
+  warn "修复后可重跑: ./distribute.sh ${FAILED[*]}"
+  exit 1
+fi
+log "全部节点安装完成"

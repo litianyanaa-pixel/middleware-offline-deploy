@@ -22,6 +22,17 @@ log() { echo "[$(date '+%F %T')] $*"; }
 warn() { echo "[$(date '+%F %T')] [WARN] $*"; }
 die() { echo "[$(date '+%F %T')] [ERROR] $*" >&2; exit 1; }
 
+# ---- 与 backup.sh / restore.sh 共用同一把锁 ----
+# 备份目录以 backup.conf 为准(打包器按本次所选备份目录生成); 读不到才回退到部署目录内 backup/。
+# 曾经本脚本直接用 ${BACKUP_DIR:-$DIR/backup}, 而 BACKUP_DIR 从未被定义 ->
+# 锁落在 $DIR/backup/.lock, 与 backup.sh 的 $BACKUP_DIR/.lock 不是同一把, 并发保护形同虚设。
+BACKUP_DIR="$DIR/backup"
+if [ -f "$DIR/backup.conf" ]; then
+  # shellcheck disable=SC1090
+  source "$DIR/backup.conf" || warn "backup.conf 读取失败, 锁目录回退为 $BACKUP_DIR"
+fi
+LOCK_DIR="${BACKUP_DIR:-$DIR/backup}"
+
 YES=0
 PURGE=0
 for a in "$@"; do
@@ -77,8 +88,8 @@ if [ "$YES" -ne 1 ]; then
 fi
 
 # ---- 1. 停止并移除容器与网络 (与备份共用同一把锁, 避免与备份并发) ----
-mkdir -p "${BACKUP_DIR:-$DIR/backup}" 2>/dev/null || true
-exec 9>"${BACKUP_DIR:-$DIR/backup}/.lock" 2>/dev/null || true
+mkdir -p "$LOCK_DIR" 2>/dev/null || true
+exec 9>"$LOCK_DIR/.lock" 2>/dev/null || true
 command -v flock >/dev/null 2>&1 && { flock -n 9 2>/dev/null || warn "可能有备份任务在运行, 继续卸载"; }
 
 log "[1/3] 停止并移除容器与网络..."

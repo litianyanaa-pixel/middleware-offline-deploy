@@ -20,6 +20,7 @@ from .cluster import (_auto_build_artifact, _auto_download_cluster_materials,
                       make_collect_progress_cb)
 from .compose import (gen_backup_conf, gen_compose, gen_env, plugin_ctx,
                       resolve_db, validate_compose_with_docker)
+from .contract import SCHEMA_VERSION, build_contract, gen_contract_sh
 from .manifest import build_summary_lines, gen_images_txt, gen_manifest_sh
 from .multinode import (gen_distribute_sh, gen_node_install_sh, gen_nodes,
                         gen_proxysql_conf)
@@ -544,6 +545,10 @@ def pack(cfg, catalog, out_dir=None, progress=None):
     else:
         compose_text, env_text, images, images_txt = "", "", [], ""
     manifest_text = gen_manifest_sh(cfg, catalog, client_img, summary_lines, bundle_name=bundle_name)
+    # 包内契约: 同一份数据既写 manifest.json(机器可读), 又投影成 manifest.sh 末尾的
+    # bash 数组(服务器无 python3/jq). deploy.sh 据此做变更 diff 与 conf 策略判定。
+    contract = build_contract(cfg, catalog, images, conf_files, bundle_name)
+    manifest_text += gen_contract_sh(contract)
     for nd in nodes:   # 节点 compose 同样过一遍 docker 校验
         warns += validate_compose_with_docker(nd["compose"], nd["env"])
 
@@ -554,6 +559,7 @@ def pack(cfg, catalog, out_dir=None, progress=None):
                              "roles": n.get("roles") or [n["role"]]}
                             for n in (cfg.get("cluster") or {}).get("nodes", [])]
     manifest_json = {
+        "schema_version": SCHEMA_VERSION, "contract": contract,
         "project": project, "arch": arch, "generated_at": datetime.now().isoformat(timespec="seconds"),
         "services": cfg["services"], "ports": cfg["ports"], "secrets": cfg["secrets"],
         "deploy_dir": cfg["deploy_dir"], "docker_data_root": cfg["docker_data_root"],
@@ -657,6 +663,11 @@ def pack(cfg, catalog, out_dir=None, progress=None):
                             gen_distribute_sh(cfg, nodes, catalog).encode("utf-8"), 0o755))
         warns += ["多机部署: 打包完成后请检查 nodes/ 各节点配置, 在主部署机执行 ./distribute.sh 分发安装"
                   "|Multi-host: review nodes/ configs, then run ./distribute.sh on the main host"]
+        if any(s.get("password") for s in (cfg.get("servers") or [])):
+            warns += ["服务器池填写了 SSH 密码, 密码不随包分发; 部署时在控制面执行 "
+                      "export MW_SSH_PASSWORD='...' 后再运行 ./distribute.sh (推荐改用免密)|"
+                      "SSH passwords are not bundled; export MW_SSH_PASSWORD='...' before running "
+                      "./distribute.sh (passwordless SSH is recommended)"]
     if cluster_on:
         warns += ["包内含 K8s 集群: 服务器上 ./deploy.sh 会先部署集群(多节点 SSH, 耗时较长)再继续中间件部分"
                   "|Bundle includes a K8s cluster: ./deploy.sh provisions the cluster first (multi-node SSH, slow), then middleware"]

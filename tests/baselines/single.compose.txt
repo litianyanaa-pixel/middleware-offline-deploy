@@ -1,0 +1,80 @@
+# 由 packer.py 自动生成, 项目: golden-baseline
+# 手工修改后请自行承担与 .env/manifest.sh 不一致的风险
+name: golden-baseline
+
+services:
+
+  mysql8:
+    image: mysql:8.0.46
+    container_name: mysql8
+    restart: always
+    environment:
+      TZ: ${TZ}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+    ports:
+      - "13307:3306"
+    volumes:
+      - ./mysql8/data:/var/lib/mysql
+      - ./mysql8/log:/var/log/mysql
+      - ./mysql8/init:/docker-entrypoint-initdb.d
+      - ./mysql8/my.cnf:/etc/mysql/conf.d/my.cnf:ro
+    command:
+      - --log-error=/var/log/mysql/error.log
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-authentication-plugin=mysql_native_password
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -uroot -p\"$$MYSQL_ROOT_PASSWORD\""]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 300s
+    networks:
+      - app-network
+
+  redis:
+    image: redis:8.8.2
+    container_name: redis
+    restart: always
+    environment:
+      TZ: ${TZ}
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    ports:
+      - "16379:6379"
+    volumes:
+      - ./redis/data:/data
+      - ./redis/log:/var/log/redis
+      - ./redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+    # masterauth 必备: 故障转移后被哨兵降级的一方要凭它连新主
+    command: redis-server /usr/local/etc/redis/redis.conf --requirepass "${REDIS_PASSWORD}" --masterauth "${REDIS_PASSWORD}"
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - app-network
+
+  nginx:
+    image: nginx:1.31.5
+    container_name: nginx
+    restart: always
+    environment:
+      TZ: ${TZ}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "9000:9000"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf:/etc/nginx/conf.d
+      - ./nginx/html:/usr/share/nginx/html
+      - ./nginx/logs:/var/log/nginx
+      - ./nginx/ssl:/etc/nginx/ssl
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge
+

@@ -17,6 +17,7 @@ from .web import run_web
 # ---------------------------------------------------------------- CLI
 
 EXAMPLE_CONFIG = {
+    "schema_version": 1,
     "project": "demo",
     "arch": "amd64",
     "services": ["nginx", "mysql8", "redis", "xxljob"],

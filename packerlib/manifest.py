@@ -234,7 +234,9 @@ def build_summary_lines(cfg, catalog):
         """多机角色的节点 IP (kind: master/replica/brokers)"""
         m = mh.get(svc) or {}
         if kind == "master":
-            return servers[m["master"]]["ip"] if isinstance(m.get("master"), int) and servers else "__NODE_IP__"
+            # 正常情况下 multi-host 校验会保证 servers/master 索引有效;
+            # 兜底用 __IP__(deploy.sh 会替换成部署机 IP), 绝不留下未替换的占位符。
+            return servers[m["master"]]["ip"] if isinstance(m.get("master"), int) and servers else "__IP__"
         if kind == "replicas":
             return [servers[i]["ip"] for i in m.get("replicas", []) if isinstance(i, int) and i < len(servers)]
         if kind == "brokers":

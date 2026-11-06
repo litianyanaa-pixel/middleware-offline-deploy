@@ -17,7 +17,7 @@
 set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BACKUP_DIR_CFG="/data/backup/mysql"
+BACKUP_DIR_CFG="/data/backup/db"
 
 log() { echo "[$(date '+%F %T')] $*"; }
 err() { echo "[$(date '+%F %T')] [ERROR] $*" >&2; }
@@ -50,17 +50,20 @@ exec 9>"$BACKUP_DIR/.lock"
 
 # 列出全部备份 (MySQL/PostgreSQL: .sql.gz, MongoDB: .archive)
 do_list() {
-  local svc f n=0
+  local svc_dir svc f n=0
   echo "备份目录: $BACKUP_DIR"
-  for svc in "$BACKUP_DIR"/*/; do
-    [ -d "$svc" ] || continue
-    svc="$(basename "$svc")"
+  for svc_dir in "$BACKUP_DIR"/*/; do
+    [ -d "$svc_dir" ] || continue
+    svc="$(basename "$svc_dir")"
     echo "---- $svc ----"
+    # 必须用全路径列文件: 曾经把 svc 压成短名后 ls/du/date 都按当前工作目录找,
+    # 导致在非备份目录执行 ./restore.sh list 时永远显示"(没有找到任何备份)"。
     while IFS= read -r f; do
       [ -z "$f" ] && continue
+      [ -f "$f" ] || continue
       n=$((n+1))
       printf "  %s   %8s   %s\n" "$(basename "$f")" "$(du -h "$f" | cut -f1)" "$(date -r "$f" '+%F %T')"
-    done < <(ls -1t "$svc" 2>/dev/null | grep -v '^pre_restore_' | grep -E '\.(sql\.gz|archive)$' || true)
+    done < <(ls -1t "$svc_dir"*.sql.gz "$svc_dir"*.archive 2>/dev/null | grep -v '/pre_restore_' || true)
   done
   [ "$n" -gt 0 ] || echo "  (没有找到任何备份)"
   echo
@@ -118,7 +121,12 @@ restore_mysql() {
   CNT="$(docker exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" "$SVC" mysql -uroot -N \
     -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='$DB';" 2>/dev/null || echo 0)"
   log "恢复完成: $SVC/$DB 现有表数量 $CNT"
-  log "如需回退本次恢复, 可用恢复前安全备份: $(basename "${PRE:-无}")"
+  # 目标库原先不存在时 PRE 只是算好的路径、并未真正落盘, 不能提示一个不存在的文件
+  if [ -f "${PRE:-}" ]; then
+    log "如需回退本次恢复, 可用恢复前安全备份: $(basename "$PRE")"
+  else
+    log "本次恢复未生成恢复前安全备份(目标库原先不存在)"
+  fi
 }
 
 #================= PostgreSQL =================
@@ -149,7 +157,12 @@ restore_pg() {
   gunzip -c "$FILE" | docker exec -i -e PGPASSWORD="$POSTGRES_PASSWORD" "$SVC" \
     psql -U postgres -d "$DB" --set=ON_ERROR_STOP=1 -q 2>&1 || die "psql 导入报错(已中止, 可用安全备份回退)"
   log "恢复完成: $SVC/$DB"
-  log "如需回退本次恢复, 可用恢复前安全备份: $(basename "${PRE:-无}")"
+  # 目标库原先不存在时 PRE 只是算好的路径、并未真正落盘, 不能提示一个不存在的文件
+  if [ -f "${PRE:-}" ]; then
+    log "如需回退本次恢复, 可用恢复前安全备份: $(basename "$PRE")"
+  else
+    log "本次恢复未生成恢复前安全备份(目标库原先不存在)"
+  fi
 }
 
 #================= MongoDB =================
@@ -181,7 +194,12 @@ restore_mongo() {
   docker exec -i "$SVC" mongorestore "${AUTH[@]}" --archive --gzip --drop < "$FILE" 2>&1 \
     | grep -iE "done|error" || true
   log "恢复完成: $SVC/$DB (mongorestore --drop 已覆盖同名集合)"
-  log "如需回退本次恢复, 可用恢复前安全备份: $(basename "${PRE:-无}")"
+  # 目标库原先不存在时 PRE 只是算好的路径、并未真正落盘, 不能提示一个不存在的文件
+  if [ -f "${PRE:-}" ]; then
+    log "如需回退本次恢复, 可用恢复前安全备份: $(basename "$PRE")"
+  else
+    log "本次恢复未生成恢复前安全备份(目标库原先不存在)"
+  fi
 }
 
 [ "${#ARGS[@]}" -ge 1 ] && [ "${ARGS[0]}" = "list" ] && { do_list; exit 0; }

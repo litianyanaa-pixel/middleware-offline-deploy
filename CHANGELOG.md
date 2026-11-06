@@ -2,6 +2,137 @@
 
 按时间倒序记录每次功能与修复。`docs/` 演示站随前端改动同步更新。
 
+## 2026-11-06 发版 v1.4.0
+
+从 10-15 到现在这一批改动一起发了 v1.4.0：契约化、前端重做、启动零依赖、几轮真机与浏览器走查。
+在线演示站和 GitHub Release 同步更新，下面按时间倒序列出各轮做了什么。
+
+## 2026-11-06 浏览器走查
+
+拿 Playwright 开着系统 Edge 把 5 步向导从头点了一遍，连导入导出、各下拉框、两个抽屉、中英切换、深色和 800px 窄屏都过了一次，边点边记控制台报错和横向溢出。又揪出 5 个问题。
+
+1. 英文界面里 Java 卡片还留着「按台分发」，物料抽屉把「Java 运行时包」翻成了半吊子的 `Java runtime包`。改成整行双语走 `trLabel()`，`IP未填` 顺手一起改。
+2. 端口填 0 时报错是「端口 HTTP 端口 超出范围 1-65535」，label 自带「端口」又拼了一遍前缀。`validate.py` 三处去掉重复，中英文半边都改了。
+3. 预览失败后只剩一条红字和一屏空白，空态卡片还写着「勾选组件后…」，可用户明明选了组件。现在空态按未选 / 已选待预览 / 上次预览失败三种情况给不同文案，红条加标题，「去修正配置」直接展开明细并跳到出问题的字段。
+4. 点「+ 添加自定义端口」会先落一条双空行，没填就点预览直接 400，还甩一句 `{'host': '', 'container': ''}`。前端 `cleanExtraPorts()` 丢掉空行，后端 `validate_config()` 也跳过，CLI 配置同样受益。只填一半仍报错，但提示改成「宿主机 → 容器: 18090 → 」。
+5. JDK 卡片的 `IP未填` 是硬编码，一并双语化。
+
+另外确认几个不是 bug：首步「上一步」和末步「下一步」禁用、空选择时预览与打包禁用、首次预览没有历史时 diff 禁用、搜索按显示名过滤。
+
+测试：浏览器用例 9 → 12，后端补 2 条，全套 105 passed / 1 skipped。复跑走查 0 报错、0 溢出、0 文案残留；带空端口行的配置也真打出了 155 MB 的包，sha256、包内契约和 4 个 sh 的语法都过了。
+
+## 2026-11-06 本机 Docker 改成只检测、给指引
+
+之前讨论过要不要让工具自动装 Docker。把依赖点摊开看，目标服务器的 Docker 和 compose 一直都是 `deploy.sh` 从包里的静态二进制装的，打包机平时根本用不上；真正会用到本机 Docker 的只有两处：缺镜像时 `docker pull` 再 `save` 成离线 tar，以及可选的 `docker compose config` 校验。为这两件事去提权装 Docker 不划算，最后定了方案 A：只读探测加可复制的安装命令，工具自己不动系统。
+
+后端 `packerlib/web.py` 加了 `env_probe()` 和 `/api/env`，只跑 `--version` / `compose version` / `info`，每条命令带超时，失败就当不可用。前端加了 `<dialog id="dockerHelp">`，写清楚为什么需要、检测结果，按 Windows / Linux / macOS 给命令和官方文档链接（当前平台展开，其余折叠），按钮是重新检测 / 取消 / 跳过并继续 / 本次不再提示（会话级，取消勾选即可撤销）。只有点「开始打包」且预览结果确实需要本机 Docker 时才弹；预览页放个静态入口。不需要 Docker、守护进程已就绪、静态演示模式这几种情况连探测请求都不发。
+
+弹窗是照着截图一点点调出来的。视图测试里抓到 3 个布局问题：全局样式把 `<dialog>` 的 margin 清成 0，弹窗贴在左上角（补 `margin:auto`）；底部声明和勾选项被埋在整块滚动区下面（改成只让平台列表滚动）；macOS 那栏要滚才看得见（改成当前平台展开、其余折叠）。顺手修了静音没法撤销、守护进程正常时仍显示「未运行」、深色弹窗正文偏暗。
+
+测试：浏览器用例 6 → 9，全套 100 passed / 1 skipped。真实 `/api/env` 与 `/api/catalog`、`file://` 静态演示、155 MB 小包都验过。README 补了「关于本机 Docker」，顺手删掉上一轮留下的本机专属路径 `E:\dev\Python313\python.exe`。
+
+## 2026-11-05 启动脚本去本机化，K8s 卡片去重
+
+`start-packer.bat` 之前写死了本机解释器路径，换台电脑就废了。现在改成纯探测：`PY_EXE` → PATH 里的 `python`/`python3` → `py -3` → 常见安装目录，找不到给通用安装提示；加 `PACKER_NO_PAUSE` 方便 CI。调试时还发现旧版的探测循环其实从没生效过：`for /f` 里带引号的 exe 路径加带引号的 `-c` 参数会被 cmd 解析错，以前全靠首选路径直接命中才没露馅。现在让候选执行 `sys.exit(42)`，用退出码判断，Store 那个静默 stub 返回 0 就被跳过。README 写清楚 `python packer.py` 才是跨平台主入口，bat 只是兜底；上一轮调本机 PATH 只是修这一台机器。
+
+K8s 卡片上「缺料会在打包时补齐」说了三遍：版本行的徽章、卡内蓝色信息条、卡片下方 hint。现在 `warnline` 只留给 ARM64 这种真要人改配置的阻断，缺料由徽章写缺什么、hint 写怎么补、明细面板给细节；浏览器测试加了「同一条缺料信息只出现一次」的断言。
+
+跨机器模拟 4/4：bat 无硬编码路径、受控 PATH 下靠探测起服务、没 Python 时明确报错、干净解释器直接 `python packer.py` 起服务。全套 96 passed / 1 skipped。
+
+## 2026-11-05 「清空选择」和 K8s 的假告警
+
+用户说「清空选择」要点一下中间件才出现。查下来根本不是要先选中：页面一打开就默认全选了 19 项，但 `init()` 先渲染分类 chips，`restoreLocal()` 之后才填充默认选择，而且只调了 `renderDynamic()`，chips 没重绘，按钮按 `selected=0` 生成。现在默认全选后显式 `renderSvcChips()`，按钮始终占着位置，没勾选时是禁用态，工具栏不再跳变。
+
+选 K8s 报「1 处问题」却找不到问题在哪：`collectReadiness()` 把「物料未就绪」和「真要人改的配置」混在一起，步骤条一律染红，底部却写「可以打包」，点一下还只把整个大分区闪 1.5 秒。按用户说的，缺料在打包时会自动下载，不该算问题。现在分三级：阻断（红，物料/端口/密码）、提醒（黄，未分配控制面、缺服务器池这类）、信息（蓝，打包时自动补齐的缺料，不进计数也不染红）。步骤徽标区分问题和提醒，hover 能看具体条目；点 chip 或徽标弹出常驻明细，每条能定位，K8s 缺料徽章用蓝环高亮，不再套红色闪烁。
+
+另一条是 Windows 上的复盘：用户级 PATH 里 `WindowsApps` 排在真实 Python 前面，新开 cmd 的 `python` 命中 0 字节的 Store 别名，静默退出，所以「敲完命令立刻回提示符」而 bat 能用。把真实 Python 目录前置到用户 PATH 即可，重开终端生效，README 补了排查步骤。
+
+浏览器用例 4 → 6，全套 96 passed / 1 skipped；模拟新 PATH 后真起服务 `/api/catalog` 返回 200。
+
+## 2026-11-05 `python packer.py` 起不来的真因
+
+README 写着「纯标准库，无需装依赖」，代码却在 `validate.py` 里用 `yaml.safe_load` 校验 K8s CNI values，`compose.py` 和 `cluster.py` 还各挂一个完全没用到的 `import yaml`。三个顶层 import 让没装 PyYAML 的解释器在导入阶段就崩，命令行窗口一闪而过什么都看不见。之前一直没暴露，是因为测试都用装了 PyYAML 的解释器。另一个独立诱因是 Windows 的 `python` 可能指向 Store 别名占位符，不执行脚本、零输出直接返回。
+
+修法是把依赖彻底去掉，而不是让人换个解释器。新增 `packerlib/yamlcompat.py` 作为唯一 YAML 入口：装了 PyYAML 就走严格解析，没装就降级到内置的 YAML 子集解析器，只用来判断这段 values 是不是合法 mapping（嵌套 mapping / list / 引号 / 注释 / 块标量 / flow 集合都认）。两个死 import 删掉，`validate.py` 统一调 `safe_load()`。`packer.py` 顶层对 `ImportError` 给双语可读提示，不再是裸 traceback。同时加了 `start-packer.bat` 逐个探测解释器、跳过静默 stub，支持 `PY_EXE` 覆盖和参数转发。
+
+新增 2 条回归（缺 PyYAML 时整条导入链可用、降级解析器接受合法 Helm values 且拒绝破损 YAML），全套 94 passed / 1 skipped。四个启动场景都真起服务并请求 `/api/catalog` 返回 200，包括用户原本那条 `python packer.py --no-browser` 在默认 8765 端口。
+
+## 2026-11-05 包内契约、前端重做、工程化
+
+这轮改动最大。以前「哪些配置能覆盖」「部署了什么版本」这些约定散在文件头标记、注释和几份脚本里，靠人记，接连出了几个「声明与实现不一致」的 bug。现在收拢到 `packerlib/contract.py` 的同一份 dict：扩展已有的 `manifest.json`（加 `schema_version` 和 `contract`），字段含服务/端口/密码带盐指纹/镜像 sha256/配置三态策略/配置 sha256/部署与备份目录/可 diff 的规范化行；`gen_contract_sh()` 把同一份数据投影成 `manifest.sh` 末尾可 source 的 `CONTRACT_LINES` 和 `CONF_POLICY` —— 服务器只有 bash，没 python3 也没 jq。没另起 `bundle.json`，免得再多一份真相。导出的配置带 `schema_version: 1`，旧配置静默迁移，高版本拒绝。
+
+`deploy.sh` 拿这份契约做三件事：启动时打印与上次部署的 +/- 变更清单和只读预检（磁盘/内存/SELinux/防火墙/时钟）；配置覆盖改查三态策略（overwrite / preserve / material，老包回退文件头判定）；报告加「本次配置变更」并产出《部署报告.json》。`--dry-run` 只预检不部署，基线只在正式部署成功后落盘。顺手堵了个安全口子：多机 `distribute.sh` 不再把 SSH 密码明文写进包，改由 `MW_SSH_PASSWORD` 注入或走免密。
+
+前端 7 项：端口/密码页左侧粘性锚点加搜索折叠、底部状态条改成能点进阻塞字段的打包就绪度、预览代码块行号/按服务折叠/高亮/与上次 diff/三级提示、步骤条错误态与焦点管理、密码批量随机加规则说明和凭据导出、套件降成轻分组、深色模式和 `aria-live`，双语也开始往 `data-i18n` + `t()` 迁（旧词典仍兜底）。
+
+工程化补了 `ROADMAP.md`、`tools/sync_pages.py`、17 条生成脚本 golden 基线、参数化真机 e2e 框架（默认只打印计划，不联网）。浏览器测试从 0 到 4 条，用系统 Edge 真启本地服务跑 5 步向导，当场抓到窄屏步骤条撑出 58px 横向溢出、深色模式下拉箭头被 `background` 简写重置成平铺、预览生成后空状态没隐藏三个视图问题。
+
+全套 92 passed / 1 skipped；真实打包校验契约字段和 sha256 通过，golden 基线刷新到当前生成器产物。这轮没上真机，`--dry-run` 和契约 diff 由本地 bash harness 覆盖。
+
+## 2026-11-05 全库通读复核，两台真机验证
+
+把整个仓库通读了一遍，找出 5 处「注释这么说、代码那么干」的遗留问题，逐条修掉。
+
+1. `restore.sh list` 永远列不出备份。`do_list` 把服务目录压成短名后用相对路径 `ls`/`du`/`date`，只要不在备份目录里执行就全部落空。改成全路径列 `*.sql.gz` / `*.archive`，过滤 `pre_restore_*`，脚本内兜底目录从 `/data/backup/mysql` 同步成 `/data/backup/db`。
+2. `uninstall.sh` 和 `backup.sh` 锁的不是同一个文件。卸载脚本没 source `backup.conf`，`BACKUP_DIR` 恒空，锁落在部署目录里，并发保护形同虚设。现在以 `backup.conf` 为准，读不到才回退。
+3. 重部署会冲掉手工改过的配置。原来只要目标文件头有「由打包器生成」就 `cp -f`，跟 `redis.conf` / `index.html` 里「只补齐不覆盖」的承诺对着干。改成按新包内文件头判定：声明可覆盖且目标仍带生成标记才更新，其余保留并把新包默认配置另存 `<文件名>.packer-new`。`nginx/html/index.html` 藏在子目录里，原来走整目录 `cp -a` 绕过了判定，也改成逐文件同步。
+4. 部署报告残留 `__NODE_IP__`。多机 Kafka 摘要改成逐个列节点真实 SASL 地址，`manifest.py` 主库兜底改 `__IP__`，`deploy.sh` 的报告和终端摘要都加了 `__NODE_IP__` 兼容替换，老包和第三方插件也能兜住。
+5. 首次恢复提示了一个并不存在的安全备份文件。这个真机删库恢复时才撞见：目标库原先不存在、跳过恢复前安全备份，末尾却仍打印 `pre_restore_*.sql.gz` 文件名。MySQL/PostgreSQL/MongoDB 三处统一改成 `-f "$PRE"` 判定后才提示，否则明说本次没生成。
+
+`plugins/README.md` 和 `_template.py` 补了 `conf_files` 钩子、`ctx["bash_quote"]`、配置覆盖标记这些约定。`pytest` / `PyYAML` 装到 E 盘解释器，新增 8 条回归（3 条真跑 bash），全套 84 passed / 1 skipped；交付包 `dist/smoke1105-x86-20261105-1023-offline.tar.gz`（426 MB）包内 8 项断言和 sha256 都过了。
+
+真机部分用了两台 CentOS 7（112/113），全程 `/data/qa1105/` 隔离目录加独立端口，没碰原有 `/data/backup` 和 Docker 配置。单机包连跑三次 `deploy.sh` 都 EXIT=0、健康实测全过；从 `/` 执行 `restore.sh list` 能列备份，删库恢复后 2 行数据回来了；`uninstall.sh` 的锁落在 `backup.conf` 指定目录，cron 清干净，原有 postgres 容器没动；重部署 13 项配置覆盖断言全过。多机 Kafka 摘要在两机 bash 4.2 上各 6 项断言通过；两节点 MySQL 主从免密分发成功，复制线程 Yes、延迟 0、数据同步、`super_read_only=1`。测完把测试目录、加载的镜像、crontab、`daemon.json.packer` 都还原了。
+
+## 2026-11-02（节点脚本模板化重构 + 备份变量注入修复）
+
+- **重构: 节点安装/分发脚本模板化**: install-node.sh / distribute.sh / Java 安装段的
+  bash 正文从 multinode.py 的 Python 内嵌字符串迁至 `templates/nodes/*.tpl`
+  （@@KEY@@ 占位符——不与 bash 变量、printf 的 %、docker inspect 的 Go 模板 {{...}}
+  冲突; 残留占位符打包时即报错, 不让坏脚本进包）。模板文件即交付文档, 可直接阅读与
+  shellcheck。改造方法: AST 机械抽取模板原文 + 22 个脚本全分支基线逐字节比对,
+  产物与旧实现完全一致（76 测试原样通过）; 旧实现快照存 backups/20261102-node-scripts-templating/。
+- **fix: install-node.sh 备份变量未注入, 主库配置完 crontab 后以 unbound variable 中止**:
+  backup_lines 算好后占位符遗漏从未进模板, 而 `set -u` 下脚本末尾 `mkdir -p "$BACKUP_DIR"`
+  要求变量已定义——MySQL 主库节点启用定时备份时必崩（crontab 已写入、节点被标记失败）。
+  现将 BACKUP_DIR/MYSQL_* 等变量注入脚本头部（与包内 backup.conf 同值）, 并补回归断言。
+- install-node.sh 模板内 POST_SQL 鉴权等待块缩进与全脚本对齐（原粘贴遗留 4 空格缩进,
+  仅外观, 产物 diff 归一化空白后与基线一致）。
+- **fix: install-node.sh 备份段在无 cron 系统上 set -e 裸退**: 节点未装 crontab 命令
+  （minimal 系统常见）或 crontab 写入失败时, `(...) | crontab -` 无兜底直接 exit 1——
+  且发生在 MySQL 已就绪、复制已配置之后, 无任何错误提示, 排查困难（本地 dind 双节点
+  实测踩坑）。现 warn 降级并打印手动 crontab 行, 不让已就绪的节点判死; 脚本新增 warn()
+  函数。dind 实测同步验证: 双节点分发/主从复制(延迟 0)/镜像断点续 load 后损坏重置/
+  幂等重跑/crontab 写入全通过; 随后真机复测(10.100.11.112 主库+主部署机本机节点 /
+  113 从库 SSH 密码分发): 全流程 EXIT=0, 主从复制秒级追平, crontab 成功写入, 幂等重跑通过。
+- **fix: 节点备份 crontab 缺 # mw-backup 标记, 卸载后残留**: install-node.sh 的 CRON_LINE
+  未带标记(主部署机 deploy.sh 带), uninstall.sh 按 `# mw-backup` 清理匹配不到节点行——
+  真机卸载实测发现节点 crontab 残留一行; 现与 deploy.sh 同规补标记, 卸载可完整清理。
+
+## 2026-10-15（真机部署时长基准测试 + 多机节点鉴权等待修复）
+
+- **人工 vs 工具部署对照实测**(10.100.11.112/113, 详见 docs/实测-部署时长与可复现性数据.md):
+  单机 mysql8+redis 人工 30min/20步/3错 vs 工具 服务器侧 56s/4命令/0错(≈32倍);
+  多机主从 1主1从 人工 ≈60min/23步/4错 vs 工具 161s/3命令/0错(≈22倍), 从节点
+  零登录, 复制 ≤10s 追平; 同配置连打 3 次产物逐字节一致, 卸载→重装报告仅时间戳
+  一行之差, 幂等重跑全过。缺陷详档: docs/缺陷修复-真机基准测试两例.md。
+- **fix: install-node.sh 补 MySQL 真实鉴权等待**: mysqladmin ping 健康检查在首启
+  初始化临时 server 阶段误报 healthy, POST_SQL(建 repl 账号)撞初始化窗口必现
+  Access denied, 多机主从复制建立失败; 现于 POST_SQL 前逐容器 SELECT 1 探活等待
+  (与 deploy.sh wait_mysql_ready 同防护)。
+- **fix: distribute.sh 本机节点免 SSH 彻底化**: 预检 is_local_ip 分支提前, 本机节点不再
+  要求自身 SSH 免密(此前未配自免密的机器上本机节点会被误导性提示跳过); compose 检查/补装
+  同步本地化——此前该段仍经 SSH 探测, 未配自免密时误报"缺少 compose/传输失败"且包内
+  compose 二进制装不上, 现就地检查并拷至 ~/.local/bin(安装路径已带该 PATH 前缀)。
+- **fix: /api/catalog 响应补发 java 字段**: 前端 Java 版本选择读 CATALOG.java.majors,
+  后端响应缺该字段导致本地 UI 永远走硬编码 ['8','17','21'] 兜底——versions.json 增删
+  majors 后静态演示站正确、本地真实环境反而不同步; 现与静态目录 versions.json 同源。
+- **fix: packer.html 本地双击(file://)打开页面半瘫**: file:// 下浏览器拦截 fetch 同目录
+  versions.json, loadCatalog 兜底分支自身抛异常致 init 中断——服务池/集群卡片空白、
+  向导胶囊停在默认 80px。现改三级回退: API → versions.json(fetch) → versions.js
+  (<script>, build 随包生成, file:// 下经典 script 不受 CORS 限制) → 空骨架兜底;
+  build_webui.py 同步生成 versions.js(root+docs, 取材 docs/versions.json 插件合并目录),
+  后端补 /versions.js 路由, 演示横幅措辞覆盖「本地双击」场景。
+
 ## 2026-10-14（kk 源码随仓库分发 + 打包机环境一键准备脚本）
 
 - **KubeKey 源码收编入库 `third_party/kubekey/`**（上游 Apache-2.0，快照版本 v4.0.7-xc1，

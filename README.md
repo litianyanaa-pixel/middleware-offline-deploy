@@ -88,7 +88,25 @@
 
 ```bash
 python packer.py            # 打开 http://127.0.0.1:8765 (纯标准库, 无需装依赖)
+python3 packer.py           # Linux/macOS 上若只有 python3 命令
 ```
+
+`python packer.py` 是主入口，Windows / Linux / macOS 都能这么起。打包器只用 Python 3.9+
+标准库，把仓库拷到别的机器直接敲就行，不用装依赖，也不依赖项目里的启动脚本。
+
+`start-packer.bat` 是 Windows 下的兜底，用于 `python` 被 Microsoft Store 别名占位符占用的
+情况。它不写死任何机器路径，依次探测 `PY_EXE`、PATH 里的 `python`/`python3`、`py -3` 启动器
+和常见安装目录；每个候选都得真跑一段 Python 代码才算数，静默 stub 会被跳过。参数原样转发，
+例如 `start-packer.bat --port 9000 --no-browser`。
+
+> **Windows 上敲完命令没反应**：`python packer.py` 回车后完全没有输出就回到提示符，
+> 一般是 PATH 里的 `python` 指向了 Microsoft Store 的别名占位符
+> (`%LOCALAPPDATA%\Microsoft\WindowsApps\python.exe`)，它不执行脚本、静默退出。
+> 这时用 `start-packer.bat`，或者写解释器完整路径 `X:\path\to\python.exe packer.py`，
+> 也可以 `set PY_EXE=<解释器完整路径>`。想让 `python` 长期可用，把真实 Python 目录在用户 PATH
+> 里挪到 `WindowsApps` 前面，重开终端生效；bat 不需要改环境。
+> 打包器本体只要 Python 3.9+ 标准库；`PyYAML` / `pytest` / `playwright` / `paramiko`
+> 是开发测试依赖，装了 PyYAML 会用于更严格的 K8s CNI values 校验，不装照样打包。
 
 页面流程：项目名/架构 → 勾选中间件 → 改端口（含自定义映射）→ 反向代理向导（勾选 NGINX 时）→
 设密码（可随机生成）→ Nacos/XXL-Job 选数据库 → 配置备份策略 → 生成预览 → 开始打包。
@@ -96,6 +114,19 @@ python packer.py            # 打开 http://127.0.0.1:8765 (纯标准库, 无需
 - 产物：`dist/<项目名>-<架构>-<日期>-<时分>-offline.tar.gz`，同名 `.sha256` 校验文件一并生成
 - 配置自动保存在浏览器本地，下次打开自动恢复；右上角可导出/导入 JSON 配置，方便团队复用
 - 本机装有 docker 时会自动执行 `docker compose config` 校验生成的编排文件
+
+**关于本机 Docker**：目标服务器的 Docker/Compose 由 `deploy.sh` 从离线包里的静态二进制安装，
+打包机一般用不上 Docker。会用到本机 Docker 的只有两处：缺镜像时 `docker pull` 后 `save` 成
+离线 tar，以及可选的 `docker compose config` 校验。只有预览结果确实需要它、且 `/api/env`
+探测到本机 Docker 不可用时，点「开始打包」才会弹引导框：
+
+- 展示只读检测结果：平台、docker 路径、版本、compose 插件、守护进程是否可达
+- 按 Windows / Linux / macOS 给可复制的安装命令和官方文档链接，当前平台默认展开
+- 重新检测 / 取消 / 跳过并继续 / 本次不再提示（会话级，取消勾选即可撤销）
+
+工具不会替你安装 Docker：不执行安装命令、不提权、不改 `daemon.json`、不重启服务。跳过也能
+继续打包，只是缺镜像自动补齐可能失败，那时改用预置物料或补料脚本（`crane` 兜底，不用 Docker）。
+不需要本机 Docker、Docker 已就绪或静态演示模式下，弹窗不会出现，连探测请求都不发。
 
 命令行方式（CI/无人值守）：
 

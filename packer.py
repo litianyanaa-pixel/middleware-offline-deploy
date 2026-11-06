@@ -21,8 +21,27 @@
 """
 import sys
 
-from packerlib import *  # noqa: F401,F403
-from packerlib.cli import main  # noqa: F401
+try:
+    from packerlib import *  # noqa: F401,F403
+    from packerlib.cli import main  # noqa: F401
+except ImportError as _exc:
+    # 导入阶段就失败时给一句能看懂的话，别甩一串裸 traceback。
+    # 这里 packerlib 还没加载完，取不了项目里的 tr()，按环境变量取半边就行。
+    import os
+    _en = (os.environ.get("DEPLOY_LANG") or os.environ.get("LANG") or "").lower().startswith("en")
+    _name = _exc.name or str(_exc)
+
+    def _say(zh, en):
+        sys.stderr.write((en if _en else zh) + "\n")
+
+    _say("打包器没起来：缺 %s。本项目只要 Python 3.9+ 标准库，完整副本还报这个错就提个 issue。" % _name,
+         "Packer failed to start: missing %s. Only Python 3.9+ stdlib is needed; "
+         "please open an issue if your checkout is complete." % _name)
+    _say("如果命令一点输出都没有就退出了，多半是 python 指向了 Microsoft Store 的别名占位符，"
+         "改用 start-packer.bat 或写解释器完整路径。",
+         "If nothing was printed at all, python is probably the Microsoft Store alias stub; "
+         "use start-packer.bat or the full interpreter path.")
+    sys.exit(1)
 
 if __name__ == "__main__":
     sys.exit(main())

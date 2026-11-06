@@ -1,9 +1,38 @@
 # -*- coding: utf-8 -*-
-"""多机部署产物: 每节点 compose 片段 / 安装脚本 / 分发脚本"""
+"""多机部署产物: 每节点 compose 片段 / 安装脚本 / 分发脚本
+
+节点安装/分发脚本的 bash 正文在 templates/nodes/*.tpl (交付物即文档, 可直接 shellcheck);
+本模块只负责计算各节点的占位值并渲染。"""
 from .catalog import PLUGINS
 from .paths import SERVER_SH, TPL_DIR, log
-from .util import (bash_quote, env_quote, has_multihost, is_multihost,
+from .util import (PackError, bash_quote, env_quote, has_multihost, is_multihost,
                    master_server_ip, tr)
+
+
+# ---------------------------------------------------------------- 节点脚本模板渲染
+
+_TPL_CACHE = {}
+
+
+def _render_tpl(fname, mapping):
+    """渲染 templates/nodes/ 下的脚本模板: @@KEY@@ 占位符替换为 mapping 值。
+
+    占位符用 @@KEY@@ 而非 ${}/{{}}: 不与 bash 变量/printf 的 %、docker inspect 的
+    Go 模板 {{...}} 冲突; 残留 @@ 未替换即抛错(模板 typo/漏传参数在打包时早暴露,
+    不让坏脚本进部署包)。"""
+    if fname not in _TPL_CACHE:
+        p = TPL_DIR / "nodes" / fname
+        if not p.is_file():
+            raise PackError("缺少节点脚本模板: %s" % p)
+        # CRLF 归一: 模板在 Windows 下被编辑器改写也不影响产物字节
+        _TPL_CACHE[fname] = p.read_text(encoding="utf-8").replace("\r\n", "\n")
+    out = _TPL_CACHE[fname]
+    for key, val in mapping.items():
+        out = out.replace("@@%s@@" % key, str(val))
+    if "@@" in out:
+        i = out.find("@@")
+        raise PackError("节点脚本模板 %s 残留未替换占位符 (附近: %s)" % (fname, out[i:i + 40]))
+    return out
 
 
 KRAFT_CLUSTER_ID = "iZWRiSqjZAlYwlKEqHFQWI"
@@ -428,301 +457,70 @@ def _node_sentinel_conf(cfg, master_ip, master_port, self_ip):
 
 
 def _java_install_sh(node):
-    """Java 运行时安装段 (Temurin JDK, 解压至 <安装目录>/jdk<N>, profile.d 生效; 幂等, 不依赖 Docker)"""
+    """Java 运行时安装段 (templates/nodes/java_segment.sh.tpl; Temurin JDK,
+    解压至 <安装目录>/jdk<N>, profile.d 生效; 幂等, 不依赖 Docker)"""
     if not node.get("java_versions"):
         return ""
-    return """# ---- Java 运行时 (Temurin JDK, 解压 %(jdir)s/jdk<N>, 写 /etc/profile.d/java.sh) ----
-JDIR=%(jdir_q)s
-JAVA_VERSIONS=(%(jvers)s)
-JAVA_DEFAULT=%(jdef)s
-if [ ${#JAVA_VERSIONS[@]} -gt 0 ]; then
-  log "安装 Java 运行时..."
-  ( cd java 2>/dev/null && sha256sum -c jdk.sha256 --quiet ) || die "Java 包 sha256 校验失败 (java/jdk.sha256)"
-  mkdir -p "$JDIR"
-  for v in "${JAVA_VERSIONS[@]}"; do
-    [ -f "./java/$v.tar.gz" ] || die "缺少 java/$v.tar.gz"
-    dest="$JDIR/$v"
-    if [ -x "$dest/bin/java" ]; then
-      log "  $v 已安装, 跳过 ($("$dest/bin/java" -version 2>&1 | head -1))"
-      continue
-    fi
-    log "  解压 $v -> $dest ..."
-    rm -rf "$dest"; mkdir -p "$dest"
-    tar -xzf "./java/$v.tar.gz" -C "$dest" --strip-components=1
-    "$dest/bin/java" -version >/dev/null 2>&1 || die "$v 解压后无法运行 (架构与节点不符?)"
-    log "  $v 就绪 ($("$dest/bin/java" -version 2>&1 | head -1))"
-  done
-  printf 'export JAVA_HOME=%%s/%%s\\nexport PATH=$JAVA_HOME/bin:$PATH\\n' "$JDIR" "$JAVA_DEFAULT" > /etc/profile.d/java.sh
-  chmod 644 /etc/profile.d/java.sh
-  export JAVA_HOME="$JDIR/$JAVA_DEFAULT"; export PATH="$JAVA_HOME/bin:$PATH"
-  log "Java 默认版本 $JAVA_DEFAULT ($(java -version 2>&1 | head -1))"
-fi
-""" % {"jdir": node.get("java_install_dir") or "/data/java",
-       "jdir_q": bash_quote(node.get("java_install_dir") or "/data/java"),
-       "jvers": " ".join(node["java_versions"]), "jdef": node.get("java_default") or ""}
+    jdir = node.get("java_install_dir") or "/data/java"
+    return _render_tpl("java_segment.sh.tpl", {
+        "JDIR": jdir, "JDIR_Q": bash_quote(jdir),
+        "JVERS": " ".join(node["java_versions"]),
+        "JDEF": node.get("java_default") or "",
+    })
 
 
 def _java_only_install_sh(node):
-    """纯 Java 节点安装脚本 (无容器服务: 不要求节点已装 Docker/compose)"""
-    return """#!/usr/bin/env bash
-# 由 packer.py 自动生成 — 节点 %(name)s 安装脚本 (Java 运行时专用, 无容器服务, 可重复执行)
-set -euo pipefail
-cd "$(dirname "$0")"
-NODE_NAME=%(name)s
-log(){ printf '[node-%%s] %%s\\n' "$NODE_NAME" "$*"; }
-die(){ printf '[node-%%s] 错误: %%s\\n' "$NODE_NAME" "$*" >&2; exit 1; }
-
-%(java_sh)s
-
-log "节点 $NODE_NAME 安装完成 (Java 运行时)"
-""" % {"name": bash_quote(node["name"]), "java_sh": _java_install_sh(node)}
+    """纯 Java 节点安装脚本 (templates/nodes/install_node_java_only.sh.tpl;
+    无容器服务: 不要求节点已装 Docker/compose)"""
+    return _render_tpl("install_node_java_only.sh.tpl", {
+        "NAME": bash_quote(node["name"]),
+        "JAVA_SH": _java_install_sh(node),
+    })
 
 
 def gen_node_install_sh(cfg, node):
-    """生成单节点安装脚本 (自包含: Java 运行时 -> 配置桥接 -> load 镜像 -> compose up -> 健康等待 -> 初始化 SQL -> 备份 crontab)"""
+    """生成单节点安装脚本 (templates/nodes/install_node.sh.tpl; 自包含: Java 运行时 ->
+    配置桥接 -> load 镜像 -> compose up -> 健康等待 -> 初始化 SQL -> 备份 crontab)"""
     if not node["compose_parts"] and node.get("java_versions"):
         return _java_only_install_sh(node)   # 纯 Java 节点: 无容器段
-    java_sh = _java_install_sh(node)
     b = node.get("backup")
-    backup_cron = b["CRON"] if b else ""
-    backup_lines = ""
+    post_sql = " ".join(bash_quote("%s|%s" % (cn, sql)) for cn, sql in node["post_sql"])
+    backup_vars = ""
     if b:
-        backup_lines = "\n".join([
+        # backup.sh 需要的变量(与包内 backup.conf 同值)注入脚本: 末尾 mkdir -p "$BACKUP_DIR"
+        # 在 set -u 下要求脚本内自带定义, 否则配置完 crontab 后以 unbound variable 中止
+        backup_vars = "\n" + "\n".join([
             "BACKUP_DIR=%s" % b["BACKUP_DIR"],
             "MYSQL_ENABLED=%s" % b["MYSQL_ENABLED"],
             "MYSQL_SERVICES=%s" % b["MYSQL_SERVICES"],
             "MYSQL_KEEP=%s" % b["MYSQL_KEEP"],
             "MYSQL_ROOT_PASSWORD=%s" % b["MYSQL_ROOT_PASSWORD"],
         ])
-    post_sql = " ".join(bash_quote("%s|%s" % (cn, sql)) for cn, sql in node["post_sql"])
-    return """#!/usr/bin/env bash
-# 由 packer.py 自动生成 — 节点 %(name)s 安装脚本 (自包含, 可重复执行)
-set -euo pipefail
-cd "$(dirname "$0")"
-NODE_NAME=%(name)s
-HEALTH_WAIT=(%(health_wait)s)
-POST_SQL=(%(post_sql)s)
-BACKUP_CRON=%(backup_cron)s
-
-log(){ printf '[node-%%s] %%s\\n' "$NODE_NAME" "$*"; }
-die(){ printf '[node-%%s] 错误: %%s\\n' "$NODE_NAME" "$*" >&2; exit 1; }
-
-%(java_sh)s
-
-command -v docker >/dev/null 2>&1 || die "本机未安装 Docker, 请先安装 Docker 再执行"
-docker compose version >/dev/null 2>&1 || docker-compose version >/dev/null 2>&1 \\
-  || die "缺少 Docker Compose, 请先安装"
-
-set -a; source ./.env; set +a
-
-# 桥接配置目录: 包内 conf/<svc>/* -> 部署目录 <svc>/* (与主部署机 deploy.sh 同规则)
-if [ -d ./conf ]; then
-  for d in ./conf/*/; do
-    [ -d "$d" ] || continue
-    name="$(basename "$d")"
-    mkdir -p "./$name"
-    cp -a "$d/." "./$name/"
-  done
-fi
-
-# 预建数据/日志目录并收紧属主 (compose 挂载点; 权限不匹配会导致容器写不进)
-for d in %(data_dirs)s; do
-  [ -z "$d" ] && continue
-  mkdir -p "./$d"
-done
-for d in %(chown_dirs)s; do
-  [ -z "$d" ] && continue
-  case "$d" in
-    *:*) dir="${d%%%%:*}"; uid="${d##*:}" ;;
-    *)   dir="$d"; uid="999" ;;
-  esac
-  [ -e "./$dir" ] && chown -R "$uid:$uid" "./$dir" 2>/dev/null \\
-    || log "  提示: chown $uid:$uid $dir 未生效(可忽略, 视节点用户而定)"
-done
-
-log "加载节点镜像..."
-for tar in images/*.tar; do
-  [ -f "$tar" ] || { log "无镜像文件"; break; }
-  docker load -i "$tar" >/dev/null && log "  $(basename "$tar") 已加载"
-done
-# 镜像源前缀重打标(离线机 compose 按原生短名取镜像, 不重打标会触发联网拉取失败)
-if [ -f images/retag-mirrors.sh ]; then
-  bash images/retag-mirrors.sh images.txt
-fi
-
-log "启动容器..."
-if docker compose version >/dev/null 2>&1; then
-  docker compose up -d
-else
-  docker-compose up -d
-fi
-
-log "等待容器健康 (最长 10 分钟)..."
-for cn in "${HEALTH_WAIT[@]}"; do
-  for i in $(seq 1 120); do
-    st="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$cn" 2>/dev/null || echo missing)"
-    case "$st" in healthy|running) break;; esac
-    [ "$i" = 120 ] && die "$cn 健康检查超时 (当前状态: $st)"
-    sleep 5
-  done
-  log "  $cn 就绪 ($st)"
-done
-
-if [ "${#POST_SQL[@]}" -gt 0 ] && [ -n "${POST_SQL[0]:-}" ]; then
-  log "执行初始化 SQL..."
-  for entry in "${POST_SQL[@]}"; do
-    cn="${entry%%|*}"; sql="${entry#*|}"
-    docker exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" "$cn" mysql -uroot -e "$sql" \\
-      || die "初始化 SQL 执行失败: ${sql:0:60}..."
-    log "  $cn SQL 完成"
-  done
-fi
-
-if [ -n "$BACKUP_CRON" ] && [ -f backup.sh ] && [ -f backup.conf ]; then
-  log "配置定时备份: $BACKUP_CRON"
-  chmod +x backup.sh && chmod 600 backup.conf
-  INST_DIR="$(pwd)"
-  CRON_LINE="$BACKUP_CRON /bin/bash $INST_DIR/backup.sh >> $INST_DIR/backup.log 2>&1"
-  (crontab -l 2>/dev/null | grep -vF "$INST_DIR/backup.sh" ; echo "$CRON_LINE") | crontab -
-  mkdir -p "$BACKUP_DIR"
-fi
-
-log "节点 $NODE_NAME 安装完成"
-docker compose ps --format 'table {{.Name}}\\t{{.Status}}' 2>/dev/null || docker ps
-""" % {
-        "name": bash_quote(node["name"]),
-        "java_sh": java_sh,
-        "health_wait": " ".join(bash_quote(n) for n in node["health_wait"]),
-        "data_dirs": " ".join(bash_quote(d) for d in node["data_dirs"]),
-        "chown_dirs": " ".join(bash_quote(d) for d in node["chown_dirs"]),
-        "post_sql": post_sql or '""',
-        "backup_cron": bash_quote(backup_cron),
-        "backup_lines": backup_lines,
-    }
+    return _render_tpl("install_node.sh.tpl", {
+        "NAME": bash_quote(node["name"]),
+        "JAVA_SH": _java_install_sh(node),
+        "HEALTH_WAIT": " ".join(bash_quote(n) for n in node["health_wait"]),
+        "DATA_DIRS": " ".join(bash_quote(d) for d in node["data_dirs"]),
+        "CHOWN_DIRS": " ".join(bash_quote(d) for d in node["chown_dirs"]),
+        "POST_SQL": post_sql or '""',
+        "BACKUP_CRON": bash_quote(b["CRON"] if b else ""),
+        "BACKUP_VARS": backup_vars,
+    })
 
 
 def gen_distribute_sh(cfg, nodes, catalog):
-    """生成主部署机分发脚本: 预检 -> (可选装 compose) -> tar 管道传输 -> 远程安装"""
+    """生成主部署机分发脚本 (templates/nodes/distribute.sh.tpl):
+    预检 -> (可选装 compose) -> tar 管道传输 -> 远程安装"""
     arch = cfg["arch"]
     pkg_sub = "x86_64" if arch == "amd64" else "aarch64"
-    nodes_str = " ".join(bash_quote("%s|%s|%s|%d|%s" % (n["name"], n["server"]["user"], n["server"]["ip"],
-                                                        n["server"]["ssh"], n["server"].get("password") or ""))
-                         for n in nodes)
-    return """#!/usr/bin/env bash
-# 由 packer.py 自动生成 — 多机节点分发安装 (在主部署机上执行)
-# 用法: ./distribute.sh            分发全部节点 (按主节点优先顺序)
-#       ./distribute.sh node2 ...  只分发指定节点 (重装/补发)
-# 认证: 服务器池填写了密码 -> sshpass 密码登录 (需本机安装 sshpass);
-#       留空 -> SSH 免密 (BatchMode, 需先 ssh-copy-id)
-set -uo pipefail
-cd "$(dirname "$0")"
-NODES=(%(nodes)s)
-DEPLOY_DIR=%(deploy_dir)s
-COMPOSE_BIN="packages/%(pkg_sub)s/docker-compose-linux-%(pkg_sub)s"
-FAILED=()
-
-# 目标 IP 是否为本机地址(本机节点免 ssh/tar 管道: 环回传输边读边写同一目录, tar 报 "file changed")
-is_local_ip() {
-  [ "$1" = "127.0.0.1" ] && return 0
-  ip -o addr show 2>/dev/null | awk '{print $4}' | grep -q "^$1/" && return 0
-  hostname -I 2>/dev/null | grep -qw "$1" && return 0
-  return 1
-}
-
-log(){ printf '\\033[32m[distribute]\\033[0m %%s\\n' "$*"; }
-warn(){ printf '\\033[33m[distribute]\\033[0m %%s\\n' "$*"; }
-
-[ ${#NODES[@]} -gt 0 ] || { echo "无多机节点, 无需分发"; exit 0; }
-
-ONLY=("$@")
-for NODE in "${NODES[@]}"; do
-  IFS='|' read -r NAME RUSER RIP RSSH RPASS <<< "$NODE"
-  if [ ${#ONLY[@]} -gt 0 ]; then
-    keep=0; for o in "${ONLY[@]}"; do [ "$o" = "$NAME" ] && keep=1; done
-    [ $keep -eq 0 ] && continue
-  fi
-  if [ -n "$RPASS" ] && command -v sshpass >/dev/null 2>&1; then
-    export SSHPASS="$RPASS"
-    SSHC=(sshpass -e ssh -p "$RSSH" -o StrictHostKeyChecking=no)
-    SCPC=(sshpass -e scp -P "$RSSH" -o StrictHostKeyChecking=no -q)
-    log "[$NAME] 使用密码登录 (sshpass)"
-  else
-    [ -n "$RPASS" ] && warn "[$NAME] 已填写密码但本机未安装 sshpass, 回退免密模式 (可 apt/yum install sshpass)"
-    SSHC=(ssh -p "$RSSH" -o BatchMode=yes)
-    SCPC=(scp -P "$RSSH" -q)
-  fi
-  log "[$NAME] 预检 $RUSER@$RIP:$RSSH ..."
-  HAS_JAVA=0; HAS_SVCS=0
-  [ -d "nodes/$NAME/java" ] && [ -n "$(ls "nodes/$NAME/java" 2>/dev/null)" ] && HAS_JAVA=1
-  [ -f "nodes/$NAME/docker-compose.yml" ] && HAS_SVCS=1
-  PRECHECK="true"; [ "$HAS_SVCS" = 1 ] && PRECHECK="command -v docker >/dev/null 2>&1"
-  if ! "${SSHC[@]}" -o ConnectTimeout=8 "$RUSER@$RIP" "$PRECHECK" 2>/dev/null; then
-    warn "[$NAME] SSH 连接失败或未安装 Docker, 已跳过 (密码模式请确认 sshpass 已安装; 免密模式请先 ssh-copy-id)"
-    FAILED+=("$NAME"); continue
-  fi
-  if [ "$HAS_SVCS" = 1 ]; then
-  if ! "${SSHC[@]}" "$RUSER@$RIP" \\
-      "docker compose version >/dev/null 2>&1 || docker-compose version >/dev/null 2>&1" 2>/dev/null; then
-    log "[$NAME] 节点缺少 compose, 从包内安装二进制..."
-    if "${SCPC[@]}" "$COMPOSE_BIN" "$RUSER@$RIP:/tmp/mw-compose" \\
-        && "${SSHC[@]}" "$RUSER@$RIP" "mkdir -p ~/.local/bin && mv /tmp/mw-compose ~/.local/bin/docker-compose && chmod +x ~/.local/bin/docker-compose"; then
-      "${SSHC[@]}" "$RUSER@$RIP" "export PATH=\\$HOME/.local/bin:\\$PATH; docker-compose version >/dev/null 2>&1" \\
-        || warn "[$NAME] compose 二进制已放置于 ~/.local/bin, 若 PATH 未包含请手动处理"
-    else
-      warn "[$NAME] compose 传输失败, 继续尝试安装"
-    fi
-  fi
-  fi
-  ND_SRC="$(pwd)/nodes/$NAME"
-  ND_DST="$DEPLOY_DIR/nodes/$NAME"
-  if is_local_ip "$RIP"; then
-    # 本机节点: 包已解压在本机, 就地安装; 源==目标时原地用, 否则拷到部署目录子节点
-    log "[$NAME] 本机节点($RIP), 就地安装 (免传输)"
-    if [ ! "$ND_SRC" -ef "$ND_DST" ]; then
-      mkdir -p "$ND_DST" && cp -a "$ND_SRC/." "$ND_DST/" || { warn "[$NAME] 节点目录准备失败"; FAILED+=("$NAME"); continue; }
-    fi
-    # Java 物料在包根 java/ (共享单份), 节点安装脚本按 ./java/ 取用
-    if [ "$HAS_JAVA" = 1 ] && [ ! -d "$ND_DST/java" ]; then
-      mkdir -p "$ND_DST" && cp -a java "$ND_DST/java" || { warn "[$NAME] Java 物料准备失败"; FAILED+=("$NAME"); continue; }
-    fi
-    if (cd "$ND_DST" && PATH="$HOME/.local/bin:$PATH" bash install-node.sh); then
-      log "[$NAME] 完成"
-    else
-      warn "[$NAME] 安装脚本执行失败, 请登录节点查看日志"
-      FAILED+=("$NAME")
-    fi
-    continue
-  fi
-  log "[$NAME] 传输节点包 -> $ND_DST ..."
-  "${SSHC[@]}" "$RUSER@$RIP" "mkdir -p '$ND_DST'" || { FAILED+=("$NAME"); continue; }
-  # 每节点独立子目录: 解到 $DEPLOY_DIR 根会覆盖主包 compose/.env
-  if ! tar czf - -C "nodes/$NAME" . | "${SSHC[@]}" "$RUSER@$RIP" "tar xzf - -C '$ND_DST'"; then
-    warn "[$NAME] 传输失败"; FAILED+=("$NAME"); continue
-  fi
-  if [ "$HAS_JAVA" = 1 ]; then
-    log "[$NAME] 传输 Java 运行时物料 ..."
-    if ! tar czf - -C java . | "${SSHC[@]}" "$RUSER@$RIP" "mkdir -p '$ND_DST/java' && tar xzf - -C '$ND_DST/java'"; then
-      warn "[$NAME] Java 物料传输失败"; FAILED+=("$NAME"); continue
-    fi
-  fi
-  log "[$NAME] 执行节点安装..."
-  if "${SSHC[@]}" "$RUSER@$RIP" "cd '$ND_DST' && PATH=\\$HOME/.local/bin:\\$PATH bash install-node.sh"; then
-    log "[$NAME] 完成"
-  else
-    warn "[$NAME] 安装脚本执行失败, 请登录节点查看日志"
-    FAILED+=("$NAME")
-  fi
-done
-
-echo ""
-if [ ${#FAILED[@]} -gt 0 ]; then
-  warn "以下节点未成功安装: ${FAILED[*]}"
-  warn "修复后可重跑: ./distribute.sh ${FAILED[*]}"
-  exit 1
-fi
-log "全部节点安装完成"
-""" % {
-        "nodes": nodes_str,
-        "deploy_dir": bash_quote(cfg["deploy_dir"]),
-        "pkg_sub": pkg_sub,
-    }
+    # 安全: SSH 密码绝不写进包(distribute.sh 会被复制到任意节点/留档)。
+    # NODES 第 5 段保留为空占位以兼容模板; 部署时在控制面用环境变量
+    # MW_SSH_PASSWORD 统一注入, 或直接使用免密(推荐)。
+    nodes_str = " ".join(bash_quote("%s|%s|%s|%d|" % (
+        n["name"], n["server"]["user"], n["server"]["ip"],
+        n["server"]["ssh"])) for n in nodes)
+    return _render_tpl("distribute.sh.tpl", {
+        "NODES": nodes_str,
+        "DEPLOY_DIR": bash_quote(cfg["deploy_dir"]),
+        "PKG_SUB": pkg_sub,
+    })

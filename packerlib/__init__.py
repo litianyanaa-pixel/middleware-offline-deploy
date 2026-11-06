@@ -18,7 +18,7 @@ from .catalog import (  # 服务目录与插件加载
     PLUGINS, PROXYSQL_META, _load_plugins, load_catalog,
 )
 from .validate import (  # 配置校验
-    _ETCD_ENV_KEYS, _ETCD_ENV_ORDER, check_warehouse, validate_config,
+    _ETCD_ENV_KEYS, _ETCD_ENV_ORDER, check_warehouse, migrate_config, validate_config,
 )
 from .nacos_sql import (  # nacos SQL 提取
     build_nacos_sql, extract_nacos_sql_from_tar,
@@ -35,6 +35,10 @@ from .cluster import (  # K8s 集群配置与物料
 )
 from .manifest import (  # manifest.sh/摘要/images.txt
     build_summary_lines, gen_images_txt, gen_manifest_sh, services_of,
+)
+from .contract import (  # 包内契约(manifest.json / manifest.sh 同源数据)
+    SCHEMA_VERSION, build_contract, canonical_config_sha, conf_policy,
+    contract_lines, gen_contract_sh, secret_fingerprints,
 )
 from .multinode import (  # 多机节点产物
     KRAFT_CLUSTER_ID, _node_backup_files, _node_kafka_block,
@@ -54,8 +58,8 @@ from .builder import (  # 打包主流程
     gen_retag_mirrors_sh, missing_materials, pack,
 )
 from .web import (  # 本地 Web 界面
-    PACK_STATE, _fsize_mb, catalog_response, list_bundles, make_handler,
-    run_web, start_pack_async,
+    PACK_STATE, _fsize_mb, catalog_response, env_probe, list_bundles,
+    make_handler, run_web, start_pack_async,
 )
 from .cli import (  # CLI 入口
     EXAMPLE_CONFIG, main,
@@ -77,7 +81,9 @@ __all__ = [
     '_PREPARE', '_auto_build_artifact', '_auto_download_cluster_materials', '_prepare_module',
     '_tar_valid', '_yq', 'cluster_materials', 'gen_cluster_config',
     'gen_cluster_inventory', 'gen_upgrade_sh', 'build_summary_lines', 'gen_images_txt',
-    'gen_manifest_sh', 'services_of', 'KRAFT_CLUSTER_ID', '_node_backup_files',
+    'gen_manifest_sh', 'services_of', 'SCHEMA_VERSION', 'build_contract',
+    'canonical_config_sha', 'conf_policy', 'contract_lines', 'gen_contract_sh',
+    'secret_fingerprints', 'migrate_config', 'KRAFT_CLUSTER_ID', '_node_backup_files',
     '_node_kafka_block', '_node_mysql_block', '_node_redis_blocks', '_node_sentinel_conf',
     'gen_distribute_sh', 'gen_node_install_sh', 'gen_nodes', 'gen_proxysql_conf',
     '_PX_PROXY_HEADERS', '_px_locations', '_px_real_ip_lines', '_px_server_block',
@@ -85,6 +91,6 @@ __all__ = [
     'BUNDLE_README', 'CLUSTER_ONLY_SH', 'MIRROR_PREFIXES', '_tar_has_mirror_prefix',
     '_tar_repo_tags', 'gen_pull_script', 'gen_retag_mirrors_sh', 'missing_materials',
     'pack', 'PACK_STATE', '_fsize_mb', 'catalog_response',
-    'list_bundles', 'make_handler', 'run_web', 'start_pack_async',
+    'list_bundles', 'make_handler', 'run_web', 'start_pack_async', 'env_probe',
     'EXAMPLE_CONFIG', 'main',
 ]

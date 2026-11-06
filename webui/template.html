@@ -30,11 +30,11 @@
     </div>
     <div class="wiz-steps" id="wizSteps">
       <span class="wiz-pill" id="wizPill"></span>
-      <button class="wtab on" data-v="1"><i>1</i>基础设施</button>
+      <button class="wtab on" data-v="1"><i>1</i>基础设施<b class="wbadge stepstat" id="stb1"></b></button>
       <button class="wtab" data-v="2"><i>2</i>选择中间件<b class="wbadge" id="badge2"></b></button>
       <button class="wtab" data-v="3"><i>3</i>端口与反代<b class="wbadge" id="badge3"></b></button>
       <button class="wtab" data-v="4"><i>4</i>账号与数据<b class="wbadge warn" id="badge4"></b></button>
-      <button class="wtab" data-v="5"><i>5</i>预览打包</button>
+      <button class="wtab" data-v="5"><i>5</i>预览打包<b class="wbadge stepstat" id="stb5"></b></button>
     </div>
     <div class="dw-wrap hidden" id="dw-wh">
       <div class="dw-mask" data-dwclose></div>
@@ -88,7 +88,7 @@
 
     <div class="content">
 
-      <div class="wstep on" data-step="1">
+      <div class="wstep on" data-step="1" tabindex="-1">
       <!-- 部署服务器池: 最底层的节点清单, 置顶 -->
       <div class="card" id="sec-pool">
         <h2><span class="num">1</span>部署服务器池 <span class="hint">所有部署的节点清单 — K8s 集群与中间件多机部署从这里选择</span></h2>
@@ -135,55 +135,63 @@
 
       </div>
 
-      <div class="wstep" data-step="2">
+      <div class="wstep" data-step="2" tabindex="-1">
       <div class="card" id="sec-svc">
         <h2><span class="num">1</span>选择中间件 <span class="hint">只打包勾选项, 也可接入 plugins/ 插件扩展</span></h2>
         <div class="body">
-          <div id="suiteBox"></div>
-          <div id="catChips"></div>
-          <div id="svcCats"></div>
+          <div id="suiteBox" aria-live="polite"></div>
+          <div id="catChips" aria-live="polite"></div>
+          <div id="svcCats" aria-live="polite"></div>
           <div id="topoBox" style="margin-top:16px"></div>
         </div>
       </div>
 
       </div>
 
-      <div class="wstep" data-step="3">
+      <div class="wstep" data-step="3" tabindex="-1">
       <div class="card" id="step3Empty"><div class="body hint">请先在「选择中间件」步骤勾选组件, 这里会出现端口与反代配置。</div></div>
       <div class="card" id="sec-port" style="display:none">
         <h2><span class="num">1</span>端口映射 <span class="hint">左侧宿主机端口, 箭头后为容器内端口; 支持追加自定义映射</span></h2>
-        <div class="body" id="portBox"></div>
+        <div class="body" id="portBox" aria-live="polite"></div>
       </div>
 
       <div class="card" id="sec-proxy" style="display:none">
         <h2><span class="num">2</span>反向代理向导 <span class="hint">域名 / 前后端转发 / 真实IP / WebSocket, 自动生成 nginx 站点配置</span></h2>
-        <div class="body" id="proxyBox"></div>
+        <div class="body" id="proxyBox" aria-live="polite"></div>
       </div>
 
       </div>
 
-      <div class="wstep" data-step="4">
+      <div class="wstep" data-step="4" tabindex="-1">
       <div class="card" id="step4Empty"><div class="body hint">当前选择不需要账号密码 / 数据库配置。</div></div>
       <div class="card" id="sec-pwd" style="display:none">
         <h2><span class="num">1</span>账号密码 <span class="hint">禁止空格与 $ ` " ' \ ; | ; 部署后存于 .env (600)</span></h2>
         <div class="body">
-          <div id="pwdBox"></div>
+          <div class="pwd-toolbar">
+            <button class="mini" id="btnGenAll" data-i18n="btnGenAll">全部随机生成</button>
+            <button class="mini" id="btnExportCreds" data-i18n="btnExportCreds">导出凭据</button>
+          </div>
+          <div class="pwd-rules" data-i18n="pwdRules">密码规则: 长度至少 6 位(建议 12 位以上并混合大小写/数字/符号); 允许字母、数字及 @ # % * + = _ . : / ~ -; 禁止空格、$、反引号、单双引号、反斜杠、分号、竖线等字符; 部署后以 600 权限存于 .env。</div>
+          <div id="pwdBox" aria-live="polite"></div>
         </div>
       </div>
 
       <div class="card" id="sec-db" style="display:none">
         <h2><span class="num">2</span>数据库来源 <span class="hint">Nacos / XXL-Job 的建库连库方式</span></h2>
-        <div class="body" id="dbBox"></div>
+        <div class="body" id="dbBox" aria-live="polite"></div>
       </div>
 
       <div class="card" id="sec-backup" style="display:none">
         <h2><span class="num">3</span>数据库备份 <span class="hint">crontab + 容器内原生工具导出, 按库分文件压缩|crontab + in-container native dump, per-DB compressed</span></h2>
-        <div class="body" id="backupBox"></div>
+        <div class="body" id="backupBox" aria-live="polite"></div>
       </div>
 
       </div>
-      <div class="wstep" data-step="5">
-      <div class="card" id="step5Empty"><div class="body hint">勾选组件后, 点击下方「生成预览」查看 docker-compose / .env / manifest 最终内容; 确认无误后「开始打包」。</div></div>
+      <div class="wstep" data-step="5" tabindex="-1">
+      <div class="card" id="step5Empty">
+        <div class="body hint" id="step5EmptyText">勾选组件后, 点击下方「生成预览」查看 docker-compose / .env / manifest 最终内容; 确认无误后「开始打包」。</div>
+        <div class="body" style="padding-top:0"><button type="button" class="mini" id="step5Fix" style="display:none"></button></div>
+      </div>
       <div class="card" id="previewCard" style="display:none">
         <div class="tabs">
           <button class="tab on" data-t="compose">docker-compose.yml</button>
@@ -194,18 +202,20 @@
           <button class="tab" data-t="clusterCfg" id="tabClusterCfg" style="display:none">集群 config</button>
           <button class="tab" data-t="materials" id="tabMaterials" style="display:none">待下载物料</button>
           <span style="flex:1"></span>
+          <button class="mini" id="btnDiff" data-i18n="btnDiff" style="align-self:center;margin-bottom:9px">与上次预览 diff</button>
           <button class="mini" id="btnCopy" style="align-self:center;margin-bottom:9px">复制当前内容</button>
         </div>
-        <pre id="previewPre"></pre>
+        <pre id="previewPre" aria-live="polite"></pre>
       </div>
 
-      <div id="msg"></div>
+      <div id="msg" aria-live="polite"></div>
+      <div id="dockerHint" class="dh-hint" aria-live="polite" hidden></div>
       </div>
 
     </div>
 
     <div class="actionbar">
-      <span class="stat" id="statLine">未选择组件</span>
+      <span class="stat" id="statLine" role="status" aria-live="polite">未选择组件</span>
       <span class="sp"></span>
       <button class="btn ghost" id="btnPrev">上一步</button>
       <button class="btn ghost" id="btnNext">下一步</button>
@@ -230,8 +240,32 @@
   </div>
 </div>
 
-<div id="toast"></div>
+<dialog id="dockerHelp" class="docker-help" aria-labelledby="dhTitle">
+  <div class="dh-head">
+    <h3 id="dhTitle">本机 Docker 未就绪</h3>
+    <button type="button" class="dh-x" id="dhClose" aria-label="关闭">✕</button>
+  </div>
+  <div class="dh-body">
+    <p id="dhWhy"></p>
+    <div class="dh-detect" id="dhDetect" aria-live="polite"></div>
+    <h4 id="dhPlatformTitle"></h4>
+    <div id="dhPlatforms"></div>
+  </div>
+  <div class="dh-foot">
+    <p class="dh-note" id="dhNote"></p>
+    <label class="dh-mute"><input type="checkbox" id="dhMute"> <span id="dhMuteLabel"></span></label>
+  </div>
+  <div class="dh-actions">
+    <button type="button" class="btn ghost" id="dhRecheck">重新检测</button>
+    <span class="sp"></span>
+    <button type="button" class="btn ghost" id="dhCancel">取消</button>
+    <button type="button" class="btn" id="dhSkip">跳过并继续</button>
+  </div>
+</dialog>
 
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script src="versions.js"></script>
 <script src="logos.js"></script>
 <script>
 //__INLINE:app.js__

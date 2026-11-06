@@ -292,7 +292,11 @@ def test_deploy_sh_plan_upgrade():
 
 def test_catalog_response_shape(catalog):
     resp = packer.catalog_response(catalog)
-    assert set(resp) >= {"services", "secrets", "defaults", "files_present", "sizes", "suites"}
+    assert set(resp) >= {"services", "secrets", "defaults", "files_present", "sizes",
+                         "suites", "cluster", "java"}
+    # java.majors 必须随响应下发(前端读 CATALOG.java.majors, 缺失会退到硬编码兜底,
+    # versions.json 增删 majors 后本地 UI 不反映) — 与静态目录 versions.json 同源
+    assert resp["java"].get("majors") == catalog["java"]["majors"]
     # 监控套件包含 alertmanager (告警链路)
     metrics = next(s for s in resp["suites"] if s["key"] == "metrics")
     assert "alertmanager" in metrics["members"]
@@ -486,14 +490,19 @@ def test_multihost_distribute_and_install_scripts(catalog):
     assert 'tar czf - -C "nodes/$NAME"' in dist
     # 免密节点走 BatchMode
     assert 'SSHC=(ssh -p "$RSSH" -o BatchMode=yes)' in dist
-    # 密码节点走 sshpass
+    # compose 检查/补装: 本机节点必须走本地分支(否则未配自免密时误报缺失且包内二进制装不上)
+    assert "本机缺少 compose" in dist
+    assert 'cp "$COMPOSE_BIN" "$HOME/.local/bin/docker-compose"' in dist
+    # 密码节点: 明文密码绝不随包分发, 改由控制面环境变量注入(sshpass 分支仍在)
     cfg2 = _mh_cfg(["redis"], {"redis": "sentinel"},
                    {"redis": {"enabled": True, "master": 0, "replicas": [1, 2]}},
                    servers=[{"ip": "10.0.0.11", "password": "S3cret~!"}, {"ip": "10.0.0.12"}, {"ip": "10.0.0.13"}])
     cfg2, _ = packer.validate_config(cfg2, catalog)
     nodes2 = packer.gen_nodes(cfg2, catalog)
     dist2 = packer.gen_distribute_sh(cfg2, nodes2, catalog)
-    assert 'SSHC=(sshpass -e ssh' in dist2 and "S3cret~!" in dist2
+    assert 'SSHC=(sshpass -e ssh' in dist2
+    assert 'RPASS="$MW_SSH_PASSWORD"' in dist2 and "MW_SSH_PASSWORD" in dist2
+    assert "S3cret~!" not in dist2, "SSH 密码不得写进离线包"
     assert 'SSHC=(ssh -p "$RSSH" -o BatchMode=yes)' in dist2  # node2/3 仍免密
     inst = packer.gen_node_install_sh(cfg, nodes[0])
     assert "docker load" in inst and "docker compose up -d" in inst
@@ -589,6 +598,18 @@ def test_multihost_dual_mysql_same_node(catalog):
         assert "mysql8" in s and "mysql57" in s
     # 主库备份: MYSQL_SERVICES 覆盖同节点两个主库容器
     assert mst["backup"] and "mysql8" in mst["backup"]["MYSQL_SERVICES"] and "mysql57" in mst["backup"]["MYSQL_SERVICES"]
+    # 备份变量必须注入脚本且先于使用(set -u 下 mkdir "$BACKUP_DIR" 要求脚本内已定义;
+    # 曾因漏注入, 主库配置完 crontab 后以 unbound variable 中止)
+    mst_sh = packer.gen_node_install_sh(cfg, mst)
+    assert "BACKUP_DIR=" in mst_sh and 'mkdir -p "$BACKUP_DIR"' in mst_sh
+    assert mst_sh.index("BACKUP_DIR=") < mst_sh.index('mkdir -p "$BACKUP_DIR"')
+    assert "BACKUP_DIR=" not in packer.gen_node_install_sh(cfg, rep)  # 从库无备份段
+    # crontab 缺失/写失败必须 warn 降级给手动行, 不允许 set -e 裸退
+    # (minimal 系统常无 cronie, 裸退发生在 MySQL 已就绪之后, 无提示难排查 — dind 实测踩坑)
+    assert "command -v crontab" in mst_sh and "本机无 crontab 命令" in mst_sh
+    assert mst_sh.index('warn(){') < mst_sh.index('log "配置定时备份')  # warn 先于使用处定义
+    # crontab 行必须带 # mw-backup 标记(deploy.sh 同规) — uninstall.sh 靠它清理, 漏标记卸载后残留
+    assert "backup.sh >> $INST_DIR/backup.log 2>&1 # mw-backup" in mst_sh
     # 从库复制 SQL 各指向本服务容器
     rep_sh = packer.gen_node_install_sh(cfg, rep)
     assert "POST_SQL=('mysql8|" in rep_sh and "' 'mysql57|" in rep_sh
@@ -898,3 +919,525 @@ def test_cluster_multi_role_and_ipvs_proxy_mode(catalog):
         assert False, "非法 proxy_mode 应被拒绝"
     except PackError:
         pass
+
+
+# ---------------------------------------------------------------- 随包脚本契约回归 (2026-11-05)
+# 通读全库后复核出的遗留问题: 既做静态断言, 也用真实 bash 跑随包脚本/部署片段,
+# 避免"只看源码字符串"的假绿灯。全部临时文件走 pytest tmp_path。
+
+def _posix(p):
+    """Windows 下把路径转成 Git Bash 认识的形式"""
+    return str(p).replace("\\", "/")
+
+
+def _bash(script, cwd, *args):
+    return subprocess.run([BASH, _posix(script)] + [str(a) for a in args],
+                          cwd=str(cwd), capture_output=True, text=True)
+
+
+def test_restore_list_from_any_cwd(tmp_path):
+    """do_list 曾用相对路径 ls/du/date, 在别的 cwd 执行 ./restore.sh list 永远空"""
+    deploy = tmp_path / "deploy"
+    deploy.mkdir()
+    (deploy / "restore.sh").write_text(
+        (ROOT / "templates" / "restore.sh").read_text(encoding="utf-8"),
+        encoding="utf-8", newline="\n")
+    bak = tmp_path / "backups"
+    (bak / "mysql8").mkdir(parents=True)
+    (bak / "mongodb").mkdir()
+    (bak / "mysql8" / "appdb_20261105_010101.sql.gz").write_bytes(b"x" * 2048)
+    (bak / "mysql8" / "pre_restore_appdb_20261105_020202.sql.gz").write_bytes(b"x" * 2048)
+    (bak / "mysql8" / "notes.txt").write_text("not a backup", encoding="utf-8")
+    (bak / "mongodb" / "appdb_20261105_030303.archive").write_bytes(b"x" * 1024)
+    (deploy / "backup.conf").write_text("BACKUP_DIR='%s'\n" % _posix(bak),
+                                        encoding="utf-8", newline="\n")
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    r = _bash(deploy / "restore.sh", elsewhere, "list")
+    assert r.returncode == 0, r.stdout + r.stderr
+    out = r.stdout
+    assert "没有找到任何备份" not in out
+    assert "appdb_20261105_010101.sql.gz" in out
+    assert "appdb_20261105_030303.archive" in out
+    assert "pre_restore_" not in out and "notes.txt" not in out
+    row = [l for l in out.splitlines() if "appdb_20261105_010101.sql.gz" in l][0]
+    # 文件名 + 大小 + 日期 + 时间, 说明 du/date 也吃到了全路径
+    assert len(row.split()) >= 4, row
+
+
+def test_restore_default_backup_dir_is_current():
+    sh = (ROOT / "templates" / "restore.sh").read_text(encoding="utf-8")
+    assert 'BACKUP_DIR_CFG="/data/backup/db"' in sh
+    assert "/data/backup/mysql" not in sh
+    # 三个引擎的"恢复前安全备份"提示都必须以文件真实存在为前提
+    assert sh.count('if [ -f "${PRE:-}" ]; then') == 3
+    assert '可用恢复前安全备份: $(basename "${PRE:-无}")' not in sh
+    # example-config.json 是 --example 生成物(.gitignore 忽略), 真正要守住的是样例模板默认值
+    cli_src = (ROOT / "packerlib" / "cli.py").read_text(encoding="utf-8")
+    assert '"dir": "/data/backup/db"' in cli_src
+    r = subprocess.run([BASH, "-n"], input=sh.encode("utf-8"), capture_output=True)
+    assert r.returncode == 0, r.stderr.decode(errors="replace")
+
+
+def test_uninstall_lock_uses_backup_conf(tmp_path):
+    """卸载曾未 source backup.conf, 锁落 $DIR/backup/.lock, 与 backup.sh 不同源"""
+    sh = (ROOT / "templates" / "uninstall.sh").read_text(encoding="utf-8")
+    assert 'source "$DIR/backup.conf"' in sh
+    assert 'exec 9>"$LOCK_DIR/.lock"' in sh
+    deploy = tmp_path / "deploy"
+    deploy.mkdir()
+    (deploy / "uninstall.sh").write_text(sh, encoding="utf-8", newline="\n")
+    (deploy / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8", newline="\n")
+    bak = tmp_path / "backups"
+    bak.mkdir()
+    (deploy / "backup.conf").write_text("BACKUP_DIR='%s'\nMYSQL_ENABLED=0\n" % _posix(bak),
+                                        encoding="utf-8", newline="\n")
+    # 用 bash 函数桩掉 docker/crontab, 完整跑一遍卸载(含 fd 9 锁), 无需真 docker
+    wrapper = deploy / "_run_uninstall.sh"
+    wrapper.write_text(
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        "docker() { return 0; }\n"
+        "crontab() { return 0; }\n"
+        "source \"%s/uninstall.sh\" --yes\n" % _posix(deploy),
+        encoding="utf-8", newline="\n")
+    r = _bash(wrapper, tmp_path)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "卸载完成" in r.stdout
+    assert (bak / ".lock").exists(), "锁应落在 backup.conf 指定的备份目录"
+    assert not (deploy / "backup" / ".lock").exists(), "不应再落到部署目录内 backup/"
+
+
+def _deploy_conf_block():
+    """从 deploy.sh 抽出 conf/ 同步代码块, 包进测试函数里真实执行"""
+    sh = (ROOT / "server" / "deploy.sh").read_text(encoding="utf-8")
+    a = sh.index('  if [ -d "$BASE_DIR/conf" ]; then')
+    b = sh.index('  # 备份恢复脚本', a)
+    return sh[a:b]
+
+
+def _conf_harness(base, deploy, with_contract=True, policies=None):
+    """模拟 deploy.sh 的 conf 同步: 注入与真实包同形的 CONF_POLICY 契约数组。
+
+    with_contract=False 模拟旧包(无契约)走文件头标记回退; policies 可覆盖
+    自动算出的策略, 用来验证「契约优先于文件头」。
+    """
+    h = base / "_conf_harness.sh"
+    pol = {}
+    conf_root = base / "conf"
+    if conf_root.is_dir():
+        for p in sorted(conf_root.rglob("*")):
+            if not p.is_file():
+                continue
+            rel = "conf/" + p.relative_to(conf_root).as_posix()
+            pol[rel] = packer.conf_policy(rel, p.read_text(encoding="utf-8"))
+    pol.update(policies or {})
+    lines = [
+        "#!/usr/bin/env bash", "set -euo pipefail",
+        'BASE_DIR="%s"' % _posix(base),
+        'DEPLOY_DIR="%s"' % _posix(deploy),
+        'warn() { echo "WARN: $*"; }',
+        "T() { printf '%s' \"$1\"; }",
+        'conf_policy_for() {',
+        '  local e p rest want="$1"',
+        '  [ -n "${CONF_POLICY+x}" ] || return 0',
+        '  for e in "${CONF_POLICY[@]}"; do',
+        '    p="${e%%|*}"; rest="${e#*|}"',
+        '    [ "$p" = "$want" ] && { printf "%s" "${rest%%|*}"; return 0; }',
+        '  done',
+        '  return 0',
+        '}',
+    ]
+    if with_contract:
+        lines.append("CONF_POLICY=(%s)" % " ".join(
+            packer.bash_quote("%s|%s|stub" % (rel, policy))
+            for rel, policy in sorted(pol.items())))
+    lines += ["sync_conf() {", _deploy_conf_block(), "}", "sync_conf"]
+    h.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+    return h
+
+
+def test_deploy_preserves_customised_conf(tmp_path):
+    """声明'只补齐不覆盖'的配置(含子目录 index.html)不得被重部署冲掉; 其余按契约更新"""
+    base, deploy = tmp_path / "bundle", tmp_path / "deploy"
+    for d in ("conf/redis", "conf/nginx", "conf/nginx/conf", "conf/nginx/html",
+              "conf/nginx/ssl/wizard"):
+        (base / d).mkdir(parents=True, exist_ok=True)
+    keep_redis = "# 由打包器生成 — 重新部署时只补齐缺失不会覆盖\n"
+    keep_html = "<!-- 由打包器生成 — 重新部署时只补齐缺失不会覆盖 -->\n"
+    cover = "# 由打包器生成 — 重新部署时会被新包覆盖\n"
+    srcs = {
+        "conf/redis/redis.conf": keep_redis + "maxmemory 256mb\n",
+        "conf/nginx/nginx.conf": cover + "worker_processes auto;\n",
+        "conf/nginx/html/index.html": keep_html + "<title>v1</title>\n",
+        "conf/nginx/conf/default.conf": cover + "server { listen 80; }\n",
+        "conf/nginx/ssl/wizard/fullchain.pem": "CERT-v1\n",
+    }
+
+    def dep(rel):
+        return deploy / rel.split("/", 1)[1]
+
+    for rel, text in srcs.items():
+        (base / rel).write_text(text, encoding="utf-8", newline="\n")
+    h = _conf_harness(base, deploy)
+    r1 = _bash(h, base)
+    assert r1.returncode == 0, r1.stdout + r1.stderr
+    for rel, text in srcs.items():
+        assert dep(rel).read_text(encoding="utf-8") == text
+
+    # 用户手工改了 redis.conf / index.html / default.conf / 证书; 同时新包默认内容也变了
+    dep("conf/redis/redis.conf").write_text(srcs["conf/redis/redis.conf"] + "maxmemory 1gb\n",
+                                           encoding="utf-8", newline="\n")
+    dep("conf/nginx/html/index.html").write_text(srcs["conf/nginx/html/index.html"] + "<!-- customized -->\n",
+                                                 encoding="utf-8", newline="\n")
+    dep("conf/nginx/conf/default.conf").write_text(srcs["conf/nginx/conf/default.conf"] + "# custom rule\n",
+                                                   encoding="utf-8", newline="\n")
+    dep("conf/nginx/nginx.conf").write_text(srcs["conf/nginx/nginx.conf"] + "# my own rule\n",
+                                            encoding="utf-8", newline="\n")
+    dep("conf/nginx/ssl/wizard/fullchain.pem").write_text("CERT-OLD\n", encoding="utf-8", newline="\n")
+    (base / "conf/redis/redis.conf").write_text(keep_redis + "maxmemory 512mb\n",
+                                                encoding="utf-8", newline="\n")
+    (base / "conf/nginx/html/index.html").write_text(keep_html + "<title>v2</title>\n",
+                                                     encoding="utf-8", newline="\n")
+    (base / "conf/nginx/nginx.conf").write_text(cover + "worker_processes 4;\n",
+                                                encoding="utf-8", newline="\n")
+    (base / "conf/nginx/conf/default.conf").write_text(cover + "# new default\n",
+                                                       encoding="utf-8", newline="\n")
+    (base / "conf/nginx/ssl/wizard/fullchain.pem").write_text("CERT-v2\n", encoding="utf-8", newline="\n")
+
+    r2 = _bash(h, base)
+    assert r2.returncode == 0, r2.stdout + r2.stderr
+    assert "maxmemory 1gb" in dep("conf/redis/redis.conf").read_text(encoding="utf-8")
+    assert "maxmemory 512mb" not in dep("conf/redis/redis.conf").read_text(encoding="utf-8")
+    assert "<!-- customized -->" in dep("conf/nginx/html/index.html").read_text(encoding="utf-8")
+    assert "<title>v2</title>" not in dep("conf/nginx/html/index.html").read_text(encoding="utf-8")
+    assert Path(str(dep("conf/redis/redis.conf")) + ".packer-new").exists()
+    assert Path(str(dep("conf/nginx/html/index.html")) + ".packer-new").exists()
+    # 声明可覆盖的顶层/子目录配置、以及无标记的证书物料仍随新包更新
+    assert "# my own rule" not in dep("conf/nginx/nginx.conf").read_text(encoding="utf-8")
+    assert "worker_processes 4;" in dep("conf/nginx/nginx.conf").read_text(encoding="utf-8")
+    assert "# custom rule" not in dep("conf/nginx/conf/default.conf").read_text(encoding="utf-8")
+    assert "# new default" in dep("conf/nginx/conf/default.conf").read_text(encoding="utf-8")
+    assert dep("conf/nginx/ssl/wizard/fullchain.pem").read_text(encoding="utf-8") == "CERT-v2\n"
+    assert "保留现有配置" in r2.stdout
+
+
+def test_deploy_conf_contract_overrides_file_header(tmp_path):
+    """契约是唯一数据源: 策略与文件头声明矛盾时以 CONF_POLICY 为准; 老包(无契约)回退文件头"""
+    base, deploy = tmp_path / "bundle", tmp_path / "deploy"
+    for d in ("conf/redis", "conf/nginx/conf"):
+        (base / d).mkdir(parents=True)
+    cover = "# 由打包器生成 — 重新部署时会被新包覆盖\n"
+    keep = "# 由打包器生成 — 重新部署时只补齐缺失不会覆盖\n"
+    (base / "conf/redis/redis.conf").write_text(cover + "V1\n", encoding="utf-8", newline="\n")
+    (base / "conf/nginx/conf/default.conf").write_text(keep + "V1\n", encoding="utf-8", newline="\n")
+
+    # 故意把策略设成与文件头相反: redis 强制 preserve, default.conf 强制 material
+    h = _conf_harness(base, deploy, policies={
+        "conf/redis/redis.conf": "preserve",
+        "conf/nginx/conf/default.conf": "material"})
+    assert _bash(h, base).returncode == 0
+    (deploy / "redis/redis.conf").write_text(cover + "USER\n", encoding="utf-8", newline="\n")
+    (deploy / "nginx/conf/default.conf").write_text(keep + "USER\n", encoding="utf-8", newline="\n")
+    (base / "conf/redis/redis.conf").write_text(cover + "NEW\n", encoding="utf-8", newline="\n")
+    (base / "conf/nginx/conf/default.conf").write_text(keep + "NEW\n", encoding="utf-8", newline="\n")
+    r = _bash(h, base)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "USER" in (deploy / "redis/redis.conf").read_text(encoding="utf-8"), "契约 preserve 优先于文件头"
+    assert "NEW" in (deploy / "nginx/conf/default.conf").read_text(encoding="utf-8"), "契约 material 优先于文件头"
+    assert "保留现有配置" in r.stdout
+    assert (deploy / "redis/redis.conf.packer-new").exists()
+
+    # 老包无契约: 回退到文件头语义(redis 可覆盖 / default.conf 只补齐)
+    legacy = tmp_path / "deploy_legacy"
+    h2 = _conf_harness(base, legacy, with_contract=False)
+    assert _bash(h2, base).returncode == 0
+    (legacy / "redis/redis.conf").write_text(cover + "USER\n", encoding="utf-8", newline="\n")
+    (legacy / "nginx/conf/default.conf").write_text(keep + "USER\n", encoding="utf-8", newline="\n")
+    assert _bash(h2, base).returncode == 0
+    assert "NEW" in (legacy / "redis/redis.conf").read_text(encoding="utf-8")
+    assert "USER" in (legacy / "nginx/conf/default.conf").read_text(encoding="utf-8")
+
+
+def test_deploy_sh_replaces_node_ip_placeholder():
+    sh = (ROOT / "server" / "deploy.sh").read_text(encoding="utf-8")
+    assert '${s//__NODE_IP__/$ip}' in sh
+    assert '${line//__NODE_IP__/$ip}' in sh
+    r = subprocess.run([BASH, "-n"], input=sh.encode("utf-8"), capture_output=True)
+    assert r.returncode == 0, r.stderr.decode(errors="replace")
+
+
+def test_kafka_multihost_summary_has_real_sasl_endpoints(catalog):
+    """多机 Kafka 摘要曾留下未替换的 __NODE_IP__ 字面量"""
+    cfg = make_cfg(None, services=("kafka",),
+                   ports={"kafka_mh_inter": 9092, "kafka_mh_sasl": 9094},
+                   servers=[{"name": "node%d" % i, "ip": "10.0.0.1%d" % i} for i in (1, 2, 3)],
+                   multihost={"kafka": {"enabled": True, "count": 3, "brokers": [0, 1, 2]}},
+                   topology={"kafka": "cluster"})
+    lines = packer.build_summary_lines(cfg, catalog)
+    assert lines
+    assert all("__NODE_IP__" not in l for l in lines)
+    assert any("10.0.0.11:9094" in l and "10.0.0.13:9094" in l for l in lines)
+    # 多机 master 兜底路径也不许再吐占位符
+    cfg2 = make_cfg(None, services=("mysql8",),
+                    ports={"mysql8": 13307, "mysql8_replica": 13308},
+                    servers=[], multihost={"mysql8": {"enabled": True, "master": None, "replicas": []}},
+                    topology={"mysql8": "master-slave"})
+    lines2 = packer.build_summary_lines(cfg2, catalog)
+    assert all("__NODE_IP__" not in l for l in lines2)
+    assert any("__IP__" in l for l in lines2)
+
+
+def test_multihost_kafka_manifest_has_no_node_ip_placeholder(catalog):
+    """manifest.sh 是随包产物: SUMMARY_LINES 里不许出现 deploy.sh 不认识的占位符"""
+    cfg = _mh_cfg(["kafka", "kafka-ui"], {"kafka": "cluster"},
+                  {"kafka": {"enabled": True, "count": 3, "brokers": [0, 1, 2]}})
+    cfg, _ = packer.validate_config(cfg, catalog)
+    mf = packer.gen_manifest_sh(cfg, catalog, "", packer.build_summary_lines(cfg, catalog))
+    assert "SUMMARY_LINES=(" in mf
+    assert "__NODE_IP__" not in mf
+    assert "10.0.0.11:9094" in mf and "10.0.0.13:9094" in mf
+
+
+def _contract_harness(base, deploy, lines, body):
+    """从 deploy.sh 抽出契约消费函数, 用桩变量在真实 bash 里跑(服务器无 python/jq)"""
+    sh = (ROOT / "server" / "deploy.sh").read_text(encoding="utf-8")
+    a = sh.index("#------------------------------- 包内契约消费")
+    b = sh.index("#------------------------------- 工具函数", a)
+    block = sh[a:b]
+    h = base / "_contract_harness.sh"
+    head = [
+        "#!/usr/bin/env bash", "set -euo pipefail",
+        'BASE_DIR="%s"' % _posix(base),
+        'DEPLOY_DIR="%s"' % _posix(deploy),
+        'TMP="%s"' % _posix(base),
+        'log() { echo "LOG: $*"; }',
+        'warn() { echo "WARN: $*"; }',
+        'hr() { :; }',
+        'T() { printf "%s" "$1"; }',
+        'PROJECT="contractqa"; BUNDLE_NAME="demo.tar.gz"; HEALTH_BAD=0',
+        'HEALTH_LINES=("OK|mysql8 healthy" "OK|nginx HTTP 200")',
+        'CONTRACT_SCHEMA_VERSION=1; CONTRACT_CONFIG_SHA256="abc123"; CONF_POLICY=()',
+        "CONTRACT_LINES=(%s)" % " ".join(packer.bash_quote(x) for x in lines),
+        block, body,
+    ]
+    h.write_text("\n".join(head) + "\n", encoding="utf-8", newline="\n")
+    return h
+
+
+def test_deploy_contract_diff_and_json_report(tmp_path):
+    """契约 diff / 基线 / 机器可读报告 / dry-run 不落盘, 全部在真 bash 里跑"""
+    base, deploy = tmp_path / "bundle", tmp_path / "deploy"
+    base.mkdir(); deploy.mkdir()
+    v1 = ["schema_version=1", "project=contractqa", "services=nginx,redis",
+          "port.nginx_http=8080", "secret.A=aaaa", "conf.conf/nginx/nginx.conf=overwrite:xx"]
+    v2 = ["schema_version=1", "project=contractqa", "services=nginx,redis,mysql8",
+          "port.nginx_http=8080", "port.mysql8=13307", "secret.A=bbbb",
+          "conf.conf/nginx/nginx.conf=overwrite:xx"]
+
+    h1 = _contract_harness(base, deploy, v1, '\n'.join([
+        "contract_diff", 'echo "FIRST_COUNT=${#CONTRACT_DIFF_LINES[@]}"',
+        "contract_save_baseline", 'echo "BASELINE_LINES=$(wc -l < "$DEPLOY_DIR/.contract-lines.txt")"',
+    ]))
+    r1 = _bash(h1, base)
+    assert r1.returncode == 0, r1.stdout + r1.stderr
+    assert "FIRST_COUNT=0" in r1.stdout and "首次部署" in r1.stdout
+    assert "BASELINE_LINES=6" in r1.stdout
+    assert (deploy / ".contract-lines.txt").exists()
+
+    h2 = _contract_harness(base, deploy, v2, '\n'.join([
+        "contract_diff", 'echo "SECOND_COUNT=${#CONTRACT_DIFF_LINES[@]}"',
+        'for x in "${CONTRACT_DIFF_LINES[@]}"; do echo "DIFF:$x"; done',
+        'write_report_json "10.0.0.1"',
+    ]))
+    r2 = _bash(h2, base)
+    assert r2.returncode == 0, r2.stdout + r2.stderr
+    assert "SECOND_COUNT=" in r2.stdout and "SECOND_COUNT=0" not in r2.stdout
+    assert "DIFF:+ port.mysql8=13307" in r2.stdout
+    assert "DIFF:- secret.A=aaaa" in r2.stdout and "DIFF:+ secret.A=bbbb" in r2.stdout
+    report = json.loads((deploy / "部署报告.json").read_text(encoding="utf-8"))
+    assert report["schema_version"] == 1 and report["health_ok"] is True
+    assert report["services"] == ["nginx", "redis", "mysql8"]
+    assert report["config_sha256"] == "abc123" and report["ip"] == "10.0.0.1"
+    assert any("port.mysql8" in x for x in report["changes"])
+    assert "Change_Me" not in (deploy / "部署报告.json").read_text(encoding="utf-8")
+
+    # dry-run 不得写基线
+    deploy3 = tmp_path / "deploy_dry"
+    deploy3.mkdir()
+    h3 = _contract_harness(base, deploy3, v1, '\n'.join([
+        "DRY_RUN=1", "contract_diff", "contract_save_baseline",
+        '[ -f "$DEPLOY_DIR/.contract-lines.txt" ] && echo BASELINE_EXISTS || echo NO_BASELINE',
+    ]))
+    r3 = _bash(h3, base)
+    assert r3.returncode == 0, r3.stdout + r3.stderr
+    assert "NO_BASELINE" in r3.stdout
+
+
+def _main_harness(base, args):
+    """抽出 deploy.sh 的 main(), 把每一步换成桩, 验证 --dry-run 不触碰部署动作"""
+    sh = (ROOT / "server" / "deploy.sh").read_text(encoding="utf-8")
+    a = sh.index("main() {")
+    b = sh.index('main "$@"', a)
+    block = sh[a:b]
+    fns = ("verify_bundle_integrity install_java deploy_cluster install_docker install_compose "
+           "load_images check_ports apply_sysctl prepare_deploy_dir install_backup "
+           "import_sql_external startup import_sql_local setup_kafka_auth setup_kibana_user "
+           "setup_mysql_replication health_check summary contract_save_baseline preflight contract_diff")
+    lines = ["#!/usr/bin/env bash", "set -euo pipefail",
+             "DRY_RUN=0",   # 真实脚本由契约消费段初始化
+             'T() { printf "%s" "$1"; }', 'hr() { :; }',
+             'log() { echo "LOG:$*"; }', 'die() { echo "DIE:$*" >&2; exit 1; }']
+    lines += ['%s(){ echo "STEP:%s"; }' % (f, f) for f in fns.split()]
+    lines += [block, "main %s" % " ".join(args)]
+    h = base / "_main_harness.sh"
+    h.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+    return h
+
+
+def test_deploy_dry_run_skips_all_deploy_steps(tmp_path):
+    base = tmp_path / "bundle"
+    base.mkdir()
+    dry = _bash(_main_harness(base, ["--dry-run"]), base)
+    assert dry.returncode == 0, dry.stdout + dry.stderr
+    for fn in ("verify_bundle_integrity", "preflight", "contract_diff", "check_ports"):
+        assert "STEP:" + fn in dry.stdout
+    for fn in ("install_docker", "startup", "summary", "contract_save_baseline", "prepare_deploy_dir"):
+        assert "STEP:" + fn not in dry.stdout, "dry-run 不应执行 " + fn
+    assert "dry-run 完成" in dry.stdout
+
+    full = _bash(_main_harness(base, []), base)
+    assert full.returncode == 0, full.stdout + full.stderr
+    for fn in ("install_docker", "prepare_deploy_dir", "startup", "summary", "contract_save_baseline"):
+        assert "STEP:" + fn in full.stdout
+
+
+def test_plugin_docs_declare_conf_files_and_bash_quote():
+    readme = (ROOT / "plugins" / "README.md").read_text(encoding="utf-8")
+    tpl = (ROOT / "plugins" / "_template.py").read_text(encoding="utf-8")
+    for text in (readme, tpl):
+        assert "conf_files" in text
+        assert "bash_quote" in text
+    assert "只补齐" in tpl
+    assert "packer-new" in readme
+
+
+# ---------------------------------------------------------------- 零第三方依赖(python packer.py 必须能起)
+
+def test_packer_imports_without_pyyaml():
+    """整个导入链不得硬依赖 PyYAML, 否则未装依赖的解释器会在启动时闪退"""
+    import re
+    code = ("import sys; sys.modules['yaml'] = None; "
+            "sys.path.insert(0, %r); import packer; print('IMPORT_OK')" % str(ROOT))
+    r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+    assert r.returncode == 0 and "IMPORT_OK" in r.stdout, r.stdout + r.stderr
+    for mod in ("validate.py", "compose.py", "cluster.py"):
+        src = (ROOT / "packerlib" / mod).read_text(encoding="utf-8")
+        assert not re.search(r"^import yaml\b", src, re.M), "%s 不得直接 import yaml" % mod
+    assert (ROOT / "start-packer.bat").is_file(), "Windows 启动脚本缺失"
+
+
+def test_env_probe_is_readonly(monkeypatch):
+    """/api/env 只做只读探测: 不安装、不启动、不拉取、不写配置"""
+    import packerlib.web as web
+    calls = []
+    monkeypatch.setattr(web.shutil, "which",
+                        lambda name: r"C:\bin\docker.exe" if name == "docker" else None)
+
+    def fake_run(cmd, **kw):
+        calls.append(list(cmd))
+        assert kw.get("timeout"), "每个 docker 探测都必须带超时"
+        if "--version" in cmd:
+            out = "Docker version 27.3.1, build abc"
+        elif "compose" in cmd:
+            out = "Docker Compose version v2.27.1"
+        else:
+            out = "27.3.1"
+        return subprocess.CompletedProcess(cmd, 0, out, "")
+
+    monkeypatch.setattr(web.subprocess, "run", fake_run)
+    info = web.env_probe()
+    assert "platform" in info and info["platform"]
+    dc = info["docker"]
+    assert dc["found"] and dc["version"].startswith("Docker version")
+    assert dc["compose"] is True and dc["daemon"] is True
+    assert len(calls) == 3, "只应执行 --version / compose version / info"
+    forbidden = ("pull", "save", "load", "install", "start", "restart", "rm", "run", "systemd")
+    for cmd in calls:
+        assert not any(tok in cmd for tok in forbidden), "探测命令必须是只读的: %s" % cmd
+
+    # 找不到 docker 时不应执行任何子进程
+    calls.clear()
+    monkeypatch.setattr(web.shutil, "which", lambda name: None)
+    info2 = web.env_probe()
+    assert info2["docker"]["found"] is False and info2["docker"]["daemon"] is False
+    assert not calls
+
+
+def test_yamlcompat_fallback_validates_cni_values(monkeypatch, catalog):
+    """无 PyYAML 时内置解析器仍需接受合法 Helm values、拒绝破损 YAML"""
+    import packerlib.yamlcompat as yc
+    from packerlib.util import PackError
+
+    monkeypatch.setattr(yc, "_pyyaml", None)
+    assert yc.has_pyyaml() is False
+    legal = "installation:\n  calicoNetwork:\n    ipipMode: Always\n"
+    assert isinstance(yc.safe_load(legal), dict)
+    for bad in ("{{{{", ":\n  - [unclosed\n", 'a: "oops', "- a\n- b\n"):
+        try:
+            yc.safe_load(bad)
+            assert False, "内置解析器应拒绝: %r" % bad
+        except yc.YamlError:
+            pass
+
+    def cfg_with(values):
+        return make_cfg(None, services=("nginx",),
+                        servers=[{"name": "n1", "user": "root", "ip": "10.0.0.1", "ssh": 22, "password": "p"}],
+                        cluster={"enabled": True, "kube_version": "v1.30.14", "cni_type": "calico",
+                                 "roles": {"0": "control-plane"}, "calico_values": values})
+
+    ok, _ = packer.validate_config(cfg_with(legal), catalog)
+    assert "ipipMode: Always" in ok["cluster"]["calico_values"]
+    for bad in ("{{{{", ":\n  - [unclosed\n"):
+        try:
+            packer.validate_config(cfg_with(bad), catalog)
+            assert False, "降级解析器下非法 YAML 仍应抛 PackError"
+        except PackError:
+            pass
+
+
+def test_port_error_message_no_duplicate_label(catalog):
+    """端口报错不得把「端口」与 label 自带的「端口」重复拼成「端口 HTTP 端口」"""
+    cfg = make_cfg(None, services=("nginx",), ports={"nginx_http": 0})
+    with pytest.raises(packer.PackError) as ei:
+        packer.validate_config(cfg, catalog)
+    msg = str(ei.value)
+    assert "|" in msg, "报错文案须为整行双语"
+    zh, en = msg.split("|", 1)
+    assert "超出允许端口范围 1-65535" in zh
+    assert "端口 HTTP 端口" not in zh, "中文半边不应重复「端口」: %s" % zh
+    assert "outside the allowed port range 1-65535" in en
+    assert "Port HTTP port" not in en, "英文半边不应重复 port: %s" % en
+
+    cfg2 = make_cfg(None, services=("nginx",), ports={"nginx_http": "abc"})
+    with pytest.raises(packer.PackError) as ei2:
+        packer.validate_config(cfg2, catalog)
+    zh2, en2 = str(ei2.value).split("|", 1)
+    assert "不是合法端口" in zh2 and "端口 HTTP 端口" not in zh2
+    assert "is not a valid port" in en2
+
+
+def test_blank_custom_port_rows_are_ignored(catalog):
+    """UI「+ 添加自定义端口」的空白占位行不得阻断预览; 半填仍要给出可读提示"""
+    ok, _ = packer.validate_config(
+        make_cfg(None, services=("nginx",),
+                 extra_ports={"nginx": [{"host": "", "container": ""}]}), catalog)
+    assert ok["extra_ports"].get("nginx", []) == [], "空白占位行应被忽略"
+    with pytest.raises(packer.PackError) as ei:
+        packer.validate_config(
+            make_cfg(None, services=("nginx",),
+                     extra_ports={"nginx": [{"host": "18090", "container": ""}]}), catalog)
+    zh, en = str(ei.value).split("|", 1)
+    assert "须填数字" in zh and "宿主机 → 容器" in zh
+    assert "{" not in zh, "错误信息不应直接打印 dict 字面量: %s" % zh
+    assert "must be numbers" in en
